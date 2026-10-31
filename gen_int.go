@@ -180,16 +180,40 @@ func Float32Range(lo, hi float32) Gen[float32] {
 	}}
 }
 
-// drawFloat prefers integral values, which are exactly representable and
-// easy to read, and otherwise picks a fraction of the range.
+// drawFloat draws a finite float in [lo, hi] in one of three forms, in
+// order of simplicity: an integral value, an integer part plus a binary
+// fraction with as few bits as the shrinker can get away with, or a value
+// assembled from a sign, an exponent and a mantissa, which reaches every
+// magnitude including the extremes. Ranges without an integral value use
+// the second form for the first as well.
 func drawFloat(t *T, lo, hi float64) float64 {
 	const limit = 1 << 53
 	ilo, ihi := math.Ceil(lo), math.Floor(hi)
-	if ilo <= ihi && t.draw(1, flagMeta, modeBiased) == 0 {
+	form := t.draw(2, flagMeta, modeBiased)
+	if form == 0 && ilo > ihi {
+		form = 1
+	}
+	switch form {
+	case 0:
 		a, b := int64(max(ilo, -limit)), int64(min(ihi, limit))
 		c := min(max(a, 0), b)
 		return float64(zigzagDecode(t.draw(uint64(b)-uint64(a), zigzagMeta(c, a, b), modeBiased), c, a, b))
+	case 1:
+		a, b := int64(max(math.Floor(lo), -limit)), int64(min(math.Ceil(hi), limit))
+		c := min(max(a, 0), b)
+		ipart := float64(zigzagDecode(t.draw(uint64(b)-uint64(a), zigzagMeta(c, a, b), modeBiased), c, a, b))
+		bits := 1 + t.draw(51, plainMeta, modeBiased)
+		mant := t.draw(uint64(1)<<bits-1, plainMeta, modeBiased)
+		frac := float64(mant) / float64(uint64(1)<<bits)
+		if ipart < 0 || (ipart == 0 && lo < 0 && hi <= 0) {
+			return min(max(ipart-frac, lo), hi)
+		}
+		return min(max(ipart+frac, lo), hi)
+	default:
+		sign := t.draw(1, plainMeta, modeBiased)
+		exp := t.draw(2046, plainMeta, modeBiased)
+		mant := t.draw(1<<52-1, plainMeta, modeBiased)
+		v := math.Float64frombits(sign<<63 | exp<<52 | mant)
+		return min(max(v, lo), hi)
 	}
-	f := float64(t.draw(limit-1, plainMeta, modeBiased)) / limit
-	return min(max(lo*(1-f)+hi*f, lo), hi)
 }

@@ -6,12 +6,14 @@ package pbt
 import (
 	"math"
 	"slices"
+	"strings"
 	"time"
 )
 
 const (
 	maxShrinkSteps     = 200_000
 	redistributeWindow = 16
+	maxDeleteRun       = 8
 )
 
 // shrinker minimizes a failing choice sequence. Every pass proposes
@@ -53,12 +55,24 @@ func (s *shrinker) try(cand []uint64) bool {
 	t := s.r.run(cand, s.cur.size, nil)
 	if s.r.want(t) && !t.discarded && simpler(t.choices, s.cur.choices) {
 		s.cur = t
+		if s.r.cfg.verbose {
+			s.r.tb.Logf("[pbt] shrink step %d: %d choices\n[pbt]   %s", s.steps, len(t.choices), strings.ReplaceAll(drawsLine(t), "\n", "\n[pbt]   "))
+		}
 		if s.onAccept != nil && !s.onAccept() {
 			s.stop = true
 		}
 		return true
 	}
 	return false
+}
+
+// drawsLine formats the draws of a case on as few lines as possible.
+func drawsLine(t *T) string {
+	parts := make([]string, len(t.draws))
+	for i, d := range t.draws {
+		parts[i] = formatDraw(d)
+	}
+	return strings.Join(parts, "; ")
 }
 
 // masks computes which choices and spans NoShrink protects in the current
@@ -118,6 +132,7 @@ func simpler(a, b []uint64) bool {
 func (s *shrinker) run() {
 	passes := []func() bool{
 		s.deleteSpans,
+		s.deleteSpanRuns,
 		s.zeroSpans,
 		s.replaceWithDescendant,
 		s.sortSpans,
@@ -184,6 +199,52 @@ func (s *shrinker) deleteSpans() bool {
 			idx = s.spansByStartDesc()
 			k = s.firstStartBelow(idx, sp.start) - 1
 		}
+	}
+	return progress
+}
+
+// deleteSpanRuns removes runs of two to maxDeleteRun adjacent sibling spans
+// with the same label, which is what a constraint on the length modulo
+// some number needs; single deletions cannot cross it.
+func (s *shrinker) deleteSpanRuns() bool {
+	progress := false
+restart:
+	for !s.exhausted() {
+		spans := s.cur.spans
+		children := make(map[int][]int)
+		for i, sp := range spans {
+			if sp.end > sp.start && !s.insideNoShrink(i) {
+				children[sp.parent] = append(children[sp.parent], i)
+			}
+		}
+		for parent := -1; parent < len(spans); parent++ {
+			sib := children[parent]
+			for run := 2; run <= maxDeleteRun && run <= len(sib); run++ {
+				for start := 0; start+run <= len(sib); start++ {
+					first, last := spans[sib[start]], spans[sib[start+run-1]]
+					contiguous := true
+					for k := start; k < start+run-1; k++ {
+						a, b := spans[sib[k]], spans[sib[k+1]]
+						if a.label != b.label || a.end != b.start {
+							contiguous = false
+							break
+						}
+					}
+					if !contiguous || last.end > len(s.cur.choices) {
+						continue
+					}
+					cur := s.cur.choices
+					if s.try(slices.Concat(cur[:first.start], cur[last.end:])) {
+						progress = true
+						continue restart
+					}
+					if s.exhausted() {
+						return progress
+					}
+				}
+			}
+		}
+		return progress
 	}
 	return progress
 }
