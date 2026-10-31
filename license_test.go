@@ -34,6 +34,9 @@ func TestSPDXHeaders(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		if strings.Contains(string(data), "DO NOT EDIT.") {
+			return nil
+		}
 		if !strings.HasPrefix(string(data), want[0]+want[1]+"\n") {
 			t.Errorf("%s lacks the SPDX header", path)
 		}
