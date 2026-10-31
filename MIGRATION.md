@@ -44,7 +44,7 @@ Options exist per call too: `pbt.Checks`, `pbt.Seed`, `pbt.Sizes`,
 | `rapid.OneOf(gs...)` | `pbt.OneOf(gs...)`; `pbt.Frequency` adds weights |
 | `rapid.Custom(func(t) V)` | `pbt.Custom("name", func(t) V)`; the name appears in reports |
 | `rapid.Map(g, f)` | `pbt.Map(g, f)`; `pbt.Bind(g, f)` when f returns a generator |
-| `rapid.Deferred(func() *Generator)` | `pbt.Lazy(func() pbt.Gen[V])`; `pbt.Recursive` bounds recursive types |
+| `rapid.Deferred(func() *Generator)` | `pbt.Lazy(func() pbt.Gen[V])`; `pbt.Recursive` and `pbt.Bounded` bound recursive types |
 | `rapid.Ptr(elem, allowNil)` | `pbt.Ptr(elem, allowNil)` |
 | `rapid.Make[V]()`, `rapid.MakeCustom[V](cfg)` | `pbt.Make[V](opts...)` with `pbt` struct tags, `pbt.WithType`, `pbt.WithField`; `cmd/pbtgen` writes the same as source |
 

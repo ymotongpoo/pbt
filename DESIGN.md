@@ -214,6 +214,7 @@ func Func[A comparable, B any](ret Gen[B]) Gen[*Fn[A, B]] // function/2; call th
 func Func2[A, B comparable, C any](ret Gen[C]) Gen[*Fn2[A, B, C]]
 func Make[V any](opts ...MakeOption) Gen[V]              // derived from the type by reflection; pbt struct tags, WithType, WithField
 func Recursive[V any](leaf Gen[V], extend func(self Gen[V]) Gen[V]) Gen[V] // bounded recursion
+func Bounded[V any](leaf, node Gen[V]) Gen[V]            // one recursion budget per value, shared across types
 func NoPanic(f any, opts ...MakeOption) Property           // check_spec, limited to the signature
 // cmd/pbtgen: go run go.ymotongpoo.com/pbt/cmd/pbtgen -type T1,T2 writes GenT1, GenT2 as source
 
@@ -354,9 +355,12 @@ overrides, the code generator `cmd/pbtgen` built on `go/types`, which writes
 the same generators as source and can fill unexported fields, `Recursive`
 for bounded recursion, and `NoPanic` as the signature-only form of
 `check_spec`. The shrink quality checks of rapid are mirrored in
-`parity_test.go`, and MIGRATION.md maps rapid's API onto pbt. Still open in
-Phase 6: visualization beyond the verbose shrink log and a performance
-comparison with rapid.
+`parity_test.go`, MIGRATION.md maps rapid's API onto pbt, and the `bench/`
+module compares the two with the results in BENCHMARK.md. The Chapter 10
+port runs on PostgreSQL as well when `PBT_BOOKSTORE_DSN` is set; that run
+found two differences from SQLite, the backslash as the default `LIKE`
+escape and the enforced column width, both recorded in the chapter's
+README. Visualization stays at the verbose shrink log.
 
 ## What Go offers
 
@@ -422,8 +426,8 @@ Some Erlang-specific constructs take a different form in Go.
 
 The bookstore of Chapter 10 runs on the pure-Go SQLite implementation
 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite), so that
-`go test` alone is enough; a PostgreSQL variant behind an environment
-variable is possible later. Of the bugs the book finds, the `LIKE`
+`go test` alone is enough, and on PostgreSQL through the pgx driver when
+`PBT_BOOKSTORE_DSN` names a database. Of the bugs the book finds, the `LIKE`
 wildcards (`%` and `_`) and the cap on `available` reproduce on SQLite. The
 handling of NUL bytes is driver-specific and does not. The README of the
 chapter states what reproduces. The circuit breaker of Chapter 11 is a small
