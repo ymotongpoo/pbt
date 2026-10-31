@@ -42,9 +42,22 @@ type Machine[N comparable, D, Sys any] interface {
 // which transitions ran, as zip(state_names(H), command_names(Cmds)) does in
 // the PropEr Testing book.
 func Commands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pbt.Program[State[N, D], Sys]] {
+	return pbt.Commands(initial(m), commandGen(m))
+}
+
+// ParallelCommands generates parallel programs that follow the machine; see
+// pbt.ParallelCommands.
+func ParallelCommands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pbt.ParallelProgram[State[N, D], Sys]] {
+	return pbt.ParallelCommands(initial(m), commandGen(m))
+}
+
+func initial[N comparable, D, Sys any](m Machine[N, D, Sys]) State[N, D] {
 	name, data := m.Initial()
-	init := State[N, D]{Name: name, Data: data}
-	return pbt.Commands(init, func(s State[N, D]) pbt.Gen[pbt.Command[State[N, D], Sys]] {
+	return State[N, D]{Name: name, Data: data}
+}
+
+func commandGen[N comparable, D, Sys any](m Machine[N, D, Sys]) func(State[N, D]) pbt.Gen[pbt.Command[State[N, D], Sys]] {
+	return func(s State[N, D]) pbt.Gen[pbt.Command[State[N, D], Sys]] {
 		trs := m.Transitions(s.Name, s.Data)
 		alts := make([]pbt.Weighted[pbt.Command[State[N, D], Sys]], 0, len(trs))
 		total := 0
@@ -62,7 +75,7 @@ func Commands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pbt.Progra
 			return pbt.NoCommands[State[N, D], Sys]()
 		}
 		return pbt.Frequency(alts...)
-	})
+	}
 }
 
 // transition adapts a command on the state data to a command on the full

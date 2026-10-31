@@ -214,39 +214,44 @@ func Commands[S, Sys any](init S, gen func(state S) Gen[Command[S, Sys]]) Gen[Pr
 func CommandsN[S, Sys any](init S, gen func(state S) Gen[Command[S, Sys]], minLen, maxLen int) Gen[Program[S, Sys]] {
 	checkLengths(minLen, maxLen)
 	return Gen[Program[S, Sys]]{name: fmt.Sprintf("CommandsN(%d, %d)", minLen, maxLen), draw: func(t *T) Program[S, Sys] {
-		state := init
-		var steps []Step[S, Sys]
-		p := continueProbability(t, maxLen)
-		for {
-			t.beginSpan("command")
-			var more bool
-			switch {
-			case len(steps) < minLen:
-				t.forced(1)
-				more = true
-			case maxLen >= 0 && len(steps) >= maxLen:
-				t.forced(0)
-			default:
-				more = t.drawBool(p)
-			}
-			if !more {
-				t.endSpan()
-				break
-			}
-			cmd, ok := drawCommand(t, gen(state), state)
-			t.endSpan()
-			if !ok {
-				if len(steps) >= minLen {
-					break
-				}
-				t.discard(fmt.Sprintf("no command satisfies its precondition after %d commands", len(steps)))
-			}
-			v := Var{id: len(steps) + 1}
-			state = cmd.NextState(state, v)
-			steps = append(steps, Step[S, Sys]{Command: cmd, Result: v})
-		}
+		steps, _ := drawSteps(t, gen, init, 1, minLen, maxLen)
 		return Program[S, Sys]{init: init, steps: steps}
 	}}
+}
+
+// drawSteps generates a command sequence from state, numbering the result
+// Vars from firstID, and returns it with the model state it leads to.
+func drawSteps[S, Sys any](t *T, gen func(S) Gen[Command[S, Sys]], state S, firstID, minLen, maxLen int) ([]Step[S, Sys], S) {
+	var steps []Step[S, Sys]
+	p := continueProbability(t, maxLen)
+	for {
+		t.beginSpan("command")
+		var more bool
+		switch {
+		case len(steps) < minLen:
+			t.forced(1)
+			more = true
+		case maxLen >= 0 && len(steps) >= maxLen:
+			t.forced(0)
+		default:
+			more = t.drawBool(p)
+		}
+		if !more {
+			t.endSpan()
+			return steps, state
+		}
+		cmd, ok := drawCommand(t, gen(state), state)
+		t.endSpan()
+		if !ok {
+			if len(steps) >= minLen {
+				return steps, state
+			}
+			t.discard(fmt.Sprintf("no command satisfies its precondition after %d commands", len(steps)))
+		}
+		v := Var{id: firstID + len(steps)}
+		state = cmd.NextState(state, v)
+		steps = append(steps, Step[S, Sys]{Command: cmd, Result: v})
+	}
 }
 
 // drawCommand draws commands until one satisfies its precondition. Each
@@ -268,18 +273,24 @@ func drawCommand[S, Sys any](t *T, g Gen[Command[S, Sys]], state S) (Command[S, 
 // statistics, as aggregate(command_names(Cmds)) does in PropEr, and on
 // failure logs the history of calls and results before failing the case.
 func (p Program[S, Sys]) RunSequential(t *T, sys Sys) {
-	state := p.init
 	env := Env{vals: map[Var]any{}}
+	runSteps(t, p.steps, p.init, sys, env, nil)
+}
+
+// runSteps executes steps in order from state and returns the state they
+// lead to. On any failure it logs the history, preceded by the extra lines
+// (the history of an earlier phase), and fails the case.
+func runSteps[S, Sys any](t *T, steps []Step[S, Sys], state S, sys Sys, env Env, extra []string) S {
 	var history []string
 	fail := func(step int, format string, args ...any) {
 		t.Logf("history:")
-		for _, h := range history {
+		for _, h := range append(extra, history...) {
 			t.Logf("  %s", h)
 		}
 		t.Logf("model state before step %d: %+v", step, state)
 		t.Fatalf("step %d: %s", step, fmt.Sprintf(format, args...))
 	}
-	for i, s := range p.steps {
+	for i, s := range steps {
 		n := i + 1
 		t.Aggregate(CommandName(s.Command))
 		if !s.Command.Precondition(state) {
@@ -291,12 +302,17 @@ func (p Program[S, Sys]) RunSequential(t *T, sys Sys) {
 			fail(n, "%s panicked: %v", describe(s.Command), panicked)
 		}
 		env.vals[s.Result] = result
-		history = append(history, fmt.Sprintf("%d. %v = %s -> %#v", n, s.Result, describe(s.Command), result))
+		history = append(history, historyLine(n, s, result))
 		if err := s.Command.Postcondition(state, env, result); err != nil {
 			fail(n, "postcondition of %s failed: %v", describe(s.Command), err)
 		}
 		state = s.Command.NextState(state, s.Result)
 	}
+	return state
+}
+
+func historyLine[S, Sys any](n int, s Step[S, Sys], result any) string {
+	return fmt.Sprintf("%d. %v = %s -> %#v", n, s.Result, describe(s.Command), result)
 }
 
 func executeCommand[S, Sys any](t *T, c Command[S, Sys], sys Sys, env Env) (result any, panicked any) {
