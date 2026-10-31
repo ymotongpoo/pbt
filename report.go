@@ -12,7 +12,7 @@ func (r *runner) report(t *T, headline string, trailer []string) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[pbt] %s (size %d)\n", headline, t.size)
 	for _, d := range t.draws {
-		fmt.Fprintf(&b, "[pbt] %s\n", formatDraw(d))
+		fmt.Fprintf(&b, "[pbt] %s\n", strings.ReplaceAll(formatDraw(d), "\n", "\n[pbt]   "))
 	}
 	for _, l := range t.logs {
 		fmt.Fprintf(&b, "[pbt] log: %s\n", l)

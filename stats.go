@@ -12,6 +12,8 @@ import (
 type stats struct {
 	cases    int
 	labels   map[string]int
+	samples  map[string]int
+	nsamples int
 	measures map[string]*summary
 	covers   map[string]*coverage
 }
@@ -27,13 +29,17 @@ type coverage struct {
 }
 
 func newStats() *stats {
-	return &stats{labels: map[string]int{}, measures: map[string]*summary{}, covers: map[string]*coverage{}}
+	return &stats{labels: map[string]int{}, samples: map[string]int{}, measures: map[string]*summary{}, covers: map[string]*coverage{}}
 }
 
 func (s *stats) add(t *T) {
 	s.cases++
 	for _, l := range t.labels {
 		s.labels[l]++
+	}
+	for _, l := range t.samples {
+		s.samples[l]++
+		s.nsamples++
 	}
 	for _, m := range t.measures {
 		sm := s.measures[m.name]
@@ -60,26 +66,15 @@ func (s *stats) add(t *T) {
 }
 
 func (s *stats) empty() bool {
-	return len(s.labels) == 0 && len(s.measures) == 0 && len(s.covers) == 0
+	return len(s.labels) == 0 && len(s.samples) == 0 && len(s.measures) == 0 && len(s.covers) == 0
 }
 
 // lines formats the statistics the way PropEr prints them: one line per
-// label with its share, then one line per measurement.
+// label with its share of the cases, one line per aggregated sample with its
+// share of all samples, then one line per measurement.
 func (s *stats) lines() []string {
-	var out []string
-	labels := make([]string, 0, len(s.labels))
-	for l := range s.labels {
-		labels = append(labels, l)
-	}
-	sort.Slice(labels, func(i, j int) bool {
-		if s.labels[labels[i]] != s.labels[labels[j]] {
-			return s.labels[labels[i]] > s.labels[labels[j]]
-		}
-		return labels[i] < labels[j]
-	})
-	for _, l := range labels {
-		out = append(out, fmt.Sprintf("%5.1f%% %s", 100*float64(s.labels[l])/float64(s.cases), l))
-	}
+	out := shareLines(s.labels, s.cases)
+	out = append(out, shareLines(s.samples, s.nsamples)...)
 	names := make([]string, 0, len(s.measures))
 	for n := range s.measures {
 		names = append(names, n)
@@ -110,6 +105,24 @@ func (s *stats) shortfalls() []string {
 		if wilsonUpper(c.hit, s.cases, 3) < c.pct/100 {
 			out = append(out, fmt.Sprintf("%s: %.1f%% of %d cases, required %.1f%%", l, observed, s.cases, c.pct))
 		}
+	}
+	return out
+}
+
+func shareLines(counts map[string]int, total int) []string {
+	labels := make([]string, 0, len(counts))
+	for l := range counts {
+		labels = append(labels, l)
+	}
+	sort.Slice(labels, func(i, j int) bool {
+		if counts[labels[i]] != counts[labels[j]] {
+			return counts[labels[i]] > counts[labels[j]]
+		}
+		return labels[i] < labels[j]
+	})
+	out := make([]string, 0, len(labels))
+	for _, l := range labels {
+		out = append(out, fmt.Sprintf("%5.1f%% %s", 100*float64(counts[l])/float64(total), l))
 	}
 	return out
 }

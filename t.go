@@ -113,6 +113,7 @@ type T struct {
 	// Statistics of this test case, merged into the run's totals when the
 	// case passes.
 	labels   []string
+	samples  []string
 	measures []measurement
 	covers   []coverRecord
 
@@ -383,11 +384,12 @@ func (t *T) Classify(cond bool, label string) {
 	}
 }
 
-// Aggregate records every value, as PropEr's aggregate/2 does with a list.
-// Use it for the names of the commands a stateful test ran.
+// Aggregate records samples, as PropEr's aggregate/2 does with a list. Their
+// shares are reported relative to all samples rather than to the cases; use
+// it for the names of the commands a stateful test ran.
 func (t *T) Aggregate(values ...any) {
 	for _, v := range values {
-		t.labels = append(t.labels, fmt.Sprint(v))
+		t.samples = append(t.samples, fmt.Sprint(v))
 	}
 }
 
