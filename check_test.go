@@ -198,3 +198,54 @@ func TestReportMarksADrawThatDidNotFinish(t *testing.T) {
 		t.Errorf("report:\n%s", strings.Join(tb.errors, "\n"))
 	}
 }
+
+func TestReplayFileAndNoReplay(t *testing.T) {
+	dir := t.TempDir()
+	failing := func(t *T) {
+		if xs := SliceOf(Int()).Draw(t, "xs"); len(xs) >= 2 {
+			t.Fatalf("too long")
+		}
+	}
+	tb := &fakeTB{name: "TestA"}
+	Check(tb, failing, Seed(1), TestdataDir(dir))
+	entries, err := os.ReadDir(filepath.Join(dir, "TestA"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("saved files: %v, %v", entries, err)
+	}
+	path := filepath.Join(dir, "TestA", entries[0].Name())
+
+	// Another test replays the file by name and reports it when it fails.
+	tb2 := &fakeTB{name: "TestB"}
+	Check(tb2, failing, Seed(1), TestdataDir(dir), ReplayFile(path))
+	if len(tb2.errors) != 1 || !strings.Contains(tb2.errors[0], "replayed "+path+", which still fails") ||
+		!strings.Contains(tb2.errors[0], "xs (SliceOf(Int())) = []int{0, 0}") {
+		t.Errorf("errors %q", tb2.errors)
+	}
+	// When the property passes on the file, the run goes on as usual.
+	tb3 := &fakeTB{name: "TestB"}
+	runs := 0
+	Check(tb3, func(t *T) { runs++; SliceOf(Int()).Draw(t, "xs") }, Seed(1), TestdataDir(dir), ReplayFile(path), Checks(5))
+	if len(tb3.errors) != 0 || runs != 6 || !strings.Contains(strings.Join(tb3.logs, "\n"), "replayed "+path+": the property passes on it") {
+		t.Errorf("errors %q, runs %d, logs %q", tb3.errors, runs, tb3.logs)
+	}
+	// A file that cannot be read is an error, unlike a stray file in testdata.
+	tb4 := &fakeTB{name: "TestB"}
+	Check(tb4, failing, Seed(1), TestdataDir(dir), ReplayFile(filepath.Join(dir, "missing")))
+	if len(tb4.errors) != 1 || !strings.Contains(tb4.errors[0], "cannot replay") {
+		t.Errorf("errors %q", tb4.errors)
+	}
+
+	// NoReplay skips the saved cases of the test itself.
+	runs = 0
+	tb5 := &fakeTB{name: "TestA"}
+	Check(tb5, func(t *T) { runs++; SliceOf(Int()).Draw(t, "xs") }, Seed(1), TestdataDir(dir), Checks(5))
+	if runs != 6 {
+		t.Errorf("without NoReplay the property ran %d times, want 6", runs)
+	}
+	runs = 0
+	tb6 := &fakeTB{name: "TestA"}
+	Check(tb6, func(t *T) { runs++; SliceOf(Int()).Draw(t, "xs") }, Seed(1), TestdataDir(dir), Checks(5), NoReplay())
+	if runs != 5 || len(tb5.errors)+len(tb6.errors) != 0 {
+		t.Errorf("with NoReplay the property ran %d times, want 5; errors %q %q", runs, tb5.errors, tb6.errors)
+	}
+}

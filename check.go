@@ -56,6 +56,7 @@ var (
 	flagNoSave     = flag.Bool("pbt.nosave", false, "do not save failing test cases under testdata/pbt")
 	flagSearch     = flag.Int("pbt.searchsteps", defaultSearchSteps, "number of steps of a targeted search (a property that calls Maximize or Minimize)")
 	flagV          = flag.Bool("pbt.v", false, "verbose output from pbt.Check")
+	flagReplay     = flag.String("pbt.replay", "", "path of a saved test case that pbt.Check replays before searching")
 )
 
 // Option adjusts how Check runs a property. Options take precedence over the
@@ -77,6 +78,8 @@ type config struct {
 	search      int
 	valueLimit  int
 	reportDepth int
+	replayFile  string
+	noReplay    bool
 }
 
 // Checks sets the number of passing test cases Check requires.
@@ -133,6 +136,16 @@ const coverCases = 20
 // draws only.
 func ReportDepth(levels int) Option { return func(c *config) { c.reportDepth = levels } }
 
+// ReplayFile makes Check run the saved test case at path before searching,
+// whatever test it was saved by, and report it when it still fails. The
+// -pbt.replay flag does the same for every Check of a run. The file is one
+// that Check saved under testdata/pbt.
+func ReplayFile(path string) Option { return func(c *config) { c.replayFile = path } }
+
+// NoReplay keeps Check from replaying the test cases saved under testdata/pbt
+// before searching.
+func NoReplay() Option { return func(c *config) { c.noReplay = true } }
+
 // Verbose makes Check log the summary of a passing run and every accepted
 // shrinking step, as the -pbt.v flag does.
 func Verbose() Option { return func(c *config) { c.verbose = true } }
@@ -159,6 +172,7 @@ func newConfig(opts []Option) (config, error) {
 		search:      *flagSearch,
 		valueLimit:  defaultValueLimit,
 		reportDepth: defaultReportDepth,
+		replayFile:  *flagReplay,
 	}
 	for _, o := range opts {
 		o(&c)
@@ -184,10 +198,11 @@ func newConfig(opts []Option) (config, error) {
 // Check runs prop against generated inputs and reports the minimal failing
 // input it finds through tb.
 //
-// Check first replays the counterexamples saved under testdata/pbt for this
-// test and fails if one of them still fails. It then runs the property for
-// the configured number of cases with sizes growing from the start size to
-// the maximum. On failure it shrinks the input, saves it, and reports every
+// Check first replays the test case named by ReplayFile or -pbt.replay, if
+// any, and then the counterexamples saved under testdata/pbt for this test,
+// and fails if one of them still fails. It then runs the property for the
+// configured number of cases with sizes growing from the start size to the
+// maximum. On failure it shrinks the input, saves it, and reports every
 // value the property drew together with the seed that reproduces the run.
 func Check(tb TB, prop Property, opts ...Option) {
 	tb.Helper()
@@ -197,9 +212,23 @@ func Check(tb TB, prop Property, opts ...Option) {
 		return
 	}
 	r := &runner{tb: tb, prop: prop, cfg: cfg}
-	if t, path := r.replaySaved(); t != nil {
-		r.report(t, "saved counterexample "+filepath.Base(path)+" still fails", nil)
-		return
+	if path := cfg.replayFile; path != "" {
+		t, err := r.replayFile(path)
+		if err != nil {
+			tb.Errorf("[pbt] cannot replay %s: %v", path, err)
+			return
+		}
+		if t.failed && !t.discarded {
+			r.report(t, "replayed "+path+", which still fails", nil)
+			return
+		}
+		tb.Logf("[pbt] replayed %s: the property passes on it", path)
+	}
+	if !cfg.noReplay {
+		if t, path := r.replaySaved(); t != nil {
+			r.report(t, "saved counterexample "+filepath.Base(path)+" still fails", nil)
+			return
+		}
 	}
 	fail, passed, err := r.search()
 	if err != nil {

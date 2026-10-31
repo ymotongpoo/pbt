@@ -128,6 +128,19 @@ func (r *runner) save(t *T) (string, error) {
 	return path, nil
 }
 
+// replayFile runs the saved test case at path.
+func (r *runner) replayFile(path string) (*T, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	size, choices, err := decodeCase(data)
+	if err != nil {
+		return nil, err
+	}
+	return r.run(choices, size, nil), nil
+}
+
 // replaySaved runs every saved test case of this test and returns the first
 // one that still fails, with its path.
 func (r *runner) replaySaved() (*T, string) {
