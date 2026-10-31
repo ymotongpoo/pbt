@@ -4,3 +4,5 @@
 *.prof
 # wrangler state from deploying the pages branch
 .wrangler/
+# rapid writes its failure files here during the comparison
+/bench/testdata/
