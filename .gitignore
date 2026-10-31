@@ -1,0 +1,6 @@
+# build outputs
+/cmd/pbtgen/pbtgen
+*.test
+*.prof
+# wrangler state from deploying the pages branch
+.wrangler/
