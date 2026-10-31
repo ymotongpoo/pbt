@@ -10,6 +10,10 @@ import (
 // case. PropEr calls the same limit constraint_tries.
 const maxFilterTries = 100
 
+// exampleSize is the size parameter Example and SampleShrink use, the same
+// default as proper_gen:pick.
+const exampleSize = 10
+
 // Gen generates values of type V. A generator is a deterministic function of
 // the choices it draws from a *T, which is what makes every generator
 // shrinkable without extra code.
@@ -52,7 +56,6 @@ func (g Gen[V]) Example(seed ...uint64) V {
 	if len(seed) > 0 {
 		s = seed[0]
 	}
-	const exampleSize = 10
 	for attempt := uint64(0); ; attempt++ {
 		t := newT("", nil, exampleSize, defaultMaxSize, newRand(s+attempt))
 		if v, ok := tryDraw(t, g); ok {

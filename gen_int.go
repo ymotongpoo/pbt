@@ -30,19 +30,45 @@ func IntegerRange[I integer](lo, hi I) Gen[I] {
 	if lo > hi {
 		panic(fmt.Sprintf("pbt: IntegerRange[%T](%d, %d): lo is above hi", zero, lo, hi))
 	}
-	name := fmt.Sprintf("IntegerRange[%T](%d, %d)", zero, lo, hi)
-	if ^zero < zero { // signed
-		lo64, hi64 := int64(lo), int64(hi)
-		c := min(max(lo64, 0), hi64)
-		width := uint64(hi64) - uint64(lo64)
-		meta := zigzagMeta(c, lo64, hi64)
-		return Gen[I]{name: name, draw: func(t *T) I {
-			return I(zigzagDecode(t.draw(width, meta, modeBiased), c, lo64, hi64))
-		}}
+	return integerRange(lo, hi, min(max(lo, zero), hi), fmt.Sprintf("IntegerRange[%T](%d, %d)", zero, lo, hi))
+}
+
+// IntegerRangeToward generates integers of type I in [lo, hi] that shrink
+// toward center instead of 0. It re-centers shrinking the way PropEr's
+// ?SHRINK does in the book's year example.
+func IntegerRangeToward[I integer](lo, hi, center I) Gen[I] {
+	var zero I
+	if lo > hi || center < lo || center > hi {
+		panic(fmt.Sprintf("pbt: IntegerRangeToward[%T](%d, %d, %d): need lo <= center <= hi", zero, lo, hi, center))
 	}
-	lo64, hi64 := uint64(lo), uint64(hi)
+	return integerRange(lo, hi, center, fmt.Sprintf("IntegerRangeToward[%T](%d, %d, %d)", zero, lo, hi, center))
+}
+
+// IntRangeToward generates ints in [lo, hi] that shrink toward center.
+func IntRangeToward(lo, hi, center int) Gen[int] {
+	return named(IntegerRangeToward(lo, hi, center), fmt.Sprintf("IntRangeToward(%d, %d, %d)", lo, hi, center))
+}
+
+// integerRange draws a choice in [0, hi-lo] and decodes it around the center
+// in the unsigned domain, which serves signed and unsigned types alike.
+func integerRange[I integer](lo, hi, center I, name string) Gen[I] {
+	var zero I
+	signed := ^zero < zero
+	toU := func(x I) uint64 {
+		if signed {
+			return signedToU(int64(x))
+		}
+		return uint64(x)
+	}
+	loU, hiU, cU := toU(lo), toU(hi), toU(center)
+	meta := zigzagMetaU(cU, loU, hiU)
+	width := hiU - loU
 	return Gen[I]{name: name, draw: func(t *T) I {
-		return I(lo64 + t.draw(hi64-lo64, plainMeta, modeBiased))
+		u := zigzagDecodeU(t.draw(width, meta, modeBiased), cU, loU, hiU)
+		if signed {
+			return I(uToSigned(u))
+		}
+		return I(u)
 	}}
 }
 

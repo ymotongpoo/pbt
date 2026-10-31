@@ -91,38 +91,52 @@ func max64(a, b int) int {
 	return b
 }
 
-// zigzagDecode maps a choice to a value in [lo, hi] around the center c:
+// zigzagDecodeU maps a choice to a value in [lo, hi] around the center c:
 // 0 is c, 1 is c+1, 2 is c-1, 3 is c+2 and so on. Once one side of the range
 // is exhausted the remaining choices continue on the other side. Smaller
 // choices are therefore closer to the center, which is what shrinking moves
-// toward.
-func zigzagDecode(u uint64, c, lo, hi int64) int64 {
-	up := uint64(hi) - uint64(c)
-	down := uint64(c) - uint64(lo)
+// toward. Signed ranges go through signedToU first.
+func zigzagDecodeU(u, c, lo, hi uint64) uint64 {
+	up := hi - c
+	down := c - lo
 	both := min(up, down)
 	if u <= 2*both {
 		if u == 0 {
 			return c
 		}
-		k := (u + 1) / 2
+		k := u/2 + u%2
 		if u%2 == 1 {
-			return int64(uint64(c) + k)
+			return c + k
 		}
-		return int64(uint64(c) - k)
+		return c - k
 	}
 	rest := u - 2*both
 	if up > down {
-		return int64(uint64(c) + both + rest)
+		return c + both + rest
 	}
-	return int64(uint64(c) - both - rest)
+	return c - both - rest
 }
 
-// zigzagMeta describes the layout zigzagDecode uses for the range [lo, hi]
-// around c, for the shrinker.
-func zigzagMeta(c, lo, hi int64) choiceMeta {
-	up := uint64(hi) - uint64(c)
-	down := uint64(c) - uint64(lo)
+// zigzagMetaU describes the layout zigzagDecodeU uses for the range
+// [lo, hi] around c, for the shrinker.
+func zigzagMetaU(c, lo, hi uint64) choiceMeta {
+	up := hi - c
+	down := c - lo
 	return choiceMeta{kind: kindZigzag, zz: 2 * min(up, down), tailPos: up > down}
+}
+
+// signedToU maps int64 values to uint64 values with the same ordering, so
+// that the unsigned zigzag functions serve signed ranges too.
+func signedToU(v int64) uint64 { return uint64(v) ^ (1 << 63) }
+
+func uToSigned(u uint64) int64 { return int64(u ^ (1 << 63)) }
+
+func zigzagDecode(u uint64, c, lo, hi int64) int64 {
+	return uToSigned(zigzagDecodeU(u, signedToU(c), signedToU(lo), signedToU(hi)))
+}
+
+func zigzagMeta(c, lo, hi int64) choiceMeta {
+	return zigzagMetaU(signedToU(c), signedToU(lo), signedToU(hi))
 }
 
 // offsetOf interprets a zigzag choice as a signed offset from its center.
