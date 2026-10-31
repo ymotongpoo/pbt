@@ -15,5 +15,8 @@ suite stays green.
 | 6 | `ch06birthday` | The birthday greetings kata: CSV codec, employees, the birthday filter, the mail template |
 | 7 | `ch07checkout` | The checkout kata with specials and the negative tests |
 | 8 | `ch08shrinking` | ShrinkTo for date-times, LetShrink for trees and concatenations, the meal exercise |
+| 9 | `ch09cache` | The bounded cache as a state machine, sequential and parallel, with a planted race |
+| 10 | `ch10bookstore` | The bookstore inventory on SQLite as a state machine, with the shim intents in the command names |
+| 11 | `ch11breaker` | The circuit breaker as a finite state machine on package fsm |
 
 Run everything with `go test ./...` from this directory.

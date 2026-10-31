@@ -1,0 +1,5 @@
+go.ymotongpoo.com/pbt v1
+size 4
+# cmds (Commands) = Program{   var1 = ok -> ok: err(&errors.errorString{s:"badarg"})   var2 = ok -> ok: err(&errors.errorString{s:"badarg"})   var3 = ok -> tripped: err(&errors.errorString{s:"badarg"}) }
+choices
+1 1 0 1 1 0 1 2 0 0
