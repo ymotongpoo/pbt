@@ -22,7 +22,10 @@ the Markdown version of every guide page.
 - `bench/` is a separate module that compares pbt with rapid.
 - `site/` is a separate module that renders `docs/guide` into HTML, Markdown
   pages, `llms.txt` and `llms-full.txt`. Its output, `site/public`, is
-  ignored by git and published from the orphan branch `pages`.
+  ignored by git and copied into the repository of the domain,
+  <https://github.com/ymotongpoo/go.ymotongpoo.com>, which serves the
+  vanity import paths and publishes the documentation of every module
+  under go.ymotongpoo.com.
 - `DESIGN.md` records the design decisions, the API listing, the comparison
   with PropEr, QuickCheck, Hypothesis and rapid, and the deferred items;
   `DESIGN.ja.md` is its Japanese translation. `MIGRATION.md` maps rapid's
@@ -108,15 +111,15 @@ passes the tests on its own.
 
 ## Publishing the guide
 
+The site lives in the sibling repository `../go.ymotongpoo.com` (clone
+<https://github.com/ymotongpoo/go.ymotongpoo.com> if it is missing). Render
+the guide, copy it in, regenerate the site's rules, commit there and deploy:
+
 ```sh
-cd site && go run . -version vX.Y.Z -analytics G-EC4QPYV95Y
-git worktree add /tmp/pbt-pages pages
-rm -rf /tmp/pbt-pages/guide/pbt && cp -R site/public /tmp/pbt-pages/guide/pbt
-# commit in the worktree, then deploy a clean export of the branch:
-rm -rf /tmp/pbt-deploy && mkdir /tmp/pbt-deploy && git -C /tmp/pbt-pages archive pages | tar -x -C /tmp/pbt-deploy
-wrangler pages deploy /tmp/pbt-deploy --project-name go-ymotongpoo-com --branch pages
-git -C /tmp/pbt-pages push origin pages && git worktree remove --force /tmp/pbt-pages
+(cd site && go run . -version vX.Y.Z -analytics G-EC4QPYV95Y)
+rm -rf ../go.ymotongpoo.com/public/guide/pbt && cp -R site/public ../go.ymotongpoo.com/public/guide/pbt
+cd ../go.ymotongpoo.com && go run . && git add public && git commit -m "docs(pbt): publish the guide for vX.Y.Z" && ./deploy.sh && git push
 ```
 
-The README of the `pages` branch explains its `_redirects` and `_headers`
+The README of that repository explains its `_redirects` and `_headers`
 rules and the pitfalls of the rule validator.

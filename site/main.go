@@ -10,6 +10,9 @@
 //
 // The -analytics flag takes a Google Analytics measurement ID; when it is
 // given, every page loads gtag.js for it. Leave it out for a local preview.
+// The output, site/public, is copied into public/guide/pbt of the
+// repository github.com/ymotongpoo/go.ymotongpoo.com, which serves the
+// domain; AGENTS.md describes the steps.
 //
 // The English chapters are the *.md files of docs/guide, the Japanese ones
 // those of docs/guide/ja; both are ordered by file name. A chapter includes

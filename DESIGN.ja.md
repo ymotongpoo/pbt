@@ -399,17 +399,11 @@ importパス `go.ymotongpoo.com/pbt` を使うには、`https://go.ymotongpoo.co
 
 サイトは www.ymotongpoo.com と同じCloudflare Pagesの別プロジェクトで、カスタムドメインに `go.ymotongpoo.com` を割り当てています。
 DNSのCNAMEはカスタムドメインの設定が作ります。
-配信するファイルは本リポジトリの孤立ブランチ `pages`（`main` と履歴を共有しない）にあります。
-
-```text
-_redirects
-pbt/index.html
-index.html        ルート用。go-import タグを持たない
-README.md         ブランチの説明と配信手順
-```
-
-Pagesのプロジェクトを本リポジトリに接続して本番ブランチを `pages` にするか、このブランチのチェックアウトから `wrangler pages deploy` で直接アップロードします。
-Git連携にする場合は、`main` がサイトとして配信されないように、プレビューの対象ブランチを無しにします。
+配信するファイルはリポジトリ [github.com/ymotongpoo/go.ymotongpoo.com](https://github.com/ymotongpoo/go.ymotongpoo.com) にあり、このドメインで公開するすべてのモジュールをそこで扱います。
+モジュールの一覧から、`go-import` タグを持つモジュールのページ、索引、ドメインの `llms.txt`、`_redirects` と `_headers` の規則を生成し、各モジュールが描画したドキュメントは `public/guide/<module>/` にコピーします。
+pbtのガイドは本リポジトリの `site/` で描画してからそこへコピーします。
+手順はAGENTS.mdにあります。
+サイトは当初、本リポジトリの孤立ブランチでしたが、ガイドとエージェント向けのファイルが加わってバニティパスのページより大きくなったため、独立させました。
 
 `_redirects` は、`/pbt` 配下のすべてのパスを同じHTMLで応答させる書き換えです。
 Cloudflare Pagesの `_redirects` はステータス200の書き換え（proxying）に対応していて、splat（`*`）は1行に1つだけ書けます。

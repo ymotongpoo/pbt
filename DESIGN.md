@@ -504,19 +504,16 @@ under `/pbt` therefore returns the same HTML.
 
 The site is a second Cloudflare Pages project next to www.ymotongpoo.com,
 with `go.ymotongpoo.com` as its custom domain. The custom-domain setup creates
-the DNS CNAME. The files live in the orphan branch `pages` of this repository,
-which shares no history with `main`:
-
-```text
-_redirects
-pbt/index.html
-index.html        for the root; carries no go-import tag
-README.md         what the branch is and how to deploy it
-```
-
-Connect the Pages project to this repository with `pages` as the production
-branch, or run `wrangler pages deploy` from a checkout of the branch. With the Git integration, disable preview deployments for other
-branches so that `main` is never published as a site.
+the DNS CNAME. The files live in the repository
+[github.com/ymotongpoo/go.ymotongpoo.com](https://github.com/ymotongpoo/go.ymotongpoo.com),
+which serves every module published under the domain: a list of modules
+generates the module pages with their `go-import` tags, the index, the
+`llms.txt` of the domain and the `_redirects` and `_headers` rules, and the
+documentation that each module renders is copied into `public/guide/<module>/`.
+The pbt guide is rendered by `site/` here and copied there; AGENTS.md lists
+the steps. The site started as an orphan branch of this repository and moved
+out once the guide and the agent files made it larger than a vanity-path
+page.
 
 `_redirects` rewrites every path under `/pbt` to the same HTML. Cloudflare
 Pages supports status 200 rewrites (proxying) in `_redirects`, and a rule may
