@@ -5,7 +5,7 @@ The notable changes of pbt are recorded here. The format follows
 [Semantic Versioning](https://semver.org/) with a major version of 0, so a
 minor version may change the API.
 
-## Unreleased
+## 0.2.0 - 2026-10-31
 
 ### Added
 
