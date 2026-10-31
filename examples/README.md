@@ -10,7 +10,7 @@ suite stays green.
 | Chapter | Package | Contents |
 | --- | --- | --- |
 | 1 | `ch01cash` | The cash register and its two properties |
-| 3, 4 | `ch04stateless` | biggest, sort invariants, last, and exercises 3 to 7 |
+| 2, 3, 4 | `ch04stateless` | biggest, sort invariants, last, exercises 3 to 7, and the tooling map of chapter 2 in the README |
 | 5 | `ch05generators` | Collect, Aggregate, Resize, Sized, Bind, Filter and Map, Lazy recursion, readable reports, and exercises 4 to 6 |
 | 6 | `ch06birthday` | The birthday greetings kata: CSV codec, employees, the birthday filter, the mail template |
 | 7 | `ch07checkout` | The checkout kata with specials and the negative tests |
@@ -18,5 +18,8 @@ suite stays green.
 | 9 | `ch09cache` | The bounded cache as a state machine, sequential and parallel, with a planted race |
 | 10 | `ch10bookstore` | The bookstore inventory on SQLite as a state machine, with the shim intents in the command names |
 | 11 | `ch11breaker` | The circuit breaker as a finite state machine on package fsm |
+
+The exercises that ask for an explanation rather than code are answered
+in the README of the chapter's package.
 
 Run everything with `go test ./...` from this directory.
