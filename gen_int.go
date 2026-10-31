@@ -188,20 +188,26 @@ func Float32Range(lo, hi float32) Gen[float32] {
 // the second form for the first as well.
 func drawFloat(t *T, lo, hi float64) float64 {
 	const limit = 1 << 53
+	// The integral forms work on the integers of [lo, hi] that float64
+	// represents exactly; when the range holds none of them, those forms
+	// are skipped and the raw form, which clamps, is used instead.
 	ilo, ihi := math.Ceil(lo), math.Floor(hi)
+	ia, ib := int64(max(ilo, -limit)), int64(min(ihi, limit))
+	fa, fb := int64(max(math.Floor(lo), -limit)), int64(min(math.Ceil(hi), limit))
 	form := t.draw(2, flagMeta, modeBiased)
-	if form == 0 && ilo > ihi {
+	if form == 0 && (ilo > ihi || ia > ib) {
 		form = 1
+	}
+	if form == 1 && (fa > fb || math.Floor(lo) > limit || math.Ceil(hi) < -limit) {
+		form = 2
 	}
 	switch form {
 	case 0:
-		a, b := int64(max(ilo, -limit)), int64(min(ihi, limit))
-		c := min(max(a, 0), b)
-		return float64(zigzagDecode(t.draw(uint64(b)-uint64(a), zigzagMeta(c, a, b), modeBiased), c, a, b))
+		c := min(max(ia, 0), ib)
+		return float64(zigzagDecode(t.draw(uint64(ib)-uint64(ia), zigzagMeta(c, ia, ib), modeBiased), c, ia, ib))
 	case 1:
-		a, b := int64(max(math.Floor(lo), -limit)), int64(min(math.Ceil(hi), limit))
-		c := min(max(a, 0), b)
-		ipart := float64(zigzagDecode(t.draw(uint64(b)-uint64(a), zigzagMeta(c, a, b), modeBiased), c, a, b))
+		c := min(max(fa, 0), fb)
+		ipart := float64(zigzagDecode(t.draw(uint64(fb)-uint64(fa), zigzagMeta(c, fa, fb), modeBiased), c, fa, fb))
 		bits := 1 + t.draw(51, plainMeta, modeBiased)
 		mant := t.draw(uint64(1)<<bits-1, plainMeta, modeBiased)
 		frac := float64(mant) / float64(uint64(1)<<bits)

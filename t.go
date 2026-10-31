@@ -274,8 +274,12 @@ func (t *T) execute(prop Property) {
 		case stopTest:
 			t.failed = true
 		case discardTest:
-			t.discarded = true
-			t.discardReason = rec.reason
+			// A failure recorded before the discard stands: the case is
+			// reported, not thrown away.
+			if !t.failed {
+				t.discarded = true
+				t.discardReason = rec.reason
+			}
 		default:
 			t.failed = true
 			t.panicVal = rec
@@ -286,11 +290,28 @@ func (t *T) execute(prop Property) {
 	prop(t)
 }
 
+// runCleanups runs every registered callback, last first, including those
+// registered while cleaning up. A callback that panics does not stop the
+// others; the first panic is raised again once all have run, so that it is
+// reported as a failure of the case.
 func (t *T) runCleanups() {
-	for i := len(t.cleanups) - 1; i >= 0; i-- {
-		t.cleanups[i]()
+	var first any
+	for len(t.cleanups) > 0 {
+		n := len(t.cleanups)
+		f := t.cleanups[n-1]
+		t.cleanups = t.cleanups[:n-1]
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil && first == nil {
+					first = rec
+				}
+			}()
+			f()
+		}()
 	}
-	t.cleanups = nil
+	if first != nil {
+		panic(first)
+	}
 }
 
 func (t *T) discard(reason string) {

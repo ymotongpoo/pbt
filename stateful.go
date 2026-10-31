@@ -192,9 +192,13 @@ func (p Program[S, Sys]) String() string {
 // GoString makes %#v print the command list.
 func (p Program[S, Sys]) GoString() string { return p.String() }
 
+// noCommandsName marks the generator NoCommands returns; a zero Gen with
+// another name is a mistake and panics when drawn.
+const noCommandsName = "NoCommands"
+
 // NoCommands is what a command generator returns for a model state in which
 // no command applies, which ends the sequence.
-func NoCommands[S, Sys any]() Gen[Command[S, Sys]] { return Gen[Command[S, Sys]]{name: "NoCommands"} }
+func NoCommands[S, Sys any]() Gen[Command[S, Sys]] { return Gen[Command[S, Sys]]{name: noCommandsName} }
 
 // Commands generates command sequences for a stateful test. gen returns the
 // generator of the next command for a model state, as PropEr's command/1
@@ -261,6 +265,9 @@ func drawSteps[S, Sys any](t *T, gen func(S) Gen[Command[S, Sys]], state S, firs
 // attempt sits in its own span, so the shrinker can delete rejected ones.
 func drawCommand[S, Sys any](t *T, g Gen[Command[S, Sys]], state S) (Command[S, Sys], bool) {
 	if g.draw == nil {
+		if g.name != noCommandsName {
+			panic("pbt: the command generator returned an uninitialized Gen; return NoCommands() to end the sequence")
+		}
 		return nil, false
 	}
 	for range maxFilterTries {
@@ -299,8 +306,14 @@ func runSteps[S, Sys any](t *T, steps []Step[S, Sys], state S, sys Sys, env Env,
 		if !s.Command.Precondition(state) {
 			fail(n, "precondition of %s does not hold at execution time", describe(s.Command))
 		}
-		result, panicked := executeCommand(t, s.Command, sys, env)
+		result, panicked, stack := executeCommand(s.Command, sys, env)
 		if panicked != nil {
+			if d, isDiscard := panicked.(discardTest); isDiscard {
+				panic(d)
+			}
+			if t.stack == nil {
+				t.stack = stack
+			}
 			history = append(history, fmt.Sprintf("%d. %s panicked: %v", n, describe(s.Command), panicked))
 			fail(n, "%s panicked: %v", describe(s.Command), panicked)
 		}
@@ -318,17 +331,17 @@ func historyLine[S, Sys any](n int, s Step[S, Sys], result any) string {
 	return fmt.Sprintf("%d. %v = %s -> %#v", n, s.Result, describe(s.Command), result)
 }
 
-func executeCommand[S, Sys any](t *T, c Command[S, Sys], sys Sys, env Env) (result any, panicked any) {
+// executeCommand runs one command and captures a panic with its stack. A
+// discard is captured as well, so that a branch goroutine never panics; the
+// caller raises it again on its own goroutine.
+func executeCommand[S, Sys any](c Command[S, Sys], sys Sys, env Env) (result any, panicked any, stack []byte) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			if _, isDiscard := rec.(discardTest); isDiscard {
-				panic(rec)
-			}
 			panicked = rec
-			if t.stack == nil {
-				t.stack = debug.Stack()
+			if _, isDiscard := rec.(discardTest); !isDiscard {
+				stack = debug.Stack()
 			}
 		}
 	}()
-	return c.Execute(sys, env), nil
+	return c.Execute(sys, env), nil, nil
 }

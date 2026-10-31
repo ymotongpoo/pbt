@@ -5,6 +5,7 @@ package pbt
 
 import (
 	"fmt"
+	"maps"
 	"runtime"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ const (
 	defaultBranches     = 2
 	defaultMaxBranchLen = 6
 	maxParallelCommands = 12
+	maxParallelBranches = 3
 )
 
 // ParallelProgram is a command sequence for a parallel test: a sequential
@@ -63,12 +65,13 @@ func ParallelCommands[S, Sys any](init S, gen func(state S) Gen[Command[S, Sys]]
 // like Commands; every branch is generated from the state the prefix leads
 // to. Commands are dropped from the end of the longest branch until every
 // interleaving of the branches satisfies all preconditions, so that whatever
-// order the branches execute in is a valid test. The branches together hold
-// at most twelve commands, which keeps the number of interleavings small.
+// order the branches execute in is a valid test. At most three branches and
+// twelve commands in total are allowed, which bounds the number of
+// interleavings that generation and checking enumerate.
 func ParallelCommandsN[S, Sys any](init S, gen func(state S) Gen[Command[S, Sys]], branches, maxBranchLen int) Gen[ParallelProgram[S, Sys]] {
-	if branches < 1 || maxBranchLen < 1 || branches*maxBranchLen > maxParallelCommands {
-		panic(fmt.Sprintf("pbt: ParallelCommandsN(%d branches, %d commands each): need at least one of each and at most %d commands in total",
-			branches, maxBranchLen, maxParallelCommands))
+	if branches < 1 || branches > maxParallelBranches || maxBranchLen < 1 || branches*maxBranchLen > maxParallelCommands {
+		panic(fmt.Sprintf("pbt: ParallelCommandsN(%d branches, %d commands each): need 1 to %d branches and at most %d commands in total",
+			branches, maxBranchLen, maxParallelBranches, maxParallelCommands))
 	}
 	return Gen[ParallelProgram[S, Sys]]{name: fmt.Sprintf("ParallelCommandsN(%d, %d)", branches, maxBranchLen), draw: func(t *T) ParallelProgram[S, Sys] {
 		t.beginSpan("prefix")
@@ -118,12 +121,17 @@ func allInterleavingsValid[S, Sys any](state S, branches [][]Step[S, Sys], pos [
 
 // RunParallel executes the prefix sequentially and then the branches in one
 // goroutine each, and checks that some interleaving of the branches explains
-// the results, which is the linearizability check of PropEr's
-// run_parallel_commands/2. A failure is a sign of a race in the system under
-// test; running the property under the race detector helps to locate it.
-// Because the schedule is not under the test's control, a race may need many
-// runs to show, and shrinking keeps only the candidates on which it shows
-// again.
+// the results, as PropEr's run_parallel_commands/2 does. The check keeps the
+// order within each branch and ignores the real-time order between
+// branches, so it is weaker than a linearizability check: a read that
+// started after a write completed may still be explained by placing it
+// before the write. A failure is a sign of a race in the system under test;
+// running the property under the race detector helps to locate it. Because
+// the schedule is not under the test's control, a race may need many runs
+// to show, and shrinking keeps only the candidates on which it shows again.
+//
+// Each branch resolves the Vars of the prefix and of its own earlier
+// commands; a command cannot refer to the result of another branch.
 func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys) {
 	env := Env{vals: map[Var]any{}}
 	state := runSteps(t, p.prefix, p.init, sys, env, nil)
@@ -139,19 +147,24 @@ func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys) {
 
 	results := make([][]any, len(p.branches))
 	panics := make([][]any, len(p.branches))
+	stacks := make([][]byte, len(p.branches))
 	var wg sync.WaitGroup
 	for b, br := range p.branches {
 		results[b] = make([]any, len(br))
 		panics[b] = make([]any, len(br))
+		local := Env{vals: maps.Clone(env.vals)}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for i, s := range br {
 				runtime.Gosched()
-				results[b][i], panics[b][i] = executeCommand(t, s.Command, sys, env)
+				var stack []byte
+				results[b][i], panics[b][i], stack = executeCommand(s.Command, sys, local)
 				if panics[b][i] != nil {
+					stacks[b] = stack
 					return
 				}
+				local.vals[s.Result] = results[b][i]
 			}
 		}()
 	}
@@ -159,7 +172,17 @@ func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys) {
 
 	for b, br := range p.branches {
 		for i, s := range br {
+			if panics[b][i] != nil {
+				break
+			}
 			env.vals[s.Result] = results[b][i]
+		}
+	}
+	for b := range p.branches {
+		for _, rec := range panics[b] {
+			if d, isDiscard := rec.(discardTest); isDiscard {
+				panic(d)
+			}
 		}
 	}
 	logHistory := func() {
@@ -181,6 +204,9 @@ func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys) {
 	for b := range p.branches {
 		for i, s := range p.branches[b] {
 			if panics[b][i] != nil {
+				if t.stack == nil {
+					t.stack = stacks[b]
+				}
 				logHistory()
 				t.Fatalf("branch %d: %s panicked: %v", b+1, describe(s.Command), panics[b][i])
 			}
@@ -193,8 +219,9 @@ func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys) {
 	}
 }
 
-// linearizable reports whether some interleaving of the branches, applied to
-// the model from state, accepts every recorded result.
+// explained reports whether some interleaving of the branches, applied to
+// the model from state, accepts every recorded result. Only the order within
+// each branch constrains the interleavings.
 func linearizable[S, Sys any](state S, branches [][]Step[S, Sys], results [][]any, pos []int, env Env) bool {
 	done := true
 	for b := range branches {

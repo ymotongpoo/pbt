@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // maxMakeDepth bounds how deep Make follows pointers and collections of a
@@ -66,17 +67,39 @@ func Make[V any](opts ...MakeOption) Gen[V] {
 		o(cfg)
 	}
 	typ := reflect.TypeFor[V]()
+	for st, fields := range cfg.fields {
+		for name := range fields {
+			if st.Kind() != reflect.Struct {
+				panic(fmt.Sprintf("pbt: Make: WithField on %s, which is not a struct", st))
+			}
+			if _, ok := st.FieldByName(name); !ok {
+				panic(fmt.Sprintf("pbt: Make: WithField names %s.%s, which does not exist", st, name))
+			}
+		}
+	}
 	draw := makeDraw(typ, cfg, tag{}, nil)
 	return Gen[V]{name: fmt.Sprintf("Make[%s]", typ), draw: func(t *T) V {
-		return draw(t, &budget{left: max(t.size, 1)}).Interface().(V)
+		v, _ := draw(t, &budget{left: max(t.size, 1)}).Interface().(V) // a nil interface value stays the zero V
+		return v
 	}}
 }
 
+// valueAs converts a value from a supplied generator to the type Make needs,
+// treating a nil interface value as the zero value of that type.
+func valueAs(v any, typ reflect.Type) reflect.Value {
+	rv := reflect.ValueOf(v)
+	if !rv.IsValid() {
+		return reflect.Zero(typ)
+	}
+	return rv.Convert(typ)
+}
+
+// tag is a parsed pbt struct tag. The bounds stay as text and are parsed
+// at the width of the field they apply to, so that an int64 bound keeps
+// every digit and a bound outside the type is rejected.
 type tag struct {
 	skip         bool
-	hasMin       bool
-	hasMax       bool
-	minV, maxV   float64
+	min, max     string
 	parseFailure string
 }
 
@@ -92,16 +115,15 @@ func parseTag(s string) tag {
 			continue
 		}
 		k, v, ok := strings.Cut(part, "=")
-		f, err := strconv.ParseFloat(v, 64)
-		if !ok || err != nil {
+		if !ok || v == "" {
 			tg.parseFailure = part
 			return tg
 		}
 		switch k {
 		case "min":
-			tg.hasMin, tg.minV = true, f
+			tg.min = v
 		case "max":
-			tg.hasMax, tg.maxV = true, f
+			tg.max = v
 		default:
 			tg.parseFailure = part
 			return tg
@@ -116,19 +138,20 @@ type drawFn func(*T, *budget) reflect.Value
 // built, so that a recursive reference becomes a lazy, depth-bounded draw.
 func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) drawFn {
 	if g, ok := cfg.types[typ]; ok {
-		return func(t *T, _ *budget) reflect.Value { return reflect.ValueOf(g.drawSpan(t)).Convert(typ) }
+		return func(t *T, _ *budget) reflect.Value { return valueAs(g.drawSpan(t), typ) }
 	}
 	for _, s := range stack {
 		if s == typ {
+			// The recursive reference is resolved once, after the whole
+			// type has been built, and shared safely between goroutines.
+			var once sync.Once
 			var inner drawFn
 			return func(t *T, b *budget) reflect.Value {
 				if b.left <= 0 || len(t.open) > maxMakeDepth {
 					return reflect.Zero(typ)
 				}
 				b.left--
-				if inner == nil {
-					inner = makeDraw(typ, cfg, tg, nil)
-				}
+				once.Do(func() { inner = makeDraw(typ, cfg, tg, nil) })
 				return inner(t, b)
 			}
 		}
@@ -150,16 +173,7 @@ func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) d
 			return reflect.ValueOf(lo + t.draw(hi-lo, plainMeta, modeBiased)).Convert(typ)
 		}
 	case reflect.Float32, reflect.Float64:
-		lo, hi := -math.MaxFloat64, math.MaxFloat64
-		if typ.Kind() == reflect.Float32 {
-			lo, hi = -math.MaxFloat32, math.MaxFloat32
-		}
-		if tg.hasMin {
-			lo = tg.minV
-		}
-		if tg.hasMax {
-			hi = tg.maxV
-		}
+		lo, hi := floatBounds(typ, tg)
 		return func(t *T, _ *budget) reflect.Value { return reflect.ValueOf(drawFloat(t, lo, hi)).Convert(typ) }
 	case reflect.String:
 		minLen, maxLen := lengthBounds(tg)
@@ -238,7 +252,7 @@ func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) d
 			}
 			if g, ok := cfg.fields[typ][f.Name]; ok {
 				ft := f.Type
-				fields = append(fields, field{i, func(t *T, _ *budget) reflect.Value { return reflect.ValueOf(g.drawSpan(t)).Convert(ft) }})
+				fields = append(fields, field{i, func(t *T, _ *budget) reflect.Value { return valueAs(g.drawSpan(t), ft) }})
 				continue
 			}
 			fields = append(fields, field{i, makeDraw(f.Type, cfg, ftag, stack)})
@@ -258,11 +272,11 @@ func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) d
 func intBounds(typ reflect.Type, tg tag) (lo, hi int64) {
 	bits := typ.Bits()
 	lo, hi = -1<<(bits-1), 1<<(bits-1)-1
-	if tg.hasMin {
-		lo = int64(tg.minV)
+	if tg.min != "" {
+		lo = parseBound(tg.min, func(s string) (int64, error) { return strconv.ParseInt(s, 10, bits) })
 	}
-	if tg.hasMax {
-		hi = int64(tg.maxV)
+	if tg.max != "" {
+		hi = parseBound(tg.max, func(s string) (int64, error) { return strconv.ParseInt(s, 10, bits) })
 	}
 	if lo > hi {
 		panic(fmt.Sprintf("pbt: Make: min %d is above max %d", lo, hi))
@@ -276,11 +290,11 @@ func uintBounds(typ reflect.Type, tg tag) (lo, hi uint64) {
 	if bits < 64 {
 		hi = 1<<bits - 1
 	}
-	if tg.hasMin {
-		lo = uint64(max(tg.minV, 0))
+	if tg.min != "" {
+		lo = parseBound(tg.min, func(s string) (uint64, error) { return strconv.ParseUint(s, 10, bits) })
 	}
-	if tg.hasMax {
-		hi = uint64(max(tg.maxV, 0))
+	if tg.max != "" {
+		hi = parseBound(tg.max, func(s string) (uint64, error) { return strconv.ParseUint(s, 10, bits) })
 	}
 	if lo > hi {
 		panic(fmt.Sprintf("pbt: Make: min %d is above max %d", lo, hi))
@@ -288,16 +302,44 @@ func uintBounds(typ reflect.Type, tg tag) (lo, hi uint64) {
 	return lo, hi
 }
 
+func floatBounds(typ reflect.Type, tg tag) (lo, hi float64) {
+	lo, hi = -math.MaxFloat64, math.MaxFloat64
+	bits := 64
+	if typ.Kind() == reflect.Float32 {
+		lo, hi, bits = -math.MaxFloat32, math.MaxFloat32, 32
+	}
+	if tg.min != "" {
+		lo = parseBound(tg.min, func(s string) (float64, error) { return strconv.ParseFloat(s, bits) })
+	}
+	if tg.max != "" {
+		hi = parseBound(tg.max, func(s string) (float64, error) { return strconv.ParseFloat(s, bits) })
+	}
+	if lo > hi {
+		panic(fmt.Sprintf("pbt: Make: min %v is above max %v", lo, hi))
+	}
+	return lo, hi
+}
+
 func lengthBounds(tg tag) (minLen, maxLen int) {
 	minLen, maxLen = 0, -1
-	if tg.hasMin {
-		minLen = int(max(tg.minV, 0))
+	if tg.min != "" {
+		minLen = parseBound(tg.min, func(s string) (int, error) { return strconv.Atoi(s) })
 	}
-	if tg.hasMax {
-		maxLen = int(max(tg.maxV, 0))
+	if tg.max != "" {
+		maxLen = parseBound(tg.max, func(s string) (int, error) { return strconv.Atoi(s) })
 	}
-	if maxLen >= 0 && maxLen < minLen {
-		panic(fmt.Sprintf("pbt: Make: min length %d is above max length %d", minLen, maxLen))
+	if minLen < 0 || (maxLen >= 0 && maxLen < minLen) {
+		panic(fmt.Sprintf("pbt: Make: invalid length bounds %d, %d", minLen, maxLen))
 	}
 	return minLen, maxLen
+}
+
+// parseBound parses a tag bound at the width of its field and panics on a
+// value the field cannot hold, instead of rounding or wrapping it.
+func parseBound[N any](s string, parse func(string) (N, error)) N {
+	v, err := parse(s)
+	if err != nil {
+		panic(fmt.Sprintf("pbt: Make: bound %q does not fit the field: %v", s, err))
+	}
+	return v
 }

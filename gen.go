@@ -19,7 +19,8 @@ const exampleSize = 10
 
 // Gen generates values of type V. A generator is a deterministic function of
 // the choices it draws from a *T, which is what makes every generator
-// shrinkable without extra code.
+// shrinkable without extra code. The zero value is not a generator and
+// panics when drawn; every Gen comes from a constructor of this package.
 type Gen[V any] struct {
 	name   string
 	nameFn func() string // set by Lazy, whose name is known only once resolved
@@ -50,9 +51,18 @@ func (g Gen[V]) Draw(t *T, label string) V {
 // drawSpan generates a value inside a span labeled with the generator's
 // description, so that the shrinker can treat the choices as one unit.
 func (g Gen[V]) drawSpan(t *T) V {
+	if g.draw == nil {
+		panic("pbt: uninitialized generator: the zero value of Gen cannot draw")
+	}
 	t.beginSpan(g.String())
 	defer t.endSpan()
 	return g.draw(t)
+}
+
+// AsAny returns a generator of the same values typed as any, which lets
+// generators of different types be combined with OneOf or Frequency.
+func AsAny[V any](g Gen[V]) Gen[any] {
+	return Gen[any]{name: g.name, draw: func(t *T) any { return g.drawSpan(t) }}
 }
 
 // Example returns a sample value, as proper_gen:pick does. Without a seed the
@@ -73,6 +83,9 @@ func (g Gen[V]) Example(seed ...uint64) V {
 	}
 }
 
+// tryDraw draws once for Example and runs the Cleanup callbacks the draw
+// registered, so that a generator that opens resources releases them; the
+// sample must therefore not depend on those resources staying open.
 func tryDraw[V any](t *T, g Gen[V]) (v V, ok bool) {
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -81,6 +94,7 @@ func tryDraw[V any](t *T, g Gen[V]) (v V, ok bool) {
 			}
 		}
 	}()
+	defer t.runCleanups()
 	return g.drawSpan(t), true
 }
 
