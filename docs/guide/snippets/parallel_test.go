@@ -1,0 +1,55 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
+package snippets
+
+import (
+	"fmt"
+	"sync"
+	"testing"
+
+	"go.ymotongpoo.com/pbt"
+)
+
+// snippet: parallel
+// Counter is safe for concurrent use. Every command returns a value the
+// postcondition can check, which is what lets the interleaving check
+// decide whether the concurrent run was explained by some sequential order.
+type Counter struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (c *Counter) Add(d int) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n += d
+	return c.n
+}
+
+type counterModel struct{ n int }
+
+func counterCommands(counterModel) pbt.Gen[pbt.Command[counterModel, *Counter]] {
+	return pbt.Map(pbt.IntRange(1, 5), func(d int) pbt.Command[counterModel, *Counter] {
+		return pbt.Cmd[counterModel, *Counter]{
+			Name: "add", Args: []any{d},
+			Run:  func(c *Counter, _ pbt.Env) any { return c.Add(d) },
+			Next: func(m counterModel, _ pbt.Var) counterModel { return counterModel{m.n + d} },
+			Post: func(m counterModel, _ pbt.Env, got any) error {
+				if got != m.n+d {
+					return fmt.Errorf("add(%d) returned %v, want %d", d, got, m.n+d)
+				}
+				return nil
+			},
+		}
+	})
+}
+
+func TestCounterParallel(t *testing.T) {
+	pbt.Check(t, func(t *pbt.T) {
+		prog := pbt.ParallelCommands(counterModel{}, counterCommands).Draw(t, "cmds")
+		prog.RunParallel(t, &Counter{})
+	})
+}
+
+// snippet: end

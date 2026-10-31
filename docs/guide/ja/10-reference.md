@@ -1,0 +1,48 @@
+# 次に読むもの
+
+## 例題の移植
+
+リポジトリの `examples` モジュールには、Fred Hebertの『[PropEr Testing](https://propertesting.com/)』の全章をGoに移植したものがあります。
+この本は、pbtの背後にある考え方を学ぶのに最も良い長編の入門書で、移植はErlangの各例題がGoでどう読めるかを示しています。
+
+| 本の章 | パッケージ | 内容 |
+| --- | --- | --- |
+| 1、4 | `ch01cash`、`ch04stateless` | 最初のプロパティ、モデル化、リストに関する演習 |
+| 5 | `ch05generators` | 自作の生成器、`Collect` と `Aggregate`、再帰的な生成器と `Sized` |
+| 6 | `ch06birthday` | CSVの往復、テンプレート、プロパティと並ぶ例示テスト |
+| 7 | `ch07checkout` | 段階的な `Bind`、負のテスト、仕様のバグの発見 |
+| 8 | `ch08shrinking` | `ShrinkTo`、`LetShrink`、`SampleShrink` |
+| 9 | `ch09cache` | キャッシュの逐次と並行のステートフルテスト |
+| 10 | `ch10bookstore` | データベースに対するステートフルテスト。SQLiteとPostgreSQL |
+| 11 | `ch11breaker` | `fsm` パッケージによる状態機械 |
+
+各パッケージのREADMEに、その章の演習への解答があります。
+`examples` の中で `go test ./...` を実行してください。
+
+## rapidから移行する
+
+[MIGRATION.md](https://github.com/ymotongpoo/pbt/blob/main/MIGRATION.md) は、rapidのAPIをpbtに表で対応づけ、pbtが加えるものを列挙しています。
+rapidのテストの大半は1行ずつ置き換えられます。
+ステートフルテストは形が変わります。
+pbtは列全体をモデルに対して生成してから実行するためです。
+[BENCHMARK.md](https://github.com/ymotongpoo/pbt/blob/main/BENCHMARK.md) は同じプロパティで両者を比較しています。
+
+## 参照資料
+
+- pkg.go.devの[パッケージドキュメント](https://pkg.go.dev/go.ymotongpoo.com/pbt)は、すべての関数とオプションを、実行できる例とともに説明しています。
+- [DESIGN.md](https://github.com/ymotongpoo/pbt/blob/main/DESIGN.md) は設計の判断と、PropEr、QuickCheck、Hypothesis、rapidとの比較を記録しています。日本語版はDESIGN.ja.mdです。
+- [CHANGELOG.md](https://github.com/ymotongpoo/pbt/blob/main/CHANGELOG.md) は各リリースの変更を列挙しています。v1.0まではAPIが変わることがあります。
+- 不具合の報告と質問は[GitHubリポジトリ](https://github.com/ymotongpoo/pbt)へお願いします。
+
+## フラグの一覧
+
+```text
+go test ./... -pbt.checks=1000          # ケース数を増やす
+go test ./... -pbt.seed=0x1c3           # 実行を繰り返す
+go test ./... -pbt.startsize=10 -pbt.maxsize=100
+go test ./... -pbt.shrinktime=2m
+go test ./... -pbt.searchsteps=5000     # 標的型探索を長くする
+go test ./... -pbt.nosave               # testdata/pbt に書き込まない
+go test ./... -pbt.replay=testdata/pbt/TestQueue/3f2a… -run TestQueue
+go test ./... -pbt.v                    # 要約と縮小のステップを表示する
+```
