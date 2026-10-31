@@ -64,11 +64,11 @@ func mutate(rng *rand.Rand, best *T, temp float64) []uint64 {
 		c[rng.IntN(len(c))] = rng.Uint64() >> rng.IntN(64)
 	case 4:
 		if sp, ok := randomSpan(rng, best); ok {
-			c = slices.Concat(c[:sp.start], c[sp.end:])
+			c = slices.Concat(c[:int(sp.start)], c[int(sp.end):])
 		}
 	case 5:
 		if sp, ok := randomSpan(rng, best); ok {
-			c = slices.Concat(c[:sp.end], c[sp.start:sp.end], c[sp.end:])
+			c = slices.Concat(c[:int(sp.end)], c[int(sp.start):int(sp.end)], c[int(sp.end):])
 		}
 	}
 	return c
@@ -79,5 +79,5 @@ func randomSpan(rng *rand.Rand, t *T) (span, bool) {
 		return span{}, false
 	}
 	sp := t.spans[rng.IntN(len(t.spans))]
-	return sp, sp.end > sp.start && sp.end <= len(t.choices)
+	return sp, sp.end > sp.start && int(sp.end) <= len(t.choices)
 }

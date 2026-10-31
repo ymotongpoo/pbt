@@ -86,7 +86,7 @@ func (s *shrinker) masks() {
 	s.inside = make([]bool, len(spans))
 	for i, sp := range spans {
 		if sp.noshrink {
-			for j := sp.start; j < sp.end && j < len(s.frozen); j++ {
+			for j := int(sp.start); j < int(sp.end) && j < len(s.frozen); j++ {
 				s.frozen[j] = true
 			}
 		}
@@ -167,16 +167,16 @@ func (s *shrinker) spansByStartDesc() []int {
 	}
 	slices.SortFunc(idx, func(a, b int) int {
 		if spans[a].start != spans[b].start {
-			return spans[b].start - spans[a].start
+			return int(spans[b].start - spans[a].start)
 		}
-		return spans[b].end - spans[a].end
+		return int(spans[b].end - spans[a].end)
 	})
 	return idx
 }
 
 func (s *shrinker) firstStartBelow(idx []int, pos int) int {
 	for k, i := range idx {
-		if s.cur.spans[i].start < pos {
+		if int(s.cur.spans[i].start) < pos {
 			return k
 		}
 	}
@@ -191,13 +191,13 @@ func (s *shrinker) deleteSpans() bool {
 	for k := 0; k < len(idx) && !s.exhausted(); k++ {
 		sp := s.cur.spans[idx[k]]
 		cur := s.cur.choices
-		if sp.end <= sp.start || sp.end > len(cur) || s.insideNoShrink(idx[k]) {
+		if sp.end <= sp.start || int(sp.end) > len(cur) || s.insideNoShrink(idx[k]) {
 			continue
 		}
-		if s.try(slices.Concat(cur[:sp.start], cur[sp.end:])) {
+		if s.try(slices.Concat(cur[:int(sp.start)], cur[int(sp.end):])) {
 			progress = true
 			idx = s.spansByStartDesc()
-			k = s.firstStartBelow(idx, sp.start) - 1
+			k = s.firstStartBelow(idx, int(sp.start)) - 1
 		}
 	}
 	return progress
@@ -214,7 +214,7 @@ restart:
 		children := make(map[int][]int)
 		for i, sp := range spans {
 			if sp.end > sp.start && !s.insideNoShrink(i) {
-				children[sp.parent] = append(children[sp.parent], i)
+				children[int(sp.parent)] = append(children[int(sp.parent)], i)
 			}
 		}
 		for parent := -1; parent < len(spans); parent++ {
@@ -230,11 +230,11 @@ restart:
 							break
 						}
 					}
-					if !contiguous || last.end > len(s.cur.choices) {
+					if !contiguous || int(last.end) > len(s.cur.choices) {
 						continue
 					}
 					cur := s.cur.choices
-					if s.try(slices.Concat(cur[:first.start], cur[last.end:])) {
+					if s.try(slices.Concat(cur[:int(first.start)], cur[int(last.end):])) {
 						progress = true
 						continue restart
 					}
@@ -256,7 +256,7 @@ func (s *shrinker) zeroSpans() bool {
 	for k := 0; k < len(idx) && !s.exhausted(); k++ {
 		sp := s.cur.spans[idx[k]]
 		cur := s.cur.choices
-		if sp.end <= sp.start || sp.end > len(cur) || s.frozenRange(sp.start, sp.end) {
+		if sp.end <= sp.start || int(sp.end) > len(cur) || s.frozenRange(int(sp.start), int(sp.end)) {
 			continue
 		}
 		if !slices.ContainsFunc(cur[sp.start:sp.end], func(v uint64) bool { return v != 0 }) {
@@ -267,7 +267,7 @@ func (s *shrinker) zeroSpans() bool {
 		if s.try(cand) {
 			progress = true
 			idx = s.spansByStartDesc()
-			k = s.firstStartBelow(idx, sp.start) - 1
+			k = s.firstStartBelow(idx, int(sp.start)) - 1
 		}
 	}
 	return progress
@@ -282,21 +282,21 @@ restart:
 	for !s.exhausted() {
 		spans := s.cur.spans
 		for i, sp := range spans {
-			size := sp.end - sp.start
-			if size < 2 || s.frozenRange(sp.start, sp.end) {
+			size := int(sp.end - sp.start)
+			if size < 2 || s.frozenRange(int(sp.start), int(sp.end)) {
 				continue
 			}
 			var descs []span
 			for j := i + 1; j < len(spans) && spans[j].start < sp.end; j++ {
 				d := spans[j]
-				if d.label == sp.label && d.end <= sp.end && d.end-d.start < size {
+				if d.label == sp.label && d.end <= sp.end && int(d.end-d.start) < size {
 					descs = append(descs, d)
 				}
 			}
-			slices.SortFunc(descs, func(a, b span) int { return (a.end - a.start) - (b.end - b.start) })
+			slices.SortFunc(descs, func(a, b span) int { return int((a.end - a.start) - (b.end - b.start)) })
 			for _, d := range descs {
 				cur := s.cur.choices
-				if s.try(slices.Concat(cur[:sp.start], cur[d.start:d.end], cur[sp.end:])) {
+				if s.try(slices.Concat(cur[:int(sp.start)], cur[int(d.start):int(d.end)], cur[int(sp.end):])) {
 					progress = true
 					continue restart
 				}
@@ -333,15 +333,15 @@ restart:
 			if sp.end <= sp.start {
 				continue
 			}
-			g := spanGroup{sp.label, sp.end - sp.start}
-			if children[sp.parent] == nil {
-				children[sp.parent] = make(map[spanGroup][]span)
+			g := spanGroup{sp.label, int(sp.end - sp.start)}
+			if children[int(sp.parent)] == nil {
+				children[int(sp.parent)] = make(map[spanGroup][]span)
 			}
-			children[sp.parent][g] = append(children[sp.parent][g], sp)
+			children[int(sp.parent)][g] = append(children[int(sp.parent)][g], sp)
 		}
 		for parent := -1; parent < len(spans); parent++ {
 			for _, group := range children[parent] {
-				if len(group) < 2 || s.frozenRange(group[0].start, group[len(group)-1].end) {
+				if len(group) < 2 || s.frozenRange(int(group[0].start), int(group[len(group)-1].end)) {
 					continue
 				}
 				cur := s.cur.choices

@@ -145,8 +145,16 @@ func TestLetShrinkToPart(t *testing.T) {
 	if got := drawn[[]int](t, c, 0); !slices.Equal(got, []int{0, 0}) {
 		t.Errorf("got %v, want [0 0]", got)
 	}
-	if c.choices[0] >= 3 {
-		t.Errorf("the result was combined (choice %d) instead of shrinking to a part", c.choices[0])
+	// With fixed parts, only the first part can fail on its own, so the
+	// shrinker must select it instead of combining.
+	fixed := LetShrink([]Gen[[]int]{Just([]int{1, 1}), Just([]int{2})}, func(ps [][]int) []int { return slices.Concat(ps...) })
+	c = counterexample(t, func(t *T) {
+		if xs := fixed.Draw(t, "xs"); len(xs) >= 2 {
+			t.Fatalf("len %d", len(xs))
+		}
+	})
+	if got := drawn[[]int](t, c, 0); !slices.Equal(got, []int{1, 1}) || c.choices[0] != 0 {
+		t.Errorf("got %v with choice %d, want [1 1] from part 0", got, c.choices[0])
 	}
 }
 

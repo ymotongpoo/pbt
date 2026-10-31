@@ -161,15 +161,11 @@ const asciiShrinkOrder = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQR
 var (
 	asciiRunes   = []rune(asciiShrinkOrder)
 	controlRunes = append([]rune{'\n', '\t', '\r', 0}, controls()...)
-	nonASCIIRune = Gen[rune]{name: "nonASCIIRune", draw: func(t *T) rune {
-		const surrogates = 0xE000 - 0xD800
-		r := rune(0x80 + t.draw(0x10FFFF-0x80-surrogates, plainMeta, modeBiased))
-		if r >= 0xD800 {
-			r += surrogates
-		}
-		return r
-	}}
 )
+
+// runeTableMax is the largest rune choice: the two tables followed by every
+// code point from 0x80 up, with the surrogate range skipped.
+const runeTableMax = uint64(len(asciiShrinkOrder)+33) + (0x10FFFF - 0x80 - (0xE000 - 0xD800)) - 1
 
 func controls() []rune {
 	var rs []rune
@@ -182,14 +178,26 @@ func controls() []rune {
 }
 
 // Rune generates valid Unicode code points, mostly printable ASCII, with
-// some control characters and some from the rest of the code space. It
-// shrinks toward '0'.
+// some control characters and some from the rest of the code space, in one
+// choice: the printable table first, then the control table, then the
+// remaining code points. It shrinks toward '0'.
 func Rune() Gen[rune] {
-	return named(Frequency(
-		Weighted[rune]{Weight: 70, Gen: SampledFrom(asciiRunes)},
-		Weighted[rune]{Weight: 10, Gen: SampledFrom(controlRunes)},
-		Weighted[rune]{Weight: 20, Gen: nonASCIIRune},
-	), "Rune()")
+	return Gen[rune]{name: "Rune()", draw: func(t *T) rune {
+		u := t.draw(runeTableMax, plainMeta, modeText)
+		switch tables := uint64(len(asciiRunes) + len(controlRunes)); {
+		case u < uint64(len(asciiRunes)):
+			return asciiRunes[u]
+		case u < tables:
+			return controlRunes[u-uint64(len(asciiRunes))]
+		default:
+			const surrogates = 0xE000 - 0xD800
+			r := rune(0x80 + (u - tables))
+			if r >= 0xD800 {
+				r += surrogates
+			}
+			return r
+		}
+	}}
 }
 
 // String generates valid UTF-8 strings of runes from Rune.

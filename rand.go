@@ -43,8 +43,11 @@ func fresh(r *rand.Rand, max uint64, mode drawMode, size, maxSize int) uint64 {
 	if max == 0 {
 		return 0
 	}
-	if mode == modeUniform {
+	switch mode {
+	case modeUniform:
 		return uniform64(r, max)
+	case modeText:
+		return textRune(r, max, size, maxSize)
 	}
 	return biased64(r, max, size, maxSize)
 }
@@ -58,9 +61,11 @@ func uniform64(r *rand.Rand, max uint64) uint64 {
 
 // biased64 draws from [0, max] favouring small values and the edges. The
 // usable bit width grows with the size parameter, so early test cases use
-// small values and the full range is reached at the maximum size.
+// small values and the full range is reached at the maximum size. One
+// random word supplies the edge decision, the width and the value.
 func biased64(r *rand.Rand, max uint64, size, maxSize int) uint64 {
-	switch r.IntN(32) {
+	word := r.Uint64()
+	switch word >> 59 { // 5 bits
 	case 0:
 		return max
 	case 1:
@@ -73,18 +78,32 @@ func biased64(r *rand.Rand, max uint64, size, maxSize int) uint64 {
 		width = max64(1, width*size/maxSize)
 	}
 	if width > 1 {
-		width = 1 + r.IntN(width)
+		width = 1 + int((word>>52)&0x7f)%width // 7 bits pick the width
 	}
-	var v uint64
+	v := word & (uint64(1)<<width - 1)
 	if width >= 64 {
-		v = r.Uint64()
-	} else {
-		v = r.Uint64N(uint64(1) << width)
+		v = word
 	}
 	if v > max {
 		v = uniform64(r, max)
 	}
 	return v
+}
+
+// textRune draws the index of a rune for Rune: three quarters of the time
+// a printable ASCII character, a tenth of the time a control character,
+// otherwise a code point from the rest of the space, biased toward the
+// low end.
+func textRune(r *rand.Rand, max uint64, size, maxSize int) uint64 {
+	switch p := r.Float64(); {
+	case p < 0.75:
+		return uint64(r.IntN(len(asciiRunes)))
+	case p < 0.85:
+		return uint64(len(asciiRunes) + r.IntN(len(controlRunes)))
+	default:
+		rest := max - uint64(len(asciiRunes)+len(controlRunes))
+		return uint64(len(asciiRunes)+len(controlRunes)) + biased64(r, rest, size, maxSize)
+	}
 }
 
 func max64(a, b int) int {

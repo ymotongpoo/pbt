@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+// maxReportDepth is how deep nested labeled draws are listed in a report.
+const maxReportDepth = 3
+
 // report writes the counterexample to the test log and marks the test as
 // failed.
 func (r *runner) report(t *T, headline string, trailer []string) {
@@ -24,9 +27,17 @@ func (r *runner) format(t *T, headline string, trailer []string) string {
 	if t.hasUtility {
 		fmt.Fprintf(&b, "[pbt] utility %s = %s\n", t.utilityName, formatNum(t.utility))
 	}
+	omitted := 0
 	for _, d := range t.draws {
+		if d.depth > maxReportDepth {
+			omitted++
+			continue
+		}
 		indent := strings.Repeat("  ", d.depth)
 		fmt.Fprintf(&b, "[pbt] %s%s\n", indent, strings.ReplaceAll(formatDraw(d), "\n", "\n[pbt]   "+indent))
+	}
+	if omitted > 0 {
+		fmt.Fprintf(&b, "[pbt] (%d labeled draws nested deeper than %d levels omitted)\n", omitted, maxReportDepth)
 	}
 	for _, l := range t.logs {
 		fmt.Fprintf(&b, "[pbt] log: %s\n", l)

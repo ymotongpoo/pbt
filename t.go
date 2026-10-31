@@ -27,14 +27,15 @@ const (
 )
 
 // choiceMeta describes how a recorded choice maps to a value, so that the
-// shrinker can reason in value space.
+// shrinker can reason in value space. It is kept to sixteen bytes because
+// one is recorded per choice.
 type choiceMeta struct {
-	kind choiceKind
 	// zz and tailPos describe zigzag choices: choices up to zz alternate
 	// between the two sides of the center, choices beyond zz continue on
 	// the positive side when tailPos is set and on the negative side
 	// otherwise.
 	zz      uint64
+	kind    choiceKind
 	tailPos bool
 }
 
@@ -64,16 +65,18 @@ type drawMode uint8
 const (
 	modeBiased  drawMode = iota // small values and edges are over-represented
 	modeUniform                 // every value is equally likely
+	modeText                    // the rune table of Rune: mostly printable ASCII
 )
 
 // span records which choices one generator consumed. Spans nest like the
 // generators that produced them and are the unit the shrinker deletes,
-// reorders and replaces.
+// reorders and replaces. A draw that consumed a single choice and nothing
+// else leaves no span: the choice itself is the unit.
 type span struct {
 	label      string
-	start, end int
-	parent     int // index of the enclosing span, or -1
-	depth      int
+	start, end int32
+	parent     int32 // index of the enclosing span, or -1
+	depth      int32
 	noshrink   bool // the shrinker must not change the choices inside
 }
 
@@ -126,6 +129,12 @@ type T struct {
 	utilityName string
 	utility     float64
 
+	// recActive and recBudget implement Bounded: the outermost bounded
+	// draw of a value sets the budget, and every nested one, of any type,
+	// spends it.
+	recActive bool
+	recBudget int
+
 	mu            sync.Mutex // guards failed, messages and logs, which Timeout touches from another goroutine
 	failed        bool
 	discarded     bool
@@ -150,7 +159,13 @@ type coverRecord struct {
 }
 
 func newT(name string, prefix []uint64, size, maxSize int, rng *rand.Rand) *T {
-	return &T{name: name, rng: rng, prefix: prefix, size: size, maxSize: maxSize}
+	n := max(len(prefix), 64)
+	return &T{
+		name: name, rng: rng, prefix: prefix, size: size, maxSize: maxSize,
+		choices: make([]uint64, 0, n),
+		metas:   make([]choiceMeta, 0, n),
+		spans:   make([]span, 0, n/2),
+	}
 }
 
 // draw records the next choice in [0, max] and returns it. While a prefix is
@@ -219,15 +234,15 @@ func (t *T) forced(v uint64) {
 }
 
 func (t *T) beginSpan(label string) {
-	parent, depth := -1, 0
+	parent, depth := int32(-1), int32(0)
 	if n := len(t.open); n > 0 {
-		parent = t.open[n-1]
+		parent = int32(t.open[n-1])
 		depth = t.spans[parent].depth + 1
 		if depth > maxSpanDepth {
 			t.discard(fmt.Sprintf("generators nested more than %d levels deep in %s; bound the recursion, for example with Sized", maxSpanDepth, label))
 		}
 	}
-	t.spans = append(t.spans, span{label: label, start: len(t.choices), end: -1, parent: parent, depth: depth})
+	t.spans = append(t.spans, span{label: label, start: int32(len(t.choices)), end: -1, parent: parent, depth: depth})
 	t.open = append(t.open, len(t.spans)-1)
 }
 
@@ -235,7 +250,12 @@ func (t *T) endSpan() {
 	n := len(t.open)
 	i := t.open[n-1]
 	t.open = t.open[:n-1]
-	t.spans[i].end = len(t.choices)
+	t.spans[i].end = int32(len(t.choices))
+	// A leaf span over one choice carries no information the choice does
+	// not, so drop it to keep the record small.
+	if i == len(t.spans)-1 && t.spans[i].end-t.spans[i].start <= 1 && !t.spans[i].noshrink {
+		t.spans = t.spans[:i]
+	}
 }
 
 func (t *T) closeSpans() {
