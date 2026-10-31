@@ -213,6 +213,9 @@ func SampleShrink[V any](g Gen[V], seed ...uint64) iter.Seq[V]    // proper_gen:
 func Func[A comparable, B any](ret Gen[B]) Gen[*Fn[A, B]] // function/2; call through Fn.Call
 func Func2[A, B comparable, C any](ret Gen[C]) Gen[*Fn2[A, B, C]]
 func Make[V any](opts ...MakeOption) Gen[V]              // derived from the type by reflection; pbt struct tags, WithType, WithField
+func Recursive[V any](leaf Gen[V], extend func(self Gen[V]) Gen[V]) Gen[V] // bounded recursion
+func NoPanic(f any, opts ...MakeOption) Property           // check_spec, limited to the signature
+// cmd/pbtgen: go run go.ymotongpoo.com/pbt/cmd/pbtgen -type T1,T2 writes GenT1, GenT2 as source
 
 // Properties.
 type Property func(*T)
@@ -346,9 +349,14 @@ Phase 0 uses rapid as the yardstick because the two share a method, so the
 difference shows directly in shrinking quality. As of 2026-10-31, Phases 0
 to 4 are implemented and tested, including parallel command testing and
 targeted search, every chapter of the book is ported under `examples/`,
-and the reflection-based `Make[T]` of Phase 5 exists with struct tags and
-overrides. Still open: the port of rapid's tests, code generation with
-`go/types`, and checking functions against their signatures.
+and Phase 5 exists: the reflection-based `Make[T]` with struct tags and
+overrides, the code generator `cmd/pbtgen` built on `go/types`, which writes
+the same generators as source and can fill unexported fields, `Recursive`
+for bounded recursion, and `NoPanic` as the signature-only form of
+`check_spec`. The shrink quality checks of rapid are mirrored in
+`parity_test.go`, and MIGRATION.md maps rapid's API onto pbt. Still open in
+Phase 6: visualization beyond the verbose shrink log and a performance
+comparison with rapid.
 
 ## What Go offers
 

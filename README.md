@@ -97,7 +97,12 @@ execution time. Package `fsm` adds named states with weighted transitions.
 Weights, sizes and shrinking targets are under your control: `Frequency`,
 `Sized`, `Resize`, `ShrinkTo`, `LetShrink`, `NoShrink`, `IntRangeToward`.
 `Make[T]` derives a generator from a struct type, with `pbt` tags for
-ranges and lengths and `WithType` or `WithField` for overrides.
+ranges and lengths and `WithType` or `WithField` for overrides, and
+`cmd/pbtgen` writes the same generators as source under `go generate`, where
+they can fill unexported fields. `Recursive` bounds recursive types, and
+`NoPanic` turns a function into a property over its parameter types.
+
+Coming from rapid? See [MIGRATION.md](MIGRATION.md).
 `Collect`, `Classify`, `Aggregate` and `Measure` print the distribution of a
 passing run, and `Cover` with the `CheckCoverage` option fails the test when
 a declared share of cases is not reached. `Maximize` and `Minimize` turn a
