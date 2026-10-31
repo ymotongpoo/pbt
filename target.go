@@ -4,6 +4,7 @@
 package pbt
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"slices"
 )
@@ -12,8 +13,13 @@ import (
 // search, as PropEr's ?MAXIMIZE does. Once a case reports a utility, Check
 // stops drawing fresh cases and instead mutates the best case found so far,
 // looking for inputs with a higher utility, for the number of search steps
-// in the configuration. The name labels the utility in the report.
+// in the configuration. The name labels the utility in the report. A case
+// has one utility: calling Maximize again with the same name replaces the
+// value, and calling it with another name panics.
 func (t *T) Maximize(name string, utility float64) {
+	if t.hasUtility && t.utilityName != name {
+		panic(fmt.Sprintf("pbt: Maximize: a case has one utility, but %q was reported after %q", name, t.utilityName))
+	}
 	t.hasUtility = true
 	t.utilityName = name
 	t.utility = utility

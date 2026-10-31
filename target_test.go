@@ -116,3 +116,19 @@ func TestCheckExistsWithGuidance(t *testing.T) {
 		t.Fatalf("no witness: %q", tb.errors)
 	}
 }
+
+func TestMaximizeAllowsOneUtilityPerCase(t *testing.T) {
+	c := &T{}
+	c.Maximize("distance", 1)
+	c.Maximize("distance", 2) // the same name replaces the value
+	if c.utility != 2 {
+		t.Fatalf("utility = %v, want 2", c.utility)
+	}
+	defer func() {
+		msg, _ := recover().(string)
+		if !strings.Contains(msg, `"length" was reported after "distance"`) {
+			t.Errorf("second utility name did not panic as expected: %q", msg)
+		}
+	}()
+	c.Maximize("length", 3)
+}
