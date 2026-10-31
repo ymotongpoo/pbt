@@ -8,6 +8,7 @@ import (
 // report writes the counterexample to the test log and marks the test as
 // failed.
 func (r *runner) report(t *T, headline string, trailer []string) {
+	t.runOnFail()
 	var b strings.Builder
 	fmt.Fprintf(&b, "[pbt] %s (size %d)\n", headline, t.size)
 	for _, d := range t.draws {

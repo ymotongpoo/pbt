@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"runtime/debug"
+	"sync"
 	"time"
 )
 
@@ -69,6 +70,7 @@ type span struct {
 	start, end int
 	parent     int // index of the enclosing span, or -1
 	depth      int
+	noshrink   bool // the shrinker must not change the choices inside
 }
 
 // drawRecord is one value drawn directly by the property, kept for the
@@ -108,6 +110,13 @@ type T struct {
 
 	draws []drawRecord
 
+	// Statistics of this test case, merged into the run's totals when the
+	// case passes.
+	labels   []string
+	measures []measurement
+	covers   []coverRecord
+
+	mu            sync.Mutex // guards failed, messages and logs, which Timeout touches from another goroutine
 	failed        bool
 	discarded     bool
 	discardReason string
@@ -116,6 +125,18 @@ type T struct {
 	panicVal      any
 	stack         []byte
 	cleanups      []func()
+	onFail        []func()
+}
+
+type measurement struct {
+	name  string
+	value float64
+}
+
+type coverRecord struct {
+	label string
+	pct   float64
+	hit   bool
 }
 
 func newT(name string, prefix []uint64, size, maxSize int, rng *rand.Rand) *T {
@@ -260,14 +281,19 @@ func (t *T) Size() int { return t.size }
 
 // Errorf records a failure and continues the test case.
 func (t *T) Errorf(format string, args ...any) {
-	t.failed = true
-	t.messages = append(t.messages, fmt.Sprintf(format, args...))
+	t.fail(fmt.Sprintf(format, args...))
 }
 
 // Error records a failure and continues the test case.
 func (t *T) Error(args ...any) {
+	t.fail(fmt.Sprint(args...))
+}
+
+func (t *T) fail(msg string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.failed = true
-	t.messages = append(t.messages, fmt.Sprint(args...))
+	t.messages = append(t.messages, msg)
 }
 
 // Fatalf records a failure and stops the test case.
@@ -283,28 +309,42 @@ func (t *T) Fatal(args ...any) {
 }
 
 // Fail marks the test case as failed and continues.
-func (t *T) Fail() { t.failed = true }
+func (t *T) Fail() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.failed = true
+}
 
 // FailNow marks the test case as failed and stops it. It must be called from
 // the goroutine running the property.
 func (t *T) FailNow() {
-	t.failed = true
+	t.Fail()
 	panic(stopTest{})
 }
 
 // Failed reports whether the test case has failed.
-func (t *T) Failed() bool { return t.failed }
+func (t *T) Failed() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.failed
+}
 
 // Logf records a message that is shown when the test case is the reported
 // counterexample.
 func (t *T) Logf(format string, args ...any) {
-	t.logs = append(t.logs, fmt.Sprintf(format, args...))
+	t.log(fmt.Sprintf(format, args...))
 }
 
 // Log records a message that is shown when the test case is the reported
 // counterexample.
 func (t *T) Log(args ...any) {
-	t.logs = append(t.logs, fmt.Sprint(args...))
+	t.log(fmt.Sprint(args...))
+}
+
+func (t *T) log(msg string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.logs = append(t.logs, msg)
 }
 
 // Skip discards the test case; it counts neither as passed nor as failed.
@@ -326,3 +366,55 @@ func (t *T) Assume(cond bool) {
 
 // Cleanup registers f to run after the test case, whether it passed or not.
 func (t *T) Cleanup(f func()) { t.cleanups = append(t.cleanups, f) }
+
+// OnFail registers f to run when this test case is reported as the
+// counterexample, after shrinking. It is the equivalent of PropEr's
+// ?WHENFAIL. Output written with Logf inside f appears in the report.
+func (t *T) OnFail(f func()) { t.onFail = append(t.onFail, f) }
+
+// Collect records v for the statistics that Check prints when the property
+// passes, as PropEr's collect/2 does. Values are grouped by their %v text.
+func (t *T) Collect(v any) { t.labels = append(t.labels, fmt.Sprint(v)) }
+
+// Classify records label when cond holds, as PropEr's classify/3 does.
+func (t *T) Classify(cond bool, label string) {
+	if cond {
+		t.labels = append(t.labels, label)
+	}
+}
+
+// Aggregate records every value, as PropEr's aggregate/2 does with a list.
+// Use it for the names of the commands a stateful test ran.
+func (t *T) Aggregate(values ...any) {
+	for _, v := range values {
+		t.labels = append(t.labels, fmt.Sprint(v))
+	}
+}
+
+// Measure records a numeric sample under name; Check prints its minimum,
+// average and maximum, as PropEr's measure/3 does.
+func (t *T) Measure(name string, value float64) {
+	t.measures = append(t.measures, measurement{name: name, value: value})
+}
+
+// Cover declares that the cases for which cond holds must make up at least
+// pct percent of all passing cases, as QuickCheck's cover does. Check warns
+// when the observed share falls short, and fails instead when the
+// CheckCoverage option is set.
+func (t *T) Cover(cond bool, pct float64, label string) {
+	t.covers = append(t.covers, coverRecord{label: label, pct: pct, hit: cond})
+}
+
+// runOnFail runs the OnFail callbacks of the reported counterexample.
+func (t *T) runOnFail() {
+	for _, f := range t.onFail {
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					t.Logf("OnFail callback panicked: %v", rec)
+				}
+			}()
+			f()
+		}()
+	}
+}

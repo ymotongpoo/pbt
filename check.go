@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -66,6 +67,8 @@ type config struct {
 	noSave     bool
 	testdata   string
 	verbose    bool
+	setup      func(*T) func()
+	checkCover bool
 }
 
 // Checks sets the number of passing test cases Check requires.
@@ -99,6 +102,14 @@ func NoSave() Option { return func(c *config) { c.noSave = true } }
 // and replayed. The default is testdata/pbt relative to the test binary's
 // working directory, which go test sets to the package directory.
 func TestdataDir(dir string) Option { return func(c *config) { c.testdata = dir } }
+
+// Setup runs f before every test case, as PropEr's ?SETUP does. The function
+// f returns may be nil; otherwise it runs after the case, like Cleanup.
+func Setup(f func(t *T) (teardown func())) Option { return func(c *config) { c.setup = f } }
+
+// CheckCoverage makes Check fail when a Cover requirement is not met. Without
+// it, Check only logs the shortfall.
+func CheckCoverage() Option { return func(c *config) { c.checkCover = true } }
 
 func newConfig(opts []Option) (config, error) {
 	c := config{
@@ -153,9 +164,7 @@ func Check(tb TB, prop Property, opts ...Option) {
 		return
 	}
 	if fail == nil {
-		if cfg.verbose {
-			tb.Logf("[pbt] OK, passed %d checks (seed 0x%x)", passed, cfg.seed)
-		}
+		r.reportStats(passed)
 		return
 	}
 	minimal, steps := r.shrink(fail)
@@ -180,23 +189,56 @@ func MakeCheck(prop Property, opts ...Option) func(*testing.T) {
 }
 
 type runner struct {
-	tb   TB
-	prop Property
-	cfg  config
+	tb    TB
+	prop  Property
+	cfg   config
+	stats *stats
 }
 
 // run executes the property once. prefix is replayed first; rng supplies
 // further choices and may be nil, in which case missing choices are 0.
 func (r *runner) run(prefix []uint64, size int, rng *rand.Rand) *T {
 	t := newT(r.tb.Name(), prefix, size, r.cfg.maxSize, rng)
-	t.execute(r.prop)
+	prop := r.prop
+	if setup := r.cfg.setup; setup != nil {
+		prop = func(t *T) {
+			if teardown := setup(t); teardown != nil {
+				t.Cleanup(teardown)
+			}
+			r.prop(t)
+		}
+	}
+	t.execute(prop)
 	return t
+}
+
+// reportStats logs the statistics of a passing run and checks the Cover
+// requirements.
+func (r *runner) reportStats(passed int) {
+	r.tb.Helper()
+	st := r.stats
+	if st == nil {
+		st = newStats()
+	}
+	if r.cfg.verbose || !st.empty() {
+		lines := append([]string{fmt.Sprintf("OK, passed %d checks (seed 0x%x)", passed, r.cfg.seed)}, st.lines()...)
+		r.tb.Logf("[pbt] %s", strings.Join(lines, "\n[pbt] "))
+	}
+	if short := st.shortfalls(); len(short) > 0 {
+		msg := "[pbt] insufficient coverage:\n[pbt]   " + strings.Join(short, "\n[pbt]   ")
+		if r.cfg.checkCover {
+			r.tb.Errorf("%s", msg)
+		} else {
+			r.tb.Logf("%s (add the CheckCoverage option to fail on this)", msg)
+		}
+	}
 }
 
 // search runs fresh test cases until one fails or enough pass. The size
 // grows by one per passing case, as in PropEr.
 func (r *runner) search() (fail *T, passed int, err error) {
 	cfg := r.cfg
+	r.stats = newStats()
 	discards := 0
 	for passed < cfg.checks {
 		size := min(cfg.startSize+passed, cfg.maxSize)
@@ -211,6 +253,7 @@ func (r *runner) search() (fail *T, passed int, err error) {
 		case t.failed:
 			return t, passed, nil
 		default:
+			r.stats.add(t)
 			passed++
 		}
 	}
