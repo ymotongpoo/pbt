@@ -95,6 +95,13 @@ Hypothesisに同意できないのは、次節で述べるとおり分布の制�
 - `?SHRINK`（別の生成器の値へ縮小させる）は、本書8章では年を1970年前後へ寄せ、タイムゾーンの分を0、15、30、45へ寄せる例に使われています。pbtでは `ShrinkTo(g, alts...)` として提供します。先頭に重み0の代替生成器を並べ、末尾に本来の生成器 `g` を置いた `Frequency` と同じ構造です。生成時は `g` だけが選ばれ、縮小時に添字が小さくなって代替生成器へ移ります。数値を特定の値へ寄せる用途には `IntRangeToward(lo, hi, center)` があります。
 - 任意の値から選択列への符号化を要する一般の値レベル縮小は提供しません。上の2つで本書の用例はすべて書けます。
 
+縮小器は、出発点となった失敗の同一性を保ちます。
+テストケースは最初に失敗した場所を記録します。
+アサーションならその呼び出し位置、パニックならその型と発生位置、ステートフルテストならどのコマンドのどの検査かです。
+縮小器が候補を採用するのは、同じ同一性で失敗するときに限ります。
+この規則がないと、大きな入力で見つかったパニックが、小さな入力で引っかかる無関係なアサーションへ縮小してしまい、探索が見つけたバグが報告から消えてしまいます。
+Hypothesisが失敗のinteresting originと呼ぶものと同じ考え方です。
+
 ## 設計原則としての分布の制御
 
 Hypothesisには `one_of` の各選択肢に重みを与える手段がありません。
@@ -106,7 +113,12 @@ pbtはこの方針を採りません。
 PropErとQuickCheckが `frequency` と `sized` を公開し、同時に `collect` や `classify` で分布を観察する手段を用意しているのは、分布の責任をユーザーが持つという前提の表れです。
 分布を渡す以上、それを確かめる手段も渡します。
 QuickCheckの `cover` と `checkCoverage` に相当する機能も含めます。
-「この分類が全体の20%以上を占める」と宣言し、統計的に満たされなければテストを失敗させる機能です。
+「この分類が全体の20%以上を占める」と宣言する機能です。
+判定は統計的に行います。
+観測した割合の99.7%Wilson区間が宣言した割合を上回れば充足、下回れば不足、またがっていれば未決です。
+`CheckCoverage` を付けない場合、`Check` は不足をログに出すだけです。
+付けた場合は、すべての宣言が決まるまで、設定した回数の20倍を上限にテストケースを走らせ続け、不足のときも証拠が足りないままのときも失敗にします。
+通過したなら、実行が短かったからではなく、データがその割合を裏付けたことになります。
 
 エンジンが探索で人間を上回るという論点には、標的型PBTで対応します。
 ユーザーが効用関数を書き、エンジンがそれを最大化する入力を探す形なので、探索の方向もユーザーが決めます。
@@ -137,6 +149,7 @@ func IntRange(lo, hi int) Gen[int]
 func IntRangeToward(lo, hi, center int) Gen[int]          // 数値に対する ?SHRINK の再中心化
 func Integer[I integer]() Gen[I]                          // IntegerRange、IntegerRangeToward も
 func Float64() Gen[float64]                               // Float64Range、Float32、Float32Range も
+func AnyFloat64() Gen[float64]                            // Float64 に NaN と無限大を加えたもの
 func Bool() Gen[bool]
 func Rune() Gen[rune]
 func String() Gen[string]                                 // StringN、StringOf、StringOfN も
@@ -156,7 +169,7 @@ func OneOf[V any](gs ...Gen[V]) Gen[V]                   // union
 type Weighted[V any] struct{ Weight int; Gen Gen[V] }
 func Frequency[V any](ws ...Weighted[V]) Gen[V]          // weighted_union。重み0は縮小でのみ到達する
 func Sized[V any](f func(size int) Gen[V]) Gen[V]        // ?SIZED
-func Resize[V any](size int, g Gen[V]) Gen[V]            // resize
+func Resize[V any](size int, g Gen[V]) Gen[V]            // resize。サイズ0ではコレクションが空になる
 func Lazy[V any](f func() Gen[V]) Gen[V]                 // ?LAZY
 func ShrinkTo[V any](g Gen[V], alts ...Gen[V]) Gen[V]    // ?SHRINK
 func LetShrink[V any](parts []Gen[V], combine func([]V) V) Gen[V] // ?LETSHRINK
@@ -169,7 +182,8 @@ func Make[V any](opts ...MakeOption) Gen[V]              // リフレクショ�
 func Recursive[V any](leaf Gen[V], extend func(self Gen[V]) Gen[V]) Gen[V] // 予算付きの再帰
 func Bounded[V any](leaf, node Gen[V]) Gen[V]            // 値1つにつき1つの再帰予算を型を跨いで共有する
 func NoPanic(f any, opts ...MakeOption) Property           // check_spec。シグネチャから分かる範囲に限る
-// cmd/pbtgen: go run go.ymotongpoo.com/pbt/cmd/pbtgen -type T1,T2 が GenT1、GenT2 をソースとして書き出す
+// cmd/pbtgen: go run go.ymotongpoo.com/pbt/cmd/pbtgen -type T1,T2 [-prefix Gen] が、go build が対象にするファイルから
+// GenT1、GenT2 をソースとして書き出す。パッケージが既に宣言している名前はエラーになる
 
 // プロパティ。
 type Property func(*T)
@@ -178,7 +192,7 @@ func Check(tb TB, prop Property, opts ...Option)
 func CheckExists(tb TB, prop Property, opts ...Option)   // ?EXISTS
 func ForAll[A any](g Gen[A], body func(*T, A)) Property  // ForAll2、ForAll3 も
 func Conjunction(subs ...Named) Property                 // conjunction
-func Timeout(d time.Duration, prop Property) Property    // ?TIMEOUT。プロパティが戻った後に判定する
+func Deadline(d time.Duration, prop Property) Property   // ?TIMEOUT。プロパティが戻った後に判定する。Timeout は非推奨の別名
 func Recover(f func()) (panicked any)
 func Checks(n int) Option                                // numtests
 func Seed(seed uint64) Option
@@ -187,9 +201,13 @@ func ShrinkTime(d time.Duration) Option
 func SearchSteps(n int) Option                           // search_steps
 func Setup(f func(t *T) (teardown func())) Option        // ?SETUP
 func CheckCoverage() Option                              // checkCoverage
-func ReportLimit(chars int) Option                       // 報告に載せる値1つの文字数
 func NoSave() Option
 func TestdataDir(dir string) Option
+func ReplayFile(path string) Option                      // 保存済みのケースを1つ先に再実行する。フラグ -pbt.replay も同じ
+func NoReplay() Option                                   // testdata/pbt の保存済みケースを再実行しない
+func Verbose() Option                                    // 通過した実行の要約と、採用した縮小の各ステップを出す。-pbt.v
+func ReportLimit(chars int) Option                       // 報告に載せる値1つの文字数。デフォルトは2000
+func ReportDepth(levels int) Option                      // 報告に載せる入れ子のラベル付き値の深さ。デフォルトは3
 func (t *T) Assume(cond bool)                            // ?IMPLIES
 func (t *T) Classify(cond bool, label string)            // classify
 func (t *T) Collect(v any)                               // collect
@@ -249,7 +267,7 @@ func Commands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pbt.Progra
 func ParallelCommands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pbt.ParallelProgram[State[N, D], Sys]]
 ```
 
-実行時のオプションはフラグ `-pbt.checks`、`-pbt.seed`、`-pbt.startsize`、`-pbt.maxsize`、`-pbt.shrinktime`、`-pbt.searchsteps`、`-pbt.nosave`、`-pbt.v` で与え、`Check` に渡したオプションが優先されます。
+実行時のオプションはフラグ `-pbt.checks`、`-pbt.seed`、`-pbt.startsize`、`-pbt.maxsize`、`-pbt.shrinktime`、`-pbt.searchsteps`、`-pbt.nosave`、`-pbt.replay`、`-pbt.v` で与え、`Check` に渡したオプションが優先されます。
 本書の `rebar3 proper -n`、`-p`、`--start_size` は、順に `-pbt.checks`、`go test -run`、`-pbt.startsize` に対応します。
 
 ステートフルテストで**シンボリック変数**（`Var`）を使うのは、コマンド列の生成時にはまだコマンドが実行されておらず、結果が存在しないためです。
@@ -449,8 +467,10 @@ Apache License 2.0は認識の対象です。
 | rapid互換レイヤー | 設けない |
 | 到達目標 | 本書の例題と演習をすべて移植できること |
 
-細部として残っているのは、10章の移植に使うデータベース（SQLiteをデフォルトにしてある）と、`Any()` の値域の2点です。
-どちらも実装時に決めれば十分です。
+v0.1.0の前に行ったレビューで、2点を先送りにしました。
+
+- 標的型探索でユーザーが近傍関数を定義する手段（PropErの `?USERNF`）です。探索は選択列を変異させますが、近傍関数は値に対して働きます。これを適用するには、新しい値から選択列へ戻る手段、つまりどの選択がどの値を生んだかの記録が要りますが、エンジンはそれを持っていません。その設計ができるまで、`Maximize` と `Minimize` は効用だけで探索を導きます。
+- ステートフルテストの型付きシンボリック変数 `Ref[T]` です。`Var` が型を持たないのは、1つの生成器が多種のコマンドを返し、モデルがそれらの結果を並べて保持するためで、型付きの参照は実行時に `Resolve[T]` が行います。型付き変数にすると検査がコンパイル時へ移りますが、結果を保持するすべてのコマンドに型パラメーターが付くことになり、本書の例題には必要ありません。
 
 次の文書は第0フェーズの仕様で、次の4点を扱います。
 

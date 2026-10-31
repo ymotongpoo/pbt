@@ -13,13 +13,18 @@ line by line. This page lists the correspondences and the differences.
 | `rapid.MakeCheck(prop)` | `pbt.MakeCheck(prop)` |
 | `rapid.MakeFuzz(prop)` | not provided; see the design document |
 | `-rapid.checks`, `-rapid.seed`, `-rapid.shrinktime` | `-pbt.checks`, `-pbt.seed`, `-pbt.shrinktime` |
-| `-rapid.failfile` (a temporary file) | failures are saved under `testdata/pbt/<Test>/` and replayed by `go test` |
+| `-rapid.failfile` (a temporary file) | failures are saved under `testdata/pbt/<Test>/` and replayed by `go test`; `-pbt.replay=FILE` or `pbt.ReplayFile(path)` replays one saved file in any test, and `pbt.NoReplay()` skips them |
 | `-rapid.v`, `-rapid.debug`, `-rapid.log` | `-pbt.v` or `pbt.Verbose()` logs the summary and every accepted shrink step |
 | `t.Skip`, `t.SkipNow` | the same, or `t.Assume(cond)` |
 
 Options exist per call too: `pbt.Checks`, `pbt.Seed`, `pbt.Sizes`,
 `pbt.ShrinkTime`, `pbt.SearchSteps`, `pbt.Setup`, `pbt.CheckCoverage`,
-`pbt.NoSave`, `pbt.TestdataDir`.
+`pbt.NoSave`, `pbt.TestdataDir`, `pbt.ReplayFile`, `pbt.NoReplay`,
+`pbt.Verbose`, `pbt.ReportLimit`, `pbt.ReportDepth`.
+
+Shrinking in pbt keeps the kind of failure it started from, the assertion
+site or the panic site, so the counterexample reports the bug the search
+found rather than a simpler, unrelated one.
 
 ## Generators
 
@@ -33,6 +38,7 @@ Options exist per call too: `pbt.Checks`, `pbt.Seed`, `pbt.Sizes`,
 | `rapid.Int()`, `IntRange`, `IntMin`, `IntMax` | the same names |
 | `rapid.Int8Range` and the other sized variants | `pbt.IntegerRange[int8](lo, hi)`, `pbt.Integer[int8]()`; `Int32`, `Int64`, `Uint`, `Uint32`, `Uint64`, `Byte` keep their names |
 | `rapid.Float64Range(lo, hi)` | `pbt.Float64Range(lo, hi)`; the full range is reachable, including the extremes |
+| `rapid.Float64()` | `pbt.Float64()`, which is finite; `pbt.AnyFloat64()` adds NaN and the infinities |
 | `rapid.Bool()`, `Rune()`, `String()`, `StringN`, `StringOf`, `StringOfN` | the same names |
 | `rapid.StringMatching(regexp)` | not provided; build the string from its parts |
 | `rapid.SliceOf`, `SliceOfN`, `SliceOfDistinct`, `SliceOfNDistinct` | the same names; `SliceOfDistinct` takes the key function last |
@@ -53,7 +59,7 @@ size parameter, `Frequency` weights alternatives, `ShrinkTo`,
 `IntRangeToward`, `LetShrink` and `NoShrink` steer shrinking, and
 `SampleShrink` shows a shrink path. `Collect`, `Classify`, `Aggregate`,
 `Measure` and `Cover` report and check the distribution, `Conjunction`,
-`Timeout` and `OnFail` compose properties, and `Func` generates functions.
+`Deadline` and `OnFail` compose properties, and `Func` generates functions.
 
 ## Stateful tests
 

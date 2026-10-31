@@ -45,7 +45,11 @@ the property drew:
 ```
 
 The saved file is replayed by every later `go test` run, so a fixed bug
-stays fixed. Delete the file to drop the regression case.
+stays fixed. Delete the file to drop the regression case, pass
+`-pbt.replay=FILE` to replay one saved file in any test, or `pbt.NoReplay()`
+to skip them. Shrinking keeps the kind of failure it started from, so a
+panic does not shrink into an unrelated assertion that a smaller input
+happens to trip.
 
 ## A stateful property
 
@@ -107,9 +111,11 @@ and `NoPanic` turns a function into a property over its parameter types.
 Coming from rapid? See [MIGRATION.md](MIGRATION.md); [BENCHMARK.md](BENCHMARK.md)
 compares the two on the same properties.
 `Collect`, `Classify`, `Aggregate` and `Measure` print the distribution of a
-passing run, and `Cover` with the `CheckCoverage` option fails the test when
-a declared share of cases is not reached. `Maximize` and `Minimize` turn a
-property into a targeted search; `CheckExists` looks for a witness.
+passing run. `Cover` declares the share a class must reach; with the
+`CheckCoverage` option, `Check` runs cases until the share is decided with
+99.7% confidence and fails on a shortfall or on evidence that stays short.
+`Maximize` and `Minimize` turn a property into a targeted search;
+`CheckExists` looks for a witness.
 
 ## Flags
 
@@ -122,11 +128,14 @@ property into a targeted search; `CheckExists` looks for a witness.
 | `-pbt.shrinktime` | 30s | time budget for shrinking |
 | `-pbt.searchsteps` | 1000 | steps of a targeted search |
 | `-pbt.nosave` | false | do not write failing cases under `testdata/pbt` |
+| `-pbt.replay` | none | a saved case to replay before searching |
 | `-pbt.v` | false | verbose output |
 
 The same settings are available per call as options: `pbt.Checks`,
 `pbt.Seed`, `pbt.Sizes`, `pbt.ShrinkTime`, `pbt.SearchSteps`, `pbt.NoSave`,
-`pbt.TestdataDir`, plus `pbt.Setup` and `pbt.CheckCoverage`.
+`pbt.TestdataDir`, `pbt.ReplayFile`, `pbt.NoReplay`, `pbt.Verbose`, plus
+`pbt.Setup`, `pbt.CheckCoverage`, `pbt.ReportLimit` and `pbt.ReportDepth`.
+The changes between releases are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

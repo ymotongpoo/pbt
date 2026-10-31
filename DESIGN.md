@@ -130,6 +130,15 @@ recovers them as follows.
   encoding from arbitrary values back into choices. The two tools above
   express every use in the book.
 
+The shrinker keeps the identity of the failure it started from. A case
+records where it first failed: the site of the assertion, or the type and
+site of the panic; a stateful run records which check of which command
+failed. The shrinker adopts a candidate only when it fails with the same
+identity. Without that rule, a panic found at a large input can shrink into
+an unrelated assertion that a smaller input trips, and the report hides the
+bug the search found. Hypothesis calls the same idea the interesting origin
+of a failure.
+
 ## Design principle: users control the distribution
 
 Hypothesis has no way to weight the alternatives of `one_of`. In July 2022 I
@@ -150,8 +159,13 @@ QuickCheck expose `frequency` and `sized` and, at the same time, give you
 user owns the distribution. If pbt hands you the distribution, it also hands
 you the tools to check it. It therefore includes an equivalent of
 QuickCheck's `cover` and `checkCoverage`. You declare that a class must make
-up at least 20% of the cases. The test fails when the statistics do not bear
-that out.
+up at least 20% of the cases. The decision is statistical. A requirement is
+met when the 99.7% Wilson interval of the observed share lies above the
+declared share, unmet when it lies below, and undecided in between. Without
+`CheckCoverage`, `Check` logs a shortfall. With it, `Check` keeps running
+cases, up to twenty times the configured number, until every requirement is
+decided, and fails on a shortfall or on evidence that is still short. A pass
+then means that the data support the share, not that the run was short.
 
 To the argument that the engine beats people at exploration, pbt answers with
 targeted PBT. You write a utility function and the engine searches for inputs
@@ -185,6 +199,7 @@ func IntRange(lo, hi int) Gen[int]
 func IntRangeToward(lo, hi, center int) Gen[int]          // ?SHRINK re-centering for numbers
 func Integer[I integer]() Gen[I]                          // and IntegerRange, IntegerRangeToward
 func Float64() Gen[float64]                               // and Float64Range, Float32, Float32Range
+func AnyFloat64() Gen[float64]                            // Float64 plus NaN and the infinities
 func Bool() Gen[bool]
 func Rune() Gen[rune]
 func String() Gen[string]                                 // and StringN, StringOf, StringOfN
@@ -204,7 +219,7 @@ func OneOf[V any](gs ...Gen[V]) Gen[V]                   // union
 type Weighted[V any] struct{ Weight int; Gen Gen[V] }
 func Frequency[V any](ws ...Weighted[V]) Gen[V]          // weighted_union; weight 0 is reachable only by shrinking
 func Sized[V any](f func(size int) Gen[V]) Gen[V]        // ?SIZED
-func Resize[V any](size int, g Gen[V]) Gen[V]            // resize
+func Resize[V any](size int, g Gen[V]) Gen[V]            // resize; size 0 gives empty collections
 func Lazy[V any](f func() Gen[V]) Gen[V]                 // ?LAZY
 func ShrinkTo[V any](g Gen[V], alts ...Gen[V]) Gen[V]    // ?SHRINK
 func LetShrink[V any](parts []Gen[V], combine func([]V) V) Gen[V] // ?LETSHRINK
@@ -217,7 +232,8 @@ func Make[V any](opts ...MakeOption) Gen[V]              // derived from the typ
 func Recursive[V any](leaf Gen[V], extend func(self Gen[V]) Gen[V]) Gen[V] // bounded recursion
 func Bounded[V any](leaf, node Gen[V]) Gen[V]            // one recursion budget per value, shared across types
 func NoPanic(f any, opts ...MakeOption) Property           // check_spec, limited to the signature
-// cmd/pbtgen: go run go.ymotongpoo.com/pbt/cmd/pbtgen -type T1,T2 writes GenT1, GenT2 as source
+// cmd/pbtgen: go run go.ymotongpoo.com/pbt/cmd/pbtgen -type T1,T2 [-prefix Gen] writes GenT1, GenT2 as source
+// from the files go build compiles on the current platform; a name the package already declares is an error
 
 // Properties.
 type Property func(*T)
@@ -226,7 +242,7 @@ func Check(tb TB, prop Property, opts ...Option)
 func CheckExists(tb TB, prop Property, opts ...Option)   // ?EXISTS
 func ForAll[A any](g Gen[A], body func(*T, A)) Property  // and ForAll2, ForAll3
 func Conjunction(subs ...Named) Property                 // conjunction
-func Timeout(d time.Duration, prop Property) Property    // ?TIMEOUT, checked after the property returns
+func Deadline(d time.Duration, prop Property) Property   // ?TIMEOUT, checked after the property returns; Timeout is the deprecated alias
 func Recover(f func()) (panicked any)
 func Checks(n int) Option                                // numtests
 func Seed(seed uint64) Option
@@ -237,6 +253,11 @@ func Setup(f func(t *T) (teardown func())) Option        // ?SETUP
 func CheckCoverage() Option                              // checkCoverage
 func NoSave() Option
 func TestdataDir(dir string) Option
+func ReplayFile(path string) Option                      // replay one saved case before searching; the -pbt.replay flag does the same
+func NoReplay() Option                                   // skip the cases saved under testdata/pbt
+func Verbose() Option                                    // the summary of a passing run and every accepted shrink step; -pbt.v
+func ReportLimit(chars int) Option                       // characters of one reported value; 2000 by default
+func ReportDepth(levels int) Option                      // levels of nested labeled draws a report lists; 3 by default
 func (t *T) Assume(cond bool)                            // ?IMPLIES
 func (t *T) Classify(cond bool, label string)            // classify
 func (t *T) Collect(v any)                               // collect
@@ -299,7 +320,8 @@ func ParallelCommands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pb
 
 Run-time options come from the flags `-pbt.checks`, `-pbt.seed`,
 `-pbt.startsize`, `-pbt.maxsize`, `-pbt.shrinktime`, `-pbt.searchsteps`,
-`-pbt.nosave` and `-pbt.v`; options passed to `Check` take precedence. The
+`-pbt.nosave`, `-pbt.replay` and `-pbt.v`; options passed to `Check` take
+precedence. The
 book's `rebar3 proper -n`, `-p` and `--start_size` map to `-pbt.checks`,
 `go test -run` and `-pbt.startsize`.
 
@@ -546,9 +568,20 @@ The decisions below date from 2026-10-31.
 | Compatibility layer for rapid | None |
 | Acceptance target | Every example and exercise in the book can be ported |
 
-Two details remain open: the database for the Chapter 10 port (SQLite by
-default, as proposed above) and the value set of `Any()`. Both can wait
-until implementation.
+Two items from the review before v0.1.0 stay open.
+
+- A user-defined neighborhood for the targeted search, PropEr's `?USERNF`.
+  The search mutates the choice sequence, and a neighborhood function works
+  on values. Applying one needs a way back from the new value into choices,
+  a record of which choices produced which value, which the engine does not
+  keep. Until that design exists, `Maximize` and `Minimize` steer the search
+  through the utility alone.
+- A typed symbolic variable, `Ref[T]`, for stateful tests. `Var` carries no
+  type because one generator yields commands of many kinds and the model
+  stores their results side by side; `Resolve[T]` performs the typed lookup
+  at execution time. A typed variable would move that check to compile time
+  at the cost of a type parameter on every command that stores a result,
+  and the book's examples do not need it.
 
 The next document is the Phase 0 specification. It covers:
 
