@@ -12,6 +12,11 @@ import (
 // function/2. The result for an argument is drawn from the test case the
 // first time that argument is seen and cached, so the function is pure within
 // the case, shrinks with it, and its observed calls appear in the report.
+//
+// Call it only from the goroutine that runs the property and only while
+// the case runs: a call from another goroutine races with the case's
+// choice sequence, and a call after the property returns draws choices
+// that no replay or report will see.
 type Fn[A comparable, B any] struct {
 	t     *T
 	ret   Gen[B]

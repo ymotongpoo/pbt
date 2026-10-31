@@ -60,7 +60,10 @@ func asAny[V any](g Gen[V]) Gen[any] {
 // maxMakeDepth levels. Fields may carry a `pbt` tag: "-" leaves the field
 // zero, and "min=A,max=B" bounds a number or the length of a string, slice
 // or map. Interfaces, channels and functions need a generator supplied with
-// WithType or WithField; Make panics otherwise.
+// WithType or WithField; Make panics otherwise. Unexported fields stay
+// zero, so a type whose state is all unexported, such as time.Time, needs
+// a generator supplied with WithType; cmd/pbtgen can fill unexported fields
+// of types in the package it writes into.
 func Make[V any](opts ...MakeOption) Gen[V] {
 	cfg := &makeConfig{types: map[reflect.Type]Gen[any]{}, fields: map[reflect.Type]map[string]Gen[any]{}}
 	for _, o := range opts {

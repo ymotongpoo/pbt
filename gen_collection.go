@@ -3,7 +3,10 @@
 
 package pbt
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // maxDistinctTries is how many values a distinct collection draws for one
 // position before it stops growing.
@@ -77,11 +80,15 @@ func MapOfN[K comparable, V any](key Gen[K], val Gen[V], minLen, maxLen int) Gen
 }
 
 // SampledFrom picks one of the values with equal probability. It shrinks
-// toward the first one, as PropEr's elements/1 does.
+// toward the first one, as PropEr's elements/1 does. The slice is copied,
+// so later changes to it do not affect the generator; the values themselves
+// are returned as they are, so a property must not modify a value that is a
+// slice, map or pointer.
 func SampledFrom[E any](values []E) Gen[E] {
 	if len(values) == 0 {
 		panic("pbt: SampledFrom needs at least one value")
 	}
+	values = slices.Clone(values)
 	return Gen[E]{name: fmt.Sprintf("SampledFrom(%d values)", len(values)), draw: func(t *T) E {
 		return values[t.draw(uint64(len(values)-1), plainMeta, modeUniform)]
 	}}

@@ -110,7 +110,10 @@ func Custom[V any](name string, f func(*T) V) Gen[V] {
 	return Gen[V]{name: name, draw: f}
 }
 
-// Just always generates v. It shrinks to nothing.
+// Just always generates v. It shrinks to nothing. Every draw returns the
+// same v, so a slice, map or pointer handed to Just is shared by every test
+// case; a property that modifies it changes what later cases and the report
+// see. Use Custom to build a fresh value per draw instead.
 func Just[V any](v V) Gen[V] {
 	return Gen[V]{name: fmt.Sprintf("Just(%#v)", v), draw: func(*T) V { return v }}
 }
