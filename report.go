@@ -9,8 +9,9 @@ import (
 	"unicode/utf8"
 )
 
-// maxReportDepth is how deep nested labeled draws are listed in a report.
-const maxReportDepth = 3
+// defaultReportDepth is how many levels of nested labeled draws a report
+// lists under a top-level draw; the ReportDepth option changes it.
+const defaultReportDepth = 3
 
 // defaultValueLimit is how many characters of one drawn value a report
 // shows before it cuts the text; the ReportLimit option changes it.
@@ -34,7 +35,7 @@ func (r *runner) format(t *T, headline string, trailer []string) string {
 	}
 	omitted := 0
 	for _, d := range t.draws {
-		if d.depth > maxReportDepth {
+		if d.depth > r.cfg.reportDepth {
 			omitted++
 			continue
 		}
@@ -42,7 +43,7 @@ func (r *runner) format(t *T, headline string, trailer []string) string {
 		fmt.Fprintf(&b, "[pbt] %s%s\n", indent, strings.ReplaceAll(formatDrawLimit(d, r.cfg.valueLimit), "\n", "\n[pbt]   "+indent))
 	}
 	if omitted > 0 {
-		fmt.Fprintf(&b, "[pbt] (%d labeled draws nested deeper than %d levels omitted)\n", omitted, maxReportDepth)
+		fmt.Fprintf(&b, "[pbt] (%d labeled draws nested deeper than %d levels omitted; raise the depth with ReportDepth)\n", omitted, r.cfg.reportDepth)
 	}
 	for _, l := range t.logs {
 		fmt.Fprintf(&b, "[pbt] log: %s\n", l)
@@ -70,6 +71,9 @@ func formatDraw(d drawRecord) string {
 // and saying how much was left out. A limit of 0 means no cut.
 func formatDrawLimit(d drawRecord, limit int) string {
 	text := fmt.Sprintf("%#v", d.value)
+	if _, ok := d.value.(undrawn); ok {
+		text = "(the draw did not finish)"
+	}
 	if limit > 0 && len(text) > limit {
 		cut := text[:limit]
 		for !utf8.ValidString(cut) {

@@ -118,7 +118,8 @@ type T struct {
 	size    int
 	maxSize int
 
-	draws []drawRecord
+	draws      []drawRecord
+	labelDepth int // labeled draws in progress: the nesting the report shows
 
 	// Statistics of this test case, merged into the run's totals when the
 	// case passes.

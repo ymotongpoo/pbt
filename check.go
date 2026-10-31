@@ -63,19 +63,20 @@ var (
 type Option func(*config)
 
 type config struct {
-	checks     int
-	seed       uint64
-	hasSeed    bool
-	startSize  int
-	maxSize    int
-	shrinkTime time.Duration
-	noSave     bool
-	testdata   string
-	verbose    bool
-	setup      func(*T) func()
-	checkCover bool
-	search     int
-	valueLimit int
+	checks      int
+	seed        uint64
+	hasSeed     bool
+	startSize   int
+	maxSize     int
+	shrinkTime  time.Duration
+	noSave      bool
+	testdata    string
+	verbose     bool
+	setup       func(*T) func()
+	checkCover  bool
+	search      int
+	valueLimit  int
+	reportDepth int
 }
 
 // Checks sets the number of passing test cases Check requires.
@@ -127,6 +128,11 @@ func CheckCoverage() Option { return func(c *config) { c.checkCover = true } }
 // under CheckCoverage may grow to while a Cover requirement is undecided.
 const coverCases = 20
 
+// ReportDepth sets how many levels of nested labeled draws a report lists
+// under each top-level draw; the default is 3, and 0 lists the top-level
+// draws only.
+func ReportDepth(levels int) Option { return func(c *config) { c.reportDepth = levels } }
+
 // Verbose makes Check log the summary of a passing run and every accepted
 // shrinking step, as the -pbt.v flag does.
 func Verbose() Option { return func(c *config) { c.verbose = true } }
@@ -141,17 +147,18 @@ func ReportLimit(chars int) Option { return func(c *config) { c.valueLimit = cha
 
 func newConfig(opts []Option) (config, error) {
 	c := config{
-		checks:     *flagChecks,
-		seed:       *flagSeed,
-		hasSeed:    *flagSeed != 0,
-		startSize:  *flagStartSize,
-		maxSize:    *flagMaxSize,
-		shrinkTime: *flagShrinkTime,
-		noSave:     *flagNoSave,
-		testdata:   defaultTestdata,
-		verbose:    *flagV,
-		search:     *flagSearch,
-		valueLimit: defaultValueLimit,
+		checks:      *flagChecks,
+		seed:        *flagSeed,
+		hasSeed:     *flagSeed != 0,
+		startSize:   *flagStartSize,
+		maxSize:     *flagMaxSize,
+		shrinkTime:  *flagShrinkTime,
+		noSave:      *flagNoSave,
+		testdata:    defaultTestdata,
+		verbose:     *flagV,
+		search:      *flagSearch,
+		valueLimit:  defaultValueLimit,
+		reportDepth: defaultReportDepth,
 	}
 	for _, o := range opts {
 		o(&c)
@@ -163,6 +170,10 @@ func newConfig(opts []Option) (config, error) {
 		return c, fmt.Errorf("SearchSteps(%d): need at least one step", c.search)
 	case c.startSize < 0 || c.maxSize < c.startSize:
 		return c, fmt.Errorf("Sizes(%d, %d): need 0 <= start <= max", c.startSize, c.maxSize)
+	case c.reportDepth < 0:
+		return c, fmt.Errorf("ReportDepth(%d): need at least 0", c.reportDepth)
+	case c.valueLimit < 0:
+		return c, fmt.Errorf("ReportLimit(%d): need at least 0", c.valueLimit)
 	}
 	if !c.hasSeed {
 		c.seed = randomSeed()

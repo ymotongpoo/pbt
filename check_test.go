@@ -133,3 +133,68 @@ func TestExampleProducesValues(t *testing.T) {
 		t.Errorf("Example with the same seed gave %v and %v", a, b)
 	}
 }
+
+// nestedPair draws labeled values inside a generator, with an unlabeled
+// generator in between, to exercise the nesting of the report.
+var nestedPair = Custom("pair", func(t *T) [2]int {
+	a := IntRange(0, 5).Draw(t, "a")
+	inner := Custom("inner", func(t *T) int { return IntRange(0, 5).Draw(t, "deep") })
+	b := Map(inner, func(x int) int { return x }).Draw(t, "b")
+	return [2]int{a, b}
+})
+
+func TestReportNestsLabeledDrawsUnderTheirParent(t *testing.T) {
+	prop := func(t *T) {
+		nestedPair.Draw(t, "pair")
+		SliceOfN(nestedPair, 1, 1).Draw(t, "")
+		t.Fatalf("boom")
+	}
+	report := func(opts ...Option) string {
+		tb := &fakeTB{name: "TestNested"}
+		Check(tb, prop, append([]Option{NoSave(), Seed(1)}, opts...)...)
+		if len(tb.errors) != 1 {
+			t.Fatalf("errors %q", tb.errors)
+		}
+		return tb.errors[0]
+	}
+	full := report()
+	want := []string{
+		"[pbt] pair (pair) = [2]int{0, 0}",
+		"[pbt]   a (IntRange(0, 5)) = 0",
+		"[pbt]   b (Map(inner)) = 0",
+		"[pbt]     deep (IntRange(0, 5)) = 0",
+		"[pbt] SliceOfN(pair, 1, 1) = [][2]int{[2]int{0, 0}}",
+		"[pbt]   a (IntRange(0, 5)) = 0",
+		"[pbt]   b (Map(inner)) = 0",
+		"[pbt]     deep (IntRange(0, 5)) = 0",
+		"[pbt] error: boom",
+	}
+	if got := strings.Join(want, "\n"); !strings.Contains(full, got) {
+		t.Errorf("report:\n%s\nwant the lines:\n%s", full, got)
+	}
+	shallow := report(ReportDepth(1))
+	if strings.Contains(shallow, "deep (IntRange") || !strings.Contains(shallow, "(2 labeled draws nested deeper than 1 levels omitted; raise the depth with ReportDepth)") {
+		t.Errorf("ReportDepth(1):\n%s", shallow)
+	}
+	top := report(ReportDepth(0))
+	if strings.Contains(top, " a (") || !strings.Contains(top, "[pbt] pair (pair) = [2]int{0, 0}\n[pbt] SliceOfN") {
+		t.Errorf("ReportDepth(0):\n%s", top)
+	}
+	if _, err := newConfig([]Option{ReportDepth(-1)}); err == nil {
+		t.Error("ReportDepth(-1) was accepted")
+	}
+}
+
+func TestReportMarksADrawThatDidNotFinish(t *testing.T) {
+	tb := &fakeTB{name: "TestUndrawn"}
+	Check(tb, func(t *T) {
+		Custom("bad", func(t *T) int {
+			Int().Draw(t, "inner")
+			t.Fatalf("inside the generator")
+			return 0
+		}).Draw(t, "v")
+	}, NoSave(), Seed(1))
+	if len(tb.errors) != 1 || !strings.Contains(tb.errors[0], "[pbt] v (bad) = (the draw did not finish)\n[pbt]   inner (Int()) = ") {
+		t.Errorf("report:\n%s", strings.Join(tb.errors, "\n"))
+	}
+}

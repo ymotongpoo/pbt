@@ -39,14 +39,25 @@ func (g Gen[V]) String() string {
 // failing test case; pass "" to use the generator's description. A draw at
 // the top level of the property always appears in the report; a draw inside
 // a generator appears when it has a label, indented under the value it
-// contributes to, which is how the report shows how a value was built.
+// contributes to, which is how the report shows how a value was built. The
+// nesting counts labeled draws only, so unlabeled generators in between do
+// not push a value out of the depth the report shows.
 func (g Gen[V]) Draw(t *T, label string) V {
-	v := g.drawSpan(t)
-	if depth := len(t.open); depth == 0 || label != "" {
-		t.draws = append(t.draws, drawRecord{label: label, gen: g.String(), value: v, depth: depth})
+	if len(t.open) > 0 && label == "" {
+		return g.drawSpan(t)
 	}
+	i := len(t.draws)
+	t.draws = append(t.draws, drawRecord{label: label, gen: g.String(), value: undrawn{}, depth: t.labelDepth})
+	t.labelDepth++
+	defer func() { t.labelDepth-- }()
+	v := g.drawSpan(t)
+	t.draws[i].value = v
 	return v
 }
+
+// undrawn stands in for the value of a draw that did not finish, because
+// the case failed or was discarded inside the generator.
+type undrawn struct{}
 
 // drawSpan generates a value inside a span labeled with the generator's
 // description, so that the shrinker can treat the choices as one unit.
