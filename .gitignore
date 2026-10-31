@@ -6,3 +6,6 @@
 .wrangler/
 # rapid writes its failure files here during the comparison
 /bench/testdata/
+
+# rendered guide, deployed from the pages branch
+/site/public/
