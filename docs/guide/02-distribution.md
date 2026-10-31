@@ -1,4 +1,5 @@
 # Size, distribution and statistics
+<!-- summary: The size parameter, weights with Frequency, Sized and Resize, the statistics Collect, Classify, Aggregate, Measure and Cover, and CheckCoverage, which turns coverage into a check. -->
 
 pbt lets you decide what the data looks like, and gives you the tools to check that it looks the way you intended. Both halves matter: a property that never reaches the interesting states of a system proves nothing about them.
 

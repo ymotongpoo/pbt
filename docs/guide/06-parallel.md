@@ -1,4 +1,5 @@
 # Parallel testing
+<!-- summary: ParallelCommands and RunParallel, what the interleaving check proves and what it does not, and combining it with the race detector. -->
 
 A system that is correct under sequential use can still break under concurrent use. pbt tests for that with the same commands and model as a sequential test: it generates a sequential prefix followed by branches, runs the branches in goroutines, and then checks whether some interleaving of the branches explains the results that came back.
 

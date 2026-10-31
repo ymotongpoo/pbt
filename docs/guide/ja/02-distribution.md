@@ -1,4 +1,5 @@
 # サイズ、分布、統計
+<!-- summary: サイズパラメータ、Frequencyによる重み、SizedとResize、統計のCollect、Classify、Aggregate、Measure、Cover、そして被覆を検査にするCheckCoverage。 -->
 
 pbtでは、データがどんな姿になるかを利用者が決め、意図したとおりになっているかを確かめる手段も利用者が持ちます。
 この2つは対になっています。

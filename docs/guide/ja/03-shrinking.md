@@ -1,4 +1,5 @@
 # 縮小
+<!-- summary: 失敗したケースが縮小される仕組み、ShrinkToとIntRangeTowardによる誘導、LetShrinkとNoShrink、SampleShrinkによる縮小の観察、失敗の種類が保たれる理由。 -->
 
 ケースが失敗すると、pbtは同じ失敗をするもっと単純なケースを探し、そちらを報告します。
 この探索はすべての生成器について自動で働きます。

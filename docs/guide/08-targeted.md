@@ -1,4 +1,5 @@
 # Targeted search and existence
+<!-- summary: Maximize and Minimize to steer a run toward a utility, and CheckExists for properties that ask whether a witness exists. -->
 
 Random inputs reach the common states of a system quickly and the rare ones slowly or never. Targeted property-based testing adds a utility function: the property reports how close a case came to something interesting, and pbt searches for cases with a higher utility instead of drawing fresh ones. PropEr calls it `?MAXIMIZE`.
 

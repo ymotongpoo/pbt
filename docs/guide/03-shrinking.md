@@ -1,4 +1,5 @@
 # Shrinking
+<!-- summary: How a failing case shrinks, steering the search with ShrinkTo and IntRangeToward, LetShrink and NoShrink, watching a shrink with SampleShrink, and why the kind of failure stays the same. -->
 
 When a case fails, pbt looks for a simpler case that fails in the same way, and reports that one. The search is automatic for every generator, including the ones you write with `Custom`, `Map` and `Bind`. This chapter explains what "simpler" means, how to steer the search, and what it will not do.
 

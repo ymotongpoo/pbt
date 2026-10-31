@@ -1,4 +1,5 @@
 # プロパティと実行
+<!-- summary: 実行のオプションとフラグ、Assumeと破棄、SetupとCleanup、Conjunction、Deadline、OnFail、Recover、NoPanic、シードと保存されたケースと再生の仕組み。 -->
 
 実行の形を決める要素を扱います。
 ケースの数、サイズ、破棄したケースの扱い、ケースの前後に動くもの、プロパティの組み合わせ、失敗の再現です。

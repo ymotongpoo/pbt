@@ -1,4 +1,5 @@
 # Generators from types
+<!-- summary: Make and its struct tags, WithType and WithField, generators for recursive types, and pbtgen, which writes generators as source. -->
 
 Writing a generator for every struct of a program is tedious, and most of the time the type already says what the values look like. pbt derives generators from types in two ways: `Make[T]` at run time through reflection, and `cmd/pbtgen` at development time as Go source.
 

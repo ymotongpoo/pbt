@@ -1,4 +1,5 @@
 # State machines
+<!-- summary: The fsm package: named states, weighted transitions, state data in the test's variables, and statistics by transition. -->
 
 When a system moves between named states and allows different operations in each, a finite state machine is the natural model. The `fsm` package builds on the command machinery of chapter 5: you name the states and list the transitions out of each one, with weights, and the package generates command sequences that follow the machine. It is the counterpart of PropEr's `proper_fsm`.
 

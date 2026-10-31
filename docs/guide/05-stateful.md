@@ -1,4 +1,5 @@
 # Stateful testing
+<!-- summary: Commands as closures over a model and a system kept in the test's variables, Vars for results that do not exist yet, Commands and RunSequential, reading a stateful failure, and writing good models. -->
 
 Many bugs only show up after a sequence of operations: a cache that returns a stale value after an eviction, a queue that miscounts after a close. A stateful test describes the operations as commands, keeps a model of what the system should contain, generates sequences of commands against the model, runs them against the real system and checks every result. When a sequence fails, pbt shrinks it to the shortest one that still fails.
 

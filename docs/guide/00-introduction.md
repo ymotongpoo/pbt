@@ -1,4 +1,5 @@
 # Getting started
+<!-- summary: What a property is, how to install pbt, a first property with ForAll and Check, and what happens when it fails: shrinking, the saved case and the replay. -->
 
 pbt is a property-based testing library for Go. A property is a test that must hold for every input of some shape. pbt generates the inputs, shrinks a failing one to a small case, and saves that case so that the next `go test` run replays it. The feature set follows Erlang's [PropEr](https://proper-testing.github.io/): generators whose distribution you control, statistics to check that control, stateful and parallel command testing, state machines, targeted search, and existential properties.
 

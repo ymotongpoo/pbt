@@ -1,4 +1,5 @@
 # Where to go next
+<!-- summary: The examples that port the PropEr Testing book, the practical examples, the migration guide for rapid users, the reference material and the flags at a glance. -->
 
 ## The examples
 

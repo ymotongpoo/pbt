@@ -1,4 +1,5 @@
 # Properties and runs
+<!-- summary: The options and flags of a run, Assume and discards, Setup and Cleanup, Conjunction, Deadline, OnFail, Recover and NoPanic, and how seeds, saved cases and replay work. -->
 
 This chapter covers the shape of a run: how many cases, which sizes, how discards are handled, what runs before and after a case, how properties combine, and how a failure is reproduced.
 

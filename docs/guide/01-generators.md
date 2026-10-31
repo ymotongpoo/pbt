@@ -1,4 +1,5 @@
 # Generators
+<!-- summary: The built-in generators, writing your own with Custom, composing them with Map, Bind, Filter, OneOf and Frequency, reading the draws in a report, and sampling outside a property. -->
 
 A generator is a value of type `pbt.Gen[V]`. It knows how to produce a `V` from the choices that pbt records for the current case, and that record is what makes shrinking and replay work. You never build the record yourself: you combine generators and draw from them.
 
