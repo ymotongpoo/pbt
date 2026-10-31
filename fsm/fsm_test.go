@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"go.ymotongpoo.com/pbt"
@@ -14,6 +15,7 @@ import (
 // PropEr Testing book: it trips after limit failures and stays tripped until
 // it is reset. The buggy variant lets successful calls through while tripped.
 type breaker struct {
+	mu            sync.Mutex
 	limit, errors int
 	tripped       bool
 	buggy         bool
@@ -25,6 +27,8 @@ var (
 )
 
 func (b *breaker) Success() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.tripped && !b.buggy {
 		return errTripped
 	}
@@ -32,6 +36,8 @@ func (b *breaker) Success() error {
 }
 
 func (b *breaker) Fail() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.tripped {
 		return errTripped
 	}
@@ -44,6 +50,8 @@ func (b *breaker) Fail() error {
 }
 
 func (b *breaker) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.errors = 0
 	b.tripped = false
 }
@@ -154,4 +162,11 @@ func TestBuggyBreakerIsCaughtWithThreeCommands(t *testing.T) {
 			t.Errorf("report lacks %q:\n%s", want, report)
 		}
 	}
+}
+
+func TestParallelBreakerHolds(t *testing.T) {
+	pbt.Check(t, func(t *pbt.T) {
+		prog := fsm.ParallelCommands[string, int, *breaker](machine{}).Draw(t, "cmds")
+		prog.RunParallel(t, &breaker{limit: limit})
+	}, pbt.NoSave(), pbt.Checks(30))
 }
