@@ -115,9 +115,17 @@ func TestdataDir(dir string) Option { return func(c *config) { c.testdata = dir 
 // f returns may be nil; otherwise it runs after the case, like Cleanup.
 func Setup(f func(t *T) (teardown func())) Option { return func(c *config) { c.setup = f } }
 
-// CheckCoverage makes Check fail when a Cover requirement is not met. Without
-// it, Check only logs the shortfall.
+// CheckCoverage makes Check fail when a Cover requirement is not met, as
+// QuickCheck's checkCoverage does. Check then keeps running cases past the
+// configured number, up to coverCases times as many, until the observed
+// share of every label is decided with 99.7% confidence, and fails when a
+// share falls short or is still undecided at that point. Without the option
+// Check only logs a shortfall.
 func CheckCoverage() Option { return func(c *config) { c.checkCover = true } }
+
+// coverCases bounds how many times the configured number of checks a run
+// under CheckCoverage may grow to while a Cover requirement is undecided.
+const coverCases = 20
 
 // Verbose makes Check log the summary of a passing run and every accepted
 // shrinking step, as the -pbt.v flag does.
@@ -299,9 +307,15 @@ func (r *runner) reportStats(passed int) {
 			r.tb.Logf("%s (add the CheckCoverage option to fail on this)", msg)
 		}
 	}
+	if und := st.undecided(); len(und) > 0 && r.cfg.checkCover {
+		r.tb.Errorf("[pbt] insufficient evidence for the coverage after %d cases; raise Checks to run more:\n[pbt]   %s",
+			passed, strings.Join(und, "\n[pbt]   "))
+	}
 }
 
-// search runs test cases until one is wanted or the budget is spent. Fresh
+// search runs test cases until one is wanted or the budget is spent. Under
+// CheckCoverage the budget stretches, up to coverCases times, while a Cover
+// requirement is undecided. Fresh
 // cases grow in size by one per case, as in PropEr. Once a case reports a
 // utility, the search becomes targeted: it mutates the current case and
 // moves to the neighbor when its utility is higher, or with the Metropolis
@@ -322,7 +336,10 @@ func (r *runner) search() (found *T, passed int, err error) {
 			limit = cfg.search
 		}
 		if passed >= limit {
-			return nil, passed, nil
+			extend := cfg.checkCover && !targeted && !r.exists && passed < coverCases*cfg.checks && !r.stats.settled()
+			if !extend {
+				return nil, passed, nil
+			}
 		}
 		rng := newRand(caseSeed(cfg.seed, uint64(passed+discards)))
 		temp := 1 - float64(passed)/float64(limit)
@@ -335,7 +352,7 @@ func (r *runner) search() (found *T, passed int, err error) {
 		switch {
 		case t.discarded:
 			discards++
-			if discards > maxDiscardRatio*max(cfg.checks, limit) {
+			if discards > maxDiscardRatio*max(cfg.checks, limit, passed) {
 				return nil, passed, fmt.Errorf("gave up after %d discarded test cases (%d passed); last reason: %s",
 					discards, passed, t.discardReason)
 			}

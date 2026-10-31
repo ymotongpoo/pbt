@@ -517,10 +517,16 @@ func (t *T) Measure(name string, value float64) {
 }
 
 // Cover declares that the cases for which cond holds must make up at least
-// pct percent of all passing cases, as QuickCheck's cover does. Check warns
-// when the observed share falls short, and fails instead when the
-// CheckCoverage option is set.
+// pct percent of all passing cases, as QuickCheck's cover does. A case
+// counts once per label however often it calls Cover. Check warns when the
+// observed share falls short of pct with 99.7% confidence; with the
+// CheckCoverage option it keeps running cases until the share is decided
+// either way, and fails on a shortfall or when the evidence stays short.
+// pct must lie in (0, 100].
 func (t *T) Cover(cond bool, pct float64, label string) {
+	if !(pct > 0 && pct <= 100) {
+		panic(fmt.Sprintf("pbt: Cover(%q): the required share must lie in (0, 100], not %v", label, pct))
+	}
 	t.covers = append(t.covers, coverRecord{label: label, pct: pct, hit: cond})
 }
 

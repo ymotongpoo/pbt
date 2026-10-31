@@ -4,6 +4,7 @@
 package pbt
 
 import (
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -284,4 +285,82 @@ func TestBytesN(t *testing.T) {
 			t.Fatalf("len %d", len(b))
 		}
 	}, NoSave())
+}
+
+func TestCoverCountsACaseOnce(t *testing.T) {
+	cfg, _ := newConfig([]Option{Seed(1), Checks(50), NoSave()})
+	r := &runner{tb: nopTB{}, prop: func(t *T) {
+		x := IntRange(0, 9).Draw(t, "x")
+		t.Cover(false, 10, "any")
+		for range 3 {
+			t.Cover(x >= 0, 10, "any")
+		}
+		t.Cover(x >= 0, 60, "any") // the highest required share wins
+	}, cfg: cfg}
+	if _, passed, err := r.search(); err != nil || passed != 50 {
+		t.Fatalf("passed %d, err %v", passed, err)
+	}
+	if c := r.stats.covers["any"]; c.hit != 50 || c.pct != 60 {
+		t.Errorf("hit %d of 50 cases, pct %v", c.hit, c.pct)
+	}
+}
+
+func TestCoverRejectsSharesOutsideTheRange(t *testing.T) {
+	for _, pct := range []float64{0, -1, 101, math.NaN()} {
+		func() {
+			defer func() {
+				if msg, _ := recover().(string); !strings.Contains(msg, "must lie in (0, 100]") {
+					t.Errorf("pct %v: %q", pct, msg)
+				}
+			}()
+			(&T{}).Cover(true, pct, "x")
+		}()
+	}
+}
+
+// Under CheckCoverage the run grows until the share is decided, and fails
+// when it stays undecided.
+func TestCheckCoverageRunsUntilDecided(t *testing.T) {
+	// 60% of the cases hit the label and 50% are required: 20 cases cannot
+	// decide it, but a few hundred can. SampledFrom draws uniformly at every
+	// size, unlike IntRange, which favors small values in small cases.
+	digit := SampledFrom([]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9})
+	tb := &fakeTB{name: "TestCover"}
+	Check(tb, func(t *T) {
+		x := digit.Draw(t, "x")
+		t.Cover(x < 6, 50, "low")
+	}, Seed(1), NoSave(), Checks(20), CheckCoverage())
+	logs := strings.Join(tb.logs, "\n")
+	if len(tb.errors) != 0 || strings.Contains(logs, "passed 20 checks") || !strings.Contains(logs, "OK, passed ") {
+		t.Errorf("errors %q, logs %q", tb.errors, logs)
+	}
+	// Exactly 50% hit it: the interval never settles, so the run stops at
+	// twenty times the checks and reports the missing evidence.
+	tb2 := &fakeTB{name: "TestCover"}
+	Check(tb2, func(t *T) {
+		x := digit.Draw(t, "x")
+		t.Cover(x < 5, 50, "half")
+	}, Seed(1), NoSave(), Checks(10), CheckCoverage())
+	if len(tb2.errors) != 1 || !strings.Contains(tb2.errors[0], "insufficient evidence for the coverage after 200 cases") ||
+		!strings.Contains(tb2.errors[0], "half: ") || !strings.Contains(tb2.errors[0], "with 99.7% confidence") {
+		t.Errorf("errors %q", tb2.errors)
+	}
+	// Without CheckCoverage the run stops at the configured number and stays quiet.
+	tb3 := &fakeTB{name: "TestCover"}
+	Check(tb3, func(t *T) {
+		x := digit.Draw(t, "x")
+		t.Cover(x < 5, 50, "half")
+	}, Seed(1), NoSave(), Checks(10))
+	if len(tb3.errors) != 0 || !strings.Contains(strings.Join(tb3.logs, "\n"), "passed 10 checks") {
+		t.Errorf("errors %q, logs %q", tb3.errors, tb3.logs)
+	}
+	// A requirement of 100% is met until a case misses it.
+	tb4 := &fakeTB{name: "TestCover"}
+	Check(tb4, func(t *T) {
+		x := IntRange(0, 9).Draw(t, "x")
+		t.Cover(x >= 0, 100, "all")
+	}, Seed(1), NoSave(), Checks(10), CheckCoverage())
+	if len(tb4.errors) != 0 || !strings.Contains(strings.Join(tb4.logs, "\n"), "passed 10 checks") {
+		t.Errorf("errors %q, logs %q", tb4.errors, tb4.logs)
+	}
 }
