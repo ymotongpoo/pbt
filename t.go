@@ -42,12 +42,13 @@ var (
 
 // Defaults shared by Check and Gen.Example.
 const (
-	defaultChecks    = 100
-	defaultStartSize = 1
-	defaultMaxSize   = 42
-	defaultShrink    = 30 * time.Second
-	defaultTestdata  = "testdata/pbt"
-	maxDiscardRatio  = 10
+	defaultChecks      = 100
+	defaultStartSize   = 1
+	defaultMaxSize     = 42
+	defaultShrink      = 30 * time.Second
+	defaultTestdata    = "testdata/pbt"
+	defaultSearchSteps = 1000
+	maxDiscardRatio    = 10
 )
 
 // maxSpanDepth bounds generator recursion. Go cannot recover from a stack
@@ -116,6 +117,10 @@ type T struct {
 	samples  []string
 	measures []measurement
 	covers   []coverRecord
+
+	hasUtility  bool
+	utilityName string
+	utility     float64
 
 	mu            sync.Mutex // guards failed, messages and logs, which Timeout touches from another goroutine
 	failed        bool

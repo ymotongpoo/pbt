@@ -3,6 +3,7 @@ package pbt
 import (
 	"flag"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"path/filepath"
 	"strings"
@@ -50,6 +51,7 @@ var (
 	flagMaxSize    = flag.Int("pbt.maxsize", defaultMaxSize, "size parameter the test cases grow up to")
 	flagShrinkTime = flag.Duration("pbt.shrinktime", defaultShrink, "time budget for shrinking a failing test case")
 	flagNoSave     = flag.Bool("pbt.nosave", false, "do not save failing test cases under testdata/pbt")
+	flagSearch     = flag.Int("pbt.searchsteps", defaultSearchSteps, "number of steps of a targeted search (a property that calls Maximize or Minimize)")
 	flagV          = flag.Bool("pbt.v", false, "verbose output from pbt.Check")
 )
 
@@ -69,6 +71,7 @@ type config struct {
 	verbose    bool
 	setup      func(*T) func()
 	checkCover bool
+	search     int
 }
 
 // Checks sets the number of passing test cases Check requires.
@@ -111,6 +114,10 @@ func Setup(f func(t *T) (teardown func())) Option { return func(c *config) { c.s
 // it, Check only logs the shortfall.
 func CheckCoverage() Option { return func(c *config) { c.checkCover = true } }
 
+// SearchSteps sets the number of cases a targeted search runs, as PropEr's
+// search_steps does. It applies once the property calls Maximize or Minimize.
+func SearchSteps(n int) Option { return func(c *config) { c.search = n } }
+
 func newConfig(opts []Option) (config, error) {
 	c := config{
 		checks:     *flagChecks,
@@ -122,6 +129,7 @@ func newConfig(opts []Option) (config, error) {
 		noSave:     *flagNoSave,
 		testdata:   defaultTestdata,
 		verbose:    *flagV,
+		search:     *flagSearch,
 	}
 	for _, o := range opts {
 		o(&c)
@@ -129,6 +137,8 @@ func newConfig(opts []Option) (config, error) {
 	switch {
 	case c.checks < 1:
 		return c, fmt.Errorf("Checks(%d): need at least one check", c.checks)
+	case c.search < 1:
+		return c, fmt.Errorf("SearchSteps(%d): need at least one step", c.search)
 	case c.startSize < 1 || c.maxSize < c.startSize:
 		return c, fmt.Errorf("Sizes(%d, %d): need 1 <= start <= max", c.startSize, c.maxSize)
 	}
@@ -188,11 +198,50 @@ func MakeCheck(prop Property, opts ...Option) func(*testing.T) {
 	}
 }
 
+// CheckExists looks for a test case on which prop holds, as PropEr's
+// ?EXISTS does. A case that fails is a rejected candidate; the first case
+// that passes is the witness, which CheckExists shrinks and logs. The test
+// fails when no witness turns up within the number of checks, or within the
+// search steps when the property guides the search with Maximize or
+// Minimize. Nothing is saved under testdata/pbt.
+func CheckExists(tb TB, prop Property, opts ...Option) {
+	tb.Helper()
+	cfg, err := newConfig(opts)
+	if err != nil {
+		tb.Errorf("[pbt] %v", err)
+		return
+	}
+	r := &runner{tb: tb, prop: prop, cfg: cfg, exists: true}
+	witness, tried, err := r.search()
+	if err != nil {
+		tb.Errorf("[pbt] %v", err)
+		return
+	}
+	if witness == nil {
+		tb.Errorf("[pbt] no witness found in %d cases (seed 0x%x)", tried, cfg.seed)
+		return
+	}
+	minimal, steps := r.shrink(witness)
+	tb.Logf("%s", r.format(minimal, fmt.Sprintf("witness found after %d rejected cases and %d shrink steps (seed 0x%x)", tried, steps, cfg.seed), nil))
+}
+
 type runner struct {
-	tb    TB
-	prop  Property
-	cfg   config
-	stats *stats
+	tb     TB
+	prop   Property
+	cfg    config
+	stats  *stats
+	exists  bool // look for a passing case instead of a failing one
+	best    *T   // best case of a targeted search, for the report
+	current *T   // the case a targeted search mutates
+}
+
+// want reports whether a case is what the search looks for: a failure for
+// Check, a success for CheckExists.
+func (r *runner) want(t *T) bool {
+	if r.exists {
+		return !t.failed
+	}
+	return t.failed
 }
 
 // run executes the property once. prefix is replayed first; rng supplies
@@ -220,8 +269,12 @@ func (r *runner) reportStats(passed int) {
 	if st == nil {
 		st = newStats()
 	}
-	if r.cfg.verbose || !st.empty() {
-		lines := append([]string{fmt.Sprintf("OK, passed %d checks (seed 0x%x)", passed, r.cfg.seed)}, st.lines()...)
+	if r.cfg.verbose || !st.empty() || r.best != nil {
+		lines := []string{fmt.Sprintf("OK, passed %d checks (seed 0x%x)", passed, r.cfg.seed)}
+		if r.best != nil {
+			lines = append(lines, fmt.Sprintf("best %s = %s over %d search steps", r.best.utilityName, formatNum(r.best.utility), passed))
+		}
+		lines = append(lines, st.lines()...)
 		r.tb.Logf("[pbt] %s", strings.Join(lines, "\n[pbt] "))
 	}
 	if short := st.shortfalls(); len(short) > 0 {
@@ -234,28 +287,63 @@ func (r *runner) reportStats(passed int) {
 	}
 }
 
-// search runs fresh test cases until one fails or enough pass. The size
-// grows by one per passing case, as in PropEr.
-func (r *runner) search() (fail *T, passed int, err error) {
+// search runs test cases until one is wanted or the budget is spent. Fresh
+// cases grow in size by one per case, as in PropEr. Once a case reports a
+// utility, the search becomes targeted: it mutates the current case and
+// moves to the neighbor when its utility is higher, or with the Metropolis
+// probability exp(-loss/(temperature*scale)) when it is lower, where the
+// scale is a hundredth of the utility range seen so far. That is PropEr's
+// simulated annealing in a scale-free form; the best case ever seen is kept
+// apart for the report. A small share of the steps restart from a fresh
+// case.
+func (r *runner) search() (found *T, passed int, err error) {
 	cfg := r.cfg
 	r.stats = newStats()
 	discards := 0
-	for passed < cfg.checks {
-		size := min(cfg.startSize+passed, cfg.maxSize)
-		t := r.run(nil, size, newRand(caseSeed(cfg.seed, uint64(passed+discards))))
+	targeted := false
+	uMin, uMax := math.Inf(1), math.Inf(-1)
+	for {
+		limit := cfg.checks
+		if targeted {
+			limit = cfg.search
+		}
+		if passed >= limit {
+			return nil, passed, nil
+		}
+		rng := newRand(caseSeed(cfg.seed, uint64(passed+discards)))
+		temp := 1 - float64(passed)/float64(limit)
+		var t *T
+		if targeted && r.current != nil && rng.Float64() >= restartProbability {
+			t = r.run(mutate(rng, r.current, temp), r.current.size, rng)
+		} else {
+			t = r.run(nil, min(cfg.startSize+passed, cfg.maxSize), rng)
+		}
 		switch {
 		case t.discarded:
 			discards++
-			if discards > maxDiscardRatio*cfg.checks {
+			if discards > maxDiscardRatio*max(cfg.checks, limit) {
 				return nil, passed, fmt.Errorf("gave up after %d discarded test cases (%d passed); last reason: %s",
 					discards, passed, t.discardReason)
 			}
-		case t.failed:
+		case r.want(t):
 			return t, passed, nil
 		default:
 			r.stats.add(t)
 			passed++
+			if t.hasUtility {
+				targeted = true
+				uMin, uMax = min(uMin, t.utility), max(uMax, t.utility)
+				scale := (uMax - uMin) / 100
+				switch {
+				case r.current == nil || t.utility > r.current.utility:
+					r.current = t
+				case scale > 0 && temp > 0 && rng.Float64() < math.Exp(-(r.current.utility-t.utility)/(scale*temp)):
+					r.current = t
+				}
+				if r.best == nil || t.utility > r.best.utility {
+					r.best = t
+				}
+			}
 		}
 	}
-	return nil, passed, nil
 }

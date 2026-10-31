@@ -8,9 +8,19 @@ import (
 // report writes the counterexample to the test log and marks the test as
 // failed.
 func (r *runner) report(t *T, headline string, trailer []string) {
+	r.tb.Helper()
+	r.tb.Errorf("%s", r.format(t, headline, trailer))
+}
+
+// format renders a test case: the headline, every value the property drew,
+// its logs, errors, panic and the trailer lines.
+func (r *runner) format(t *T, headline string, trailer []string) string {
 	t.runOnFail()
 	var b strings.Builder
 	fmt.Fprintf(&b, "[pbt] %s (size %d)\n", headline, t.size)
+	if t.hasUtility {
+		fmt.Fprintf(&b, "[pbt] utility %s = %s\n", t.utilityName, formatNum(t.utility))
+	}
 	for _, d := range t.draws {
 		fmt.Fprintf(&b, "[pbt] %s\n", strings.ReplaceAll(formatDraw(d), "\n", "\n[pbt]   "))
 	}
@@ -29,8 +39,7 @@ func (r *runner) report(t *T, headline string, trailer []string) {
 	for _, line := range trailer {
 		fmt.Fprintf(&b, "[pbt] %s\n", line)
 	}
-	r.tb.Helper()
-	r.tb.Errorf("%s", strings.TrimRight(b.String(), "\n"))
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func formatDraw(d drawRecord) string {

@@ -48,7 +48,7 @@ func (s *shrinker) try(cand []uint64) bool {
 	}
 	s.steps++
 	t := s.r.run(cand, s.cur.size, nil)
-	if t.failed && !t.discarded && simpler(t.choices, s.cur.choices) {
+	if s.r.want(t) && !t.discarded && simpler(t.choices, s.cur.choices) {
 		s.cur = t
 		if s.onAccept != nil && !s.onAccept() {
 			s.stop = true
