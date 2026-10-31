@@ -169,94 +169,144 @@ Like rapid, a property draws values from generators inside its body. Go has
 no variadic type parameters, so a QuickCheck-style `ForAll` that lists
 generators needs one function per arity. `ForAll`, `ForAll2` and `ForAll3`
 exist as sugar. The equivalents of PropEr's macros are functions that treat a
-`Property` as a value.
+`Property` as a value. The listing below is the API as implemented; the
+package documentation is the reference.
 
 ```go
 package pbt
 
 // A generator: a deterministic function that consumes choices and returns a value.
-type Gen[T any] struct{ /* unexported */ }
-func (g Gen[T]) Draw(t *T, label string) T
+type Gen[V any] struct{ /* unexported */ }
+func (g Gen[V]) Draw(t *T, label string) V
+func (g Gen[V]) Example(seed ...uint64) V                 // proper_gen:pick
 
 func Int() Gen[int]
 func IntRange(lo, hi int) Gen[int]
+func IntRangeToward(lo, hi, center int) Gen[int]          // ?SHRINK re-centering for numbers
+func Integer[I integer]() Gen[I]                          // and IntegerRange, IntegerRangeToward
+func Float64() Gen[float64]                               // and Float64Range, Float32, Float32Range
+func Bool() Gen[bool]
+func Rune() Gen[rune]
+func String() Gen[string]                                 // and StringN, StringOf, StringOfN
+func Bytes() Gen[[]byte]                                  // and BytesN
+func SliceOf[E any](elem Gen[E]) Gen[[]E]                 // and SliceOfN, SliceOfDistinct, SliceOfNDistinct
+func MapOf[K comparable, V any](k Gen[K], v Gen[V]) Gen[map[K]V] // and MapOfN
+func Ptr[E any](elem Gen[E], allowNil bool) Gen[*E]
+func Permutation[E any](values []E) Gen[[]E]
+func SampledFrom[E any](values []E) Gen[E]                // elements
+func Any() Gen[any]                                       // term(), bounded
+func Just[V any](v V) Gen[V]                              // exactly
+func Custom[V any](name string, f func(*T) V) Gen[V]
 func Map[A, B any](g Gen[A], f func(A) B) Gen[B]
 func Bind[A, B any](g Gen[A], f func(A) Gen[B]) Gen[B]   // ?LET
-func Filter[T any](g Gen[T], pred func(T) bool) Gen[T]   // ?SUCHTHAT
-func OneOf[T any](gs ...Gen[T]) Gen[T]                   // union
-type Weighted[T any] struct{ Weight int; Gen Gen[T] }
-func Frequency[T any](ws ...Weighted[T]) Gen[T]          // weighted_union
-func Sized[T any](f func(size int) Gen[T]) Gen[T]        // sized
-func Resize[T any](size int, g Gen[T]) Gen[T]            // resize
-func Lazy[T any](f func() Gen[T]) Gen[T]                 // ?LAZY, for recursive types
-func Func[A, B any](ret Gen[B]) Gen[func(A) B]           // function/2
-func Make[T any](opts ...MakeOption) Gen[T]              // derived from the type
-func NoShrink[T any](g Gen[T]) Gen[T]                    // noshrink
-func ShrinkTo[T any](g Gen[T], alts ...Gen[T]) Gen[T]    // ?SHRINK
-func LetShrink[T any](parts []Gen[T], combine func([]T) T) Gen[T] // ?LETSHRINK
-func (g Gen[T]) Example(seed ...uint64) T                // proper_gen:pick
-func SampleShrink[T any](g Gen[T]) iter.Seq[T]           // proper_gen:sampleshrink
+func Filter[V any](g Gen[V], pred func(V) bool) Gen[V]   // ?SUCHTHAT
+func OneOf[V any](gs ...Gen[V]) Gen[V]                   // union
+type Weighted[V any] struct{ Weight int; Gen Gen[V] }
+func Frequency[V any](ws ...Weighted[V]) Gen[V]          // weighted_union; weight 0 is reachable only by shrinking
+func Sized[V any](f func(size int) Gen[V]) Gen[V]        // ?SIZED
+func Resize[V any](size int, g Gen[V]) Gen[V]            // resize
+func Lazy[V any](f func() Gen[V]) Gen[V]                 // ?LAZY
+func ShrinkTo[V any](g Gen[V], alts ...Gen[V]) Gen[V]    // ?SHRINK
+func LetShrink[V any](parts []Gen[V], combine func([]V) V) Gen[V] // ?LETSHRINK
+func NoShrink[V any](g Gen[V]) Gen[V]                    // noshrink
+func SampleShrink[V any](g Gen[V], seed ...uint64) iter.Seq[V]    // proper_gen:sampleshrink
+func Func[A comparable, B any](ret Gen[B]) Gen[*Fn[A, B]] // function/2; call through Fn.Call
+func Func2[A, B comparable, C any](ret Gen[C]) Gen[*Fn2[A, B, C]]
 
 // Properties.
 type Property func(*T)
-func Check(tb testing.TB, prop Property, opts ...Option)
-func Setup(f func(t *T) (teardown func())) Option        // ?SETUP; where the book's Chapter 10 starts and stops the system
-func Recover(f func()) (panicked any)                    // treat a panic as a value, for the negative tests of Chapter 7
-func ForAll[A any](g Gen[A], body func(*T, A)) Property
+type TB interface { Helper(); Name() string; Logf(string, ...any); Errorf(string, ...any) } // satisfied by *testing.T
+func Check(tb TB, prop Property, opts ...Option)
+func CheckExists(tb TB, prop Property, opts ...Option)   // ?EXISTS
+func ForAll[A any](g Gen[A], body func(*T, A)) Property  // and ForAll2, ForAll3
 func Conjunction(subs ...Named) Property                 // conjunction
-func Timeout(d time.Duration, prop Property) Property    // ?TIMEOUT
+func Timeout(d time.Duration, prop Property) Property    // ?TIMEOUT, checked after the property returns
+func Recover(f func()) (panicked any)
+func Checks(n int) Option                                // numtests
+func Seed(seed uint64) Option
+func Sizes(start, max int) Option                        // start_size, max_size
+func ShrinkTime(d time.Duration) Option
+func SearchSteps(n int) Option                           // search_steps
+func Setup(f func(t *T) (teardown func())) Option        // ?SETUP
+func CheckCoverage() Option                              // checkCoverage
+func NoSave() Option
+func TestdataDir(dir string) Option
 func (t *T) Assume(cond bool)                            // ?IMPLIES
 func (t *T) Classify(cond bool, label string)            // classify
 func (t *T) Collect(v any)                               // collect
+func (t *T) Aggregate(values ...any)                     // aggregate
 func (t *T) Measure(name string, v float64)              // measure
-func (t *T) Cover(cond bool, pct float64, label string)  // cover; checked with the CheckCoverage option
+func (t *T) Cover(cond bool, pct float64, label string)  // cover
 func (t *T) OnFail(f func())                             // ?WHENFAIL
+func (t *T) Maximize(name string, utility float64)       // ?MAXIMIZE; Minimize reverses the sign
+func (t *T) Size() int
+// plus Errorf, Error, Fatalf, Fatal, Fail, FailNow, Failed, Logf, Log, Skip, Skipf, SkipNow, Cleanup
 
-// Stateful testing: Hedgehog's Command and Var, ported to Go.
-type Var[T any] struct{ /* unexported */ }
+// Stateful testing.
+type Var struct{ /* unexported */ }                      // {var, N}; resolved through Env
+type Env struct{ /* unexported */ }
+func (e Env) Get(v Var) any
+func Resolve[T any](env Env, v Var) T
 type Command[S, Sys any] interface {
-	Pre(state S) bool
-	Run(ctx context.Context, sys Sys) (any, error)
-	Next(state S, result Var[any]) S                     // symbolic during generation
-	Post(state S, env Env, result any) error             // resolved through Env during execution
+	Precondition(state S) bool
+	Execute(sys Sys, env Env) any
+	NextState(state S, result Var) S                     // symbolic during generation and execution
+	Postcondition(state S, env Env, result any) error
 }
-func Commands[S, Sys any](init S, gen func(S) Gen[Command[S, Sys]]) Gen[Program[S, Sys]]
+type Cmd[S, Sys any] struct {                            // Command built from function fields
+	Name string; Args []any
+	Pre  func(state S) bool
+	Run  func(sys Sys, env Env) any
+	Next func(state S, result Var) S
+	Post func(state S, env Env, result any) error
+}
+func Commands[S, Sys any](init S, gen func(S) Gen[Command[S, Sys]]) Gen[Program[S, Sys]] // and CommandsN
+func NoCommands[S, Sys any]() Gen[Command[S, Sys]]       // ends the sequence
 func (p Program[S, Sys]) RunSequential(t *T, sys Sys)
-func (p Program[S, Sys]) RunParallel(t *T, sys Sys, branches int)
-
-// Targeted PBT and existential properties.
-func (t *T) Maximize(name string, v float64)             // ?MAXIMIZE
-func Exists(prop Property) Property                      // ?EXISTS
+func ParallelCommands[S, Sys any](init S, gen func(S) Gen[Command[S, Sys]]) Gen[ParallelProgram[S, Sys]] // and ParallelCommandsN
+func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys)
+func CommandName(c any) string
 ```
 
 The layer that corresponds to the book's `proper_fsm` in Chapter 11 lives in
 the subpackage `fsm`. It pairs a state name with state data and attaches
 weights to the transitions listed for each state (`weight/3`). It runs on top
-of the `Command` machinery. Failure statistics use pairs of state name and command
-name, as `zip(state_names, command_names)` does.
+of the `Command` machinery. Statistics label each command with its source
+state, as `zip(state_names, command_names)` does.
 
 ```go
 package fsm // go.ymotongpoo.com/pbt/fsm
 
-type Transition[St comparable, D, Sys any] struct{ To St; Cmd pbt.Command[D, Sys] }
-type Machine[St comparable, D, Sys any] interface {
-	Initial() (St, D)                                                     // initial_state, initial_state_data
-	Transitions(state St, data D) []pbt.Weighted[Transition[St, D, Sys]] // the state functions and weight/3
+type State[N comparable, D any] struct{ Name N; Data D }
+type Transition[N comparable, D, Sys any] struct {
+	Weight int                                            // weight/3; 0 is reachable only by shrinking
+	To     N
+	Cmd    pbt.Gen[pbt.Command[D, Sys]]                   // precondition/4, next_state_data/5, postcondition/5 on the data
 }
+type Machine[N comparable, D, Sys any] interface {
+	Initial() (N, D)                                      // initial_state, initial_state_data
+	Transitions(name N, data D) []Transition[N, D, Sys]   // the state functions
+}
+func Commands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pbt.Program[State[N, D], Sys]]
+func ParallelCommands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pbt.ParallelProgram[State[N, D], Sys]]
 ```
 
 Run-time options come from the flags `-pbt.checks`, `-pbt.seed`,
-`-pbt.startsize`, `-pbt.maxsize`, `-pbt.shrinktime` and `-pbt.v`, and from
-environment variables of the same names. The book's `rebar3 proper -n`, `-p`
-and `--start_size` map to `-pbt.checks`, `go test -run` and `-pbt.startsize`.
+`-pbt.startsize`, `-pbt.maxsize`, `-pbt.shrinktime`, `-pbt.searchsteps`,
+`-pbt.nosave` and `-pbt.v`; options passed to `Check` take precedence. The
+book's `rebar3 proper -n`, `-p` and `--start_size` map to `-pbt.checks`,
+`go test -run` and `-pbt.startsize`.
 
 Stateful tests use **symbolic variables** (`Var`) because, while the command
 sequence is generated, no command has run yet and no result exists. PropEr
 lets the model state refer to results as `{var, N}` during generation and
-resolves them to real values during execution. Go does the same with a typed
-`Var[T]` and an environment `Env` that looks values up at run time. Commands
-return results of different types, so the interface uses `any` for the result
-and a generic function performs the typed lookup. Phase 2 settles the details.
+resolves them to real values during execution. Go does the same with a `Var` and an environment `Env` that looks values up
+at run time. Commands return results of different types and one generator
+yields commands of many kinds, so `Var` carries no type parameter; the
+generic `Resolve[T]` performs the typed lookup. `NextState` receives the Var
+both during generation and during execution, so the model never depends on
+real results and shrinking can regenerate the sequence; `Postcondition`
+receives the real result and the Env.
 The command generator receives the model state, so the weights of a
 `Frequency` can depend on it. That matches the use of `frequency` inside
 PropEr's `command/1`. While shrinking, every deletion of a command
@@ -292,8 +342,10 @@ it finds before it reports it.
 | 6 | Visualization of shrinking, documentation, performance comparison with rapid | A migration guide with a correspondence table exists |
 
 Phase 0 uses rapid as the yardstick because the two share a method, so the
-difference shows directly in shrinking quality. As of 2026-10-31, the Phase 0
-engine exists and passes its tests; the port of rapid's tests is still open.
+difference shows directly in shrinking quality. As of 2026-10-31, Phases 0
+to 4 are implemented and tested, including parallel command testing and
+targeted search; the port of rapid's tests and the chapter ports under
+`examples/` are still open, and `Make[T]` (Phase 5) is not started.
 
 ## What Go offers
 

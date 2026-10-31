@@ -226,10 +226,10 @@ func CheckExists(tb TB, prop Property, opts ...Option) {
 }
 
 type runner struct {
-	tb     TB
-	prop   Property
-	cfg    config
-	stats  *stats
+	tb      TB
+	prop    Property
+	cfg     config
+	stats   *stats
 	exists  bool // look for a passing case instead of a failing one
 	best    *T   // best case of a targeted search, for the report
 	current *T   // the case a targeted search mutates
