@@ -75,6 +75,7 @@ type config struct {
 	setup      func(*T) func()
 	checkCover bool
 	search     int
+	valueLimit int
 }
 
 // Checks sets the number of passing test cases Check requires.
@@ -125,6 +126,10 @@ func Verbose() Option { return func(c *config) { c.verbose = true } }
 // search_steps does. It applies once the property calls Maximize or Minimize.
 func SearchSteps(n int) Option { return func(c *config) { c.search = n } }
 
+// ReportLimit sets how many characters of each drawn value a report shows;
+// the default is 2000, and 0 shows everything.
+func ReportLimit(chars int) Option { return func(c *config) { c.valueLimit = chars } }
+
 func newConfig(opts []Option) (config, error) {
 	c := config{
 		checks:     *flagChecks,
@@ -137,6 +142,7 @@ func newConfig(opts []Option) (config, error) {
 		testdata:   defaultTestdata,
 		verbose:    *flagV,
 		search:     *flagSearch,
+		valueLimit: defaultValueLimit,
 	}
 	for _, o := range opts {
 		o(&c)

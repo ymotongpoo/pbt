@@ -6,10 +6,15 @@ package pbt
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // maxReportDepth is how deep nested labeled draws are listed in a report.
 const maxReportDepth = 3
+
+// defaultValueLimit is how many characters of one drawn value a report
+// shows before it cuts the text; the ReportLimit option changes it.
+const defaultValueLimit = 2000
 
 // report writes the counterexample to the test log and marks the test as
 // failed.
@@ -34,7 +39,7 @@ func (r *runner) format(t *T, headline string, trailer []string) string {
 			continue
 		}
 		indent := strings.Repeat("  ", d.depth)
-		fmt.Fprintf(&b, "[pbt] %s%s\n", indent, strings.ReplaceAll(formatDraw(d), "\n", "\n[pbt]   "+indent))
+		fmt.Fprintf(&b, "[pbt] %s%s\n", indent, strings.ReplaceAll(formatDrawLimit(d, r.cfg.valueLimit), "\n", "\n[pbt]   "+indent))
 	}
 	if omitted > 0 {
 		fmt.Fprintf(&b, "[pbt] (%d labeled draws nested deeper than %d levels omitted)\n", omitted, maxReportDepth)
@@ -58,10 +63,24 @@ func (r *runner) format(t *T, headline string, trailer []string) string {
 }
 
 func formatDraw(d drawRecord) string {
-	if d.label == "" {
-		return fmt.Sprintf("%s = %#v", d.gen, d.value)
+	return formatDrawLimit(d, defaultValueLimit)
+}
+
+// formatDrawLimit formats a draw, cutting the value text at limit characters
+// and saying how much was left out. A limit of 0 means no cut.
+func formatDrawLimit(d drawRecord, limit int) string {
+	text := fmt.Sprintf("%#v", d.value)
+	if limit > 0 && len(text) > limit {
+		cut := text[:limit]
+		for !utf8.ValidString(cut) {
+			cut = cut[:len(cut)-1]
+		}
+		text = fmt.Sprintf("%s… (%d more characters; raise the limit with ReportLimit)", cut, utf8.RuneCountInString(text)-utf8.RuneCountInString(cut))
 	}
-	return fmt.Sprintf("%s (%s) = %#v", d.label, d.gen, d.value)
+	if d.label == "" {
+		return fmt.Sprintf("%s = %s", d.gen, text)
+	}
+	return fmt.Sprintf("%s (%s) = %s", d.label, d.gen, text)
 }
 
 // userFrames extracts "file:line function" entries from a stack trace,
