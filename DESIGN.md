@@ -212,6 +212,7 @@ func NoShrink[V any](g Gen[V]) Gen[V]                    // noshrink
 func SampleShrink[V any](g Gen[V], seed ...uint64) iter.Seq[V]    // proper_gen:sampleshrink
 func Func[A comparable, B any](ret Gen[B]) Gen[*Fn[A, B]] // function/2; call through Fn.Call
 func Func2[A, B comparable, C any](ret Gen[C]) Gen[*Fn2[A, B, C]]
+func Make[V any](opts ...MakeOption) Gen[V]              // derived from the type by reflection; pbt struct tags, WithType, WithField
 
 // Properties.
 type Property func(*T)
