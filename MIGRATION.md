@@ -29,7 +29,7 @@ Options exist per call too: `pbt.Checks`, `pbt.Seed`, `pbt.Sizes`,
 | `g.Draw(t, "label")` | `g.Draw(t, "label")`; a label inside a `Custom` generator also appears in the report |
 | `g.Example(seed)` | `g.Example(seed)` |
 | `g.Filter(f)` | `pbt.Filter(g, f)` |
-| `g.AsAny()` | not needed; `pbt.Any()` generates values of common types |
+| `g.AsAny()` | `pbt.AsAny(g)` widens a generator to `Gen[any]`; `pbt.Any()` is different: it generates values of common types |
 | `rapid.Int()`, `IntRange`, `IntMin`, `IntMax` | the same names |
 | `rapid.Int8Range` and the other sized variants | `pbt.IntegerRange[int8](lo, hi)`, `pbt.Integer[int8]()`; `Int32`, `Int64`, `Uint`, `Uint32`, `Uint64`, `Byte` keep their names |
 | `rapid.Float64Range(lo, hi)` | `pbt.Float64Range(lo, hi)`; the full range is reachable, including the extremes |
@@ -65,7 +65,7 @@ size parameter, `Frequency` weights alternatives, `ShrinkTo`,
 | checks inside the action | `Postcondition` (`Post`), which receives the real result and an `Env` |
 | the Go struct that holds both model and system | a model state that `NextState` (`Next`) returns as a new value, and the system passed to `RunSequential` |
 | results the model needs before execution | `pbt.Var`, resolved with `pbt.Resolve` |
-| no equivalent | `pbt.ParallelCommands` and `RunParallel` for races, package `fsm` for named states |
+| no equivalent | `pbt.ParallelCommands` and `RunParallel` (an interleaving check, as in PropEr), package `fsm` for named states |
 
 In rapid the actions run as they are generated; in pbt the whole sequence
 is generated first against the model, then executed. That is what lets

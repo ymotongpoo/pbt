@@ -37,7 +37,7 @@ pbtの列は本書面での提案です。
 | プロパティの合成（`conjunction`、`?IMPLIES`、`?WHENFAIL`、`?TIMEOUT`） | ○ | ○ | × | ○ |
 | ステートフルテスト | ○ | ×（別ライブラリ） | ○ | ○ |
 | シンボリック変数 | ○ | － | × | ○ |
-| 並行コマンドテスト（線形化可能性の検査） | ○ | × | × | ○ |
+| 並行コマンドテスト（交互配置の検査） | ○ | × | × | ○ |
 | 標的型PBT | ○ | × | × | ○ |
 | 存在性プロパティ（`?EXISTS`） | ○ | × | × | ○ |
 | 関数の生成 | ○ | ○ | × | ○ |
@@ -164,6 +164,7 @@ func NoShrink[V any](g Gen[V]) Gen[V]                    // noshrink
 func SampleShrink[V any](g Gen[V], seed ...uint64) iter.Seq[V]    // proper_gen:sampleshrink
 func Func[A comparable, B any](ret Gen[B]) Gen[*Fn[A, B]] // function/2。Fn.Call で呼ぶ
 func Func2[A, B comparable, C any](ret Gen[C]) Gen[*Fn2[A, B, C]]
+func AsAny[V any](g Gen[V]) Gen[any]                     // 型の違う生成器を OneOf でまとめるための拡大
 func Make[V any](opts ...MakeOption) Gen[V]              // リフレクションによる型からの導出。pbt 構造体タグ、WithType、WithField
 func Recursive[V any](leaf Gen[V], extend func(self Gen[V]) Gen[V]) Gen[V] // 予算付きの再帰
 func Bounded[V any](leaf, node Gen[V]) Gen[V]            // 値1つにつき1つの再帰予算を型を跨いで共有する
@@ -265,10 +266,11 @@ PropErの `command/1` の中で `frequency` を使う書き方に対応します
 本書9章で `?WHENFAIL` の中に手で書いている内容と同じものです。
 
 並行コマンドテストはPropErの `parallel_commands` に倣います。
-生成器が「逐次の前置き」と「複数の並行枝」からなるプログラムを作り、実行器が枝をゴルーチンで実行します。
+生成器が「逐次の前置き」と「最大3本の並行枝」からなるプログラムを作り、実行器が枝をゴルーチンで実行します。
 その後、記録した履歴の交互配置を列挙して、逐次モデルが受け入れる配置が1つでもあるかを調べます。
-これが**線形化可能性**の検査です。
-枝が短ければ総当たりで十分です。
+この検査は各枝の中での順序だけを守り、枝どうしの実時間の前後関係は見ません。
+PropErも同じ方式で、線形化可能性の検査より弱い検査です。
+コマンドは合計12個までなので総当たりで十分です。
 
 PropErの標的型PBTは、値に対する近傍関数を使う焼きなまし法です。
 選択列では、これまでで最良の選択列を少し変異させることが近傍の生成にあたり、`internal/fuzz` の変異器がその参考になります。
@@ -281,7 +283,7 @@ PropErの標的型PBTは、値に対する近傍関数を使う焼きなまし�
 | 0 | 中核エンジン。ラベル付き区間を持つ選択列、`math/rand/v2` の ChaCha8 による乱数、実行器（回数、サイズの増加、シード）、縮小器（区間の削除、ゼロ化、個別の値の二分探索、隣接する値の再配分、子孫区間への置換）、panicの回収、ラベル付きの Draw 列としての最小反例の報告、`testdata/pbt/` への保存と自動再実行 | rapidの公開テストを移植し、同等以上に小さい反例へ縮小できる |
 | 1 | 生成器一式（PropErの `proper_types` に対応）、関数の生成、プロパティの合成、統計の出力と分布の検証、縮小の制御（`ShrinkTo`、`ShrinkToward`、`LetShrink`、`NoShrink`、`SampleShrink`） | 本書1章から8章の例題と演習がすべて移植できる |
 | 2 | ステートフルテスト（逐次）、シンボリック変数、`Setup`、縮小中の事前条件の再評価、履歴の表示、`fsm` パッケージ | 本書9章の逐次キャッシュ、10章の書店、11章のサーキットブレーカーが移植できる |
-| 3 | 並行コマンドテスト。レースディテクターと `testing/synctest` との併用 | 本書9章のキャッシュに仕込んだ競合が検出される |
+| 3 | 並行コマンドテスト（交互配置の検査）。レースディテクターと `testing/synctest` との併用 | 本書9章のキャッシュに仕込んだ競合が検出される |
 | 4 | 標的型PBT、存在性プロパティ | PropErのドキュメントにある標的型PBTの例を移植できる（本書のオンライン版にこの章はない） |
 | 5 | 型からの導出（リフレクションによる `Make[T]`、構造体タグによる制約、`go/types` を使った `go generate` でのコード生成）、関数仕様の検査 | 再帰型を含む構造体の生成器が自動で得られる |
 | 6 | 縮小過程の可視化、ドキュメント、rapidとの性能比較 | 対応表付きの移行ガイドがある |
@@ -328,7 +330,7 @@ Go固有の機能で、PropErやQuickCheckにはない形で使えるものを�
 | 6 | CSVの往復、`"\r\na"` の反例、1列のときの曖昧さ（列数を `Size+1` にする）、ヘッダーとレコードでサイズを共有する入れ子の `?LET`、`date()`、例示テストとの併用、カバレッジ | 基本機能、再現実行 | 第1フェーズ。例示テストは `testing` の通常のテストとして同じファイルに置き、カバレッジは `go test -cover` で取る |
 | 7 | 段階的な `?LET`（価格表から商品列と期待値へ）、`elements(PriceList)`、`?SIZED` の再帰、`collect` のバケット、負のテスト（結果か特定のエラーか）、重複の生成（`vector(length+1, elements)`）、92%の実行が無効な入力だったという発見 | `Bind`、統計、`Cover` | 第1フェーズ。エラーはGoの `error` 値で受け、panicは `Recover` で値にする |
 | 8 | `?SHRINK` による再中心化（年を1970年へ、タイムゾーンの分を0、15、30、45へ）、`?LETSHRINK`（木から部分木へ、`A ++ B ++ C`、演習Q3の meal、演習Q4の checkout の独立した縮小）、`sampleshrink` | 縮小の制御と観察 | 第1フェーズ。`ShrinkTo`、`ShrinkToward`、`LetShrink`、`SampleShrink` |
-| 9 | statem のコールバック、キャッシュのモデル、`?WHENFAIL` での履歴と状態の表示、`aggregate(command_names)`、バグの注入、`parallel_commands`、`erlang:yield()` による競合の顕在化、`+T9` | `Command`、履歴の表示、コマンド名の統計、並行実行と線形化可能性の検査 | 第2フェーズと第3フェーズ。`runtime.Gosched()` と `-race` を併用する |
+| 9 | statem のコールバック、キャッシュのモデル、`?WHENFAIL` での履歴と状態の表示、`aggregate(command_names)`、バグの注入、`parallel_commands`、`erlang:yield()` による競合の顕在化、`+T9` | `Command`、履歴の表示、コマンド名の統計、並行実行と交互配置の検査 | 第2フェーズと第3フェーズ。`runtime.Gosched()` と `-race` を併用する |
 | 10 | PostgreSQLの書店、ISBNの生成器、`friendly_unicode`、shimによる意図のラベル（`new`、`exists`、`avail`）、`partial/1`、事前条件が偽を返して縮小が成立する場面、`--start_size`、起動と停止の配置（演習Q3）、実結果を `next_state` で使う注意（演習Q4） | 縮小中の事前条件の再評価、`Setup`、`Var`、`-pbt.startsize` | 第2フェーズ。shimのラベルはコマンド名に含めて統計に出す |
 | 11 | `proper_fsm` の状態名、`weight/3`、`precondition/4`、`postcondition/5`、`next_state_data/5`、`state_names` による統計、`?TRAPEXIT`、サーキットブレーカー（ok、tripped、blocked）とモデルの修正 | `fsm` パッケージ | 第2フェーズ |
 

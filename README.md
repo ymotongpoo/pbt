@@ -53,7 +53,8 @@ A command carries its arguments and knows how it changes the model
 (`Next`) and what the real system must answer (`Post`). `Commands` grows
 sequences from a state-dependent generator; `RunSequential` executes them and
 checks every postcondition. `ParallelCommands` and `RunParallel` do the same
-with concurrent branches and a linearizability check.
+with concurrent branches, accepting the results when some interleaving of
+the branches explains them, as PropEr does.
 
 ```go
 type model struct{ entries map[int]int }

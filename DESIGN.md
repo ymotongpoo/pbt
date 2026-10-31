@@ -48,7 +48,7 @@ column is the proposal in this document.
 | Property combinators (`conjunction`, `?IMPLIES`, `?WHENFAIL`, `?TIMEOUT`) | yes | yes | no | yes |
 | Stateful testing | yes | no (separate libraries) | yes | yes |
 | Symbolic variables | yes | n/a | no | yes |
-| Parallel command testing (linearizability check) | yes | no | no | yes |
+| Parallel command testing (interleaving check) | yes | no | no | yes |
 | Targeted PBT | yes | no | no | yes |
 | Existential properties (`?EXISTS`) | yes | no | no | yes |
 | Function generation | yes | yes | no | yes |
@@ -212,6 +212,7 @@ func NoShrink[V any](g Gen[V]) Gen[V]                    // noshrink
 func SampleShrink[V any](g Gen[V], seed ...uint64) iter.Seq[V]    // proper_gen:sampleshrink
 func Func[A comparable, B any](ret Gen[B]) Gen[*Fn[A, B]] // function/2; call through Fn.Call
 func Func2[A, B comparable, C any](ret Gen[C]) Gen[*Fn2[A, B, C]]
+func AsAny[V any](g Gen[V]) Gen[any]                     // widen for OneOf over different types
 func Make[V any](opts ...MakeOption) Gen[V]              // derived from the type by reflection; pbt struct tags, WithType, WithField
 func Recursive[V any](leaf Gen[V], extend func(self Gen[V]) Gen[V]) Gen[V] // bounded recursion
 func Bounded[V any](leaf, node Gen[V]) Gen[V]            // one recursion budget per value, shared across types
@@ -322,11 +323,13 @@ runner prints the executed commands, their results, and the model state at
 each step. Chapter 9 writes the same by hand inside `?WHENFAIL`.
 
 Parallel command testing follows PropEr's `parallel_commands`. The generator
-produces a sequential prefix followed by several parallel branches, and the
-runner executes the branches in goroutines. It then enumerates the
+produces a sequential prefix followed by at most three parallel branches, and
+the runner executes the branches in goroutines. It then enumerates the
 interleavings of the recorded histories to find one that the sequential model
-accepts. That is the **linearizability** check. With short branches, brute
-force is enough.
+accepts. The check keeps only the order within each branch and ignores the
+real-time order between branches, which is what PropEr does as well; it is
+therefore weaker than a linearizability check. With at most twelve commands,
+brute force is enough.
 
 Targeted PBT in PropEr is simulated annealing over neighborhood functions on
 values. In a choice sequence, the neighborhood is a small mutation of the best
@@ -341,7 +344,7 @@ it finds before it reports it.
 | 0 | Core engine: the choice sequence with labeled spans, ChaCha8 randomness from `math/rand/v2`, the runner (count, size growth, seed), the shrinker (span deletion, zeroing, binary search on single values, redistribution between neighbors, replacement by a descendant span), panic recovery, the minimal counterexample reported as labeled draws, saving to `testdata/pbt/` and automatic replay | rapid's public tests, ported, shrink to counterexamples at least as small |
 | 1 | The full generator set (matching PropEr's `proper_types`), function generation, property combinators, statistics output and distribution checks, shrinking control (`ShrinkTo`, `ShrinkToward`, `LetShrink`, `NoShrink`, `SampleShrink`) | Every example and exercise of Chapters 1 to 8 of the book is ported |
 | 2 | Sequential stateful testing, symbolic variables, `Setup`, precondition re-evaluation while shrinking, history output, the `fsm` package | The sequential cache of Chapter 9, the bookstore of Chapter 10 and the circuit breaker of Chapter 11 are ported |
-| 3 | Parallel command testing, combined with the race detector and `testing/synctest` | The race planted in the cache of Chapter 9 is detected |
+| 3 | Parallel command testing (interleaving check), combined with the race detector and `testing/synctest` | The race planted in the cache of Chapter 9 is detected |
 | 4 | Targeted PBT, existential properties | The targeted PBT examples in the PropEr documentation are ported (the online edition of the book has no chapter on them) |
 | 5 | Generators derived from types (`Make[T]` through reflection, constraints in struct tags, code generation with `go/types` under `go generate`), checking functions against specs | Generators for structs with recursive types are derived automatically |
 | 6 | Visualization of shrinking, documentation, performance comparison with rapid | A migration guide with a correspondence table exists |
@@ -405,7 +408,7 @@ each chapter.
 | 6 | The CSV round trip, the `"\r\na"` counterexample, the one-column ambiguity (use `Size+1` columns), nested `?LET` sharing a size between header and records, `date()`, example tests next to properties, coverage | Basic features, replay | Phase 1. Example tests are plain `testing` tests in the same file; coverage comes from `go test -cover` |
 | 7 | Layered `?LET` (price list, then items and the expected total), `elements(PriceList)`, `?SIZED` recursion, `collect` buckets, negative tests (a result or a specific error), generating duplicates (`vector(length+1, elements)`), the discovery that 92% of the runs had invalid input | `Bind`, statistics, `Cover` | Phase 1. Errors are Go `error` values; `Recover` turns a panic into a value |
 | 8 | Re-centering with `?SHRINK` (years to 1970, time-zone minutes to 0, 15, 30, 45), `?LETSHRINK` (tree to subtree, `A ++ B ++ C`, the meal of Q3, independent shrinking in the checkout of Q4), `sampleshrink` | Shrinking control and observation | Phase 1. `ShrinkTo`, `ShrinkToward`, `LetShrink`, `SampleShrink` |
-| 9 | The statem callbacks, the cache model, history and state in `?WHENFAIL`, `aggregate(command_names)`, an injected bug, `parallel_commands`, exposing a race with `erlang:yield()`, `+T9` | `Command`, history output, command-name statistics, parallel execution with a linearizability check | Phases 2 and 3. `runtime.Gosched()` together with `-race` |
+| 9 | The statem callbacks, the cache model, history and state in `?WHENFAIL`, `aggregate(command_names)`, an injected bug, `parallel_commands`, exposing a race with `erlang:yield()`, `+T9` | `Command`, history output, command-name statistics, parallel execution with an interleaving check | Phases 2 and 3. `runtime.Gosched()` together with `-race` |
 | 10 | The bookstore on PostgreSQL, ISBN generators, `friendly_unicode`, intent labels through a shim (`new`, `exists`, `avail`), `partial/1`, preconditions that return false so that shrinking works, `--start_size`, where to start and stop the system (Q3), the caveat of using real results in `next_state` (Q4) | Precondition re-evaluation while shrinking, `Setup`, `Var`, `-pbt.startsize` | Phase 2. The shim labels become part of the command name and show up in the statistics |
 | 11 | `proper_fsm`: state names, `weight/3`, `precondition/4`, `postcondition/5`, `next_state_data/5`, statistics by `state_names`, `?TRAPEXIT`, the circuit breaker (ok, tripped, blocked) and the model fixes | The `fsm` package | Phase 2 |
 
