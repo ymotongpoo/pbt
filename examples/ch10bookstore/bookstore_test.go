@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -54,8 +55,10 @@ var (
 
 	// friendlyUnicode excludes the zero code point, which the chapter's
 	// driver could not send, and the LIKE wildcards, which would make the
-	// model's substring check wrong.
-	friendlyUnicode = pbt.StringOf(pbt.Filter(pbt.Rune(), func(r rune) bool { return r != 0 && r != '_' && r != '%' }))
+	// model's substring check wrong. It is bounded to the 256 characters of
+	// the varchar columns: PostgreSQL rejects longer values, SQLite does
+	// not enforce the length.
+	friendlyUnicode = pbt.StringOfN(pbt.Filter(pbt.Rune(), func(r rune) bool { return r != 0 && r != '_' && r != '%' }), 0, 256)
 	title           = friendlyUnicode
 	author          = friendlyUnicode
 )
@@ -267,10 +270,19 @@ func expectMatches(field func(Book) string, term string) func(model, pbt.Env, an
 	}
 }
 
+// openStore opens a fresh store per test case: SQLite in memory, or the
+// PostgreSQL database named by PBT_BOOKSTORE_DSN, for example
+// postgres://postgres:secret@localhost:5432/crud_db.
 func openStore(t *pbt.T) *Store {
-	s, err := Open()
+	var s *Store
+	var err error
+	if dsn := os.Getenv("PBT_BOOKSTORE_DSN"); dsn != "" {
+		s, err = OpenPostgres(dsn)
+	} else {
+		s, err = Open()
+	}
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { s.Close() })
 	return s

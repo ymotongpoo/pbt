@@ -43,8 +43,27 @@ model-aware generators, such as `borrow_copy:unavail`, name the intent, so
 the statistics show which paths ran and the postconditions stay simple,
 at the cost of a layer that must itself be right.
 
-What differs from the chapter: SQLite replaces PostgreSQL, so the
-driver-specific bugs (Unicode code-point lists, the zero byte) do not
+What differs from the chapter: SQLite replaces PostgreSQL by default, so
+the driver-specific bugs (Unicode code-point lists, the zero byte) do not
 reproduce, while the `LIKE` wildcards and the `return_copy` and
 `borrow_copy` fixes do. `LIKE` runs with `PRAGMA case_sensitive_like` so
-that the database and the model agree on substring matching.
+that the database and the model agree on substring matching. To run on
+PostgreSQL as the chapter does, point `PBT_BOOKSTORE_DSN` at a database,
+for example after `docker run -e POSTGRES_PASSWORD=secret -p 5432:5432
+postgres`:
+
+```sh
+PBT_BOOKSTORE_DSN='postgres://postgres:secret@localhost:5432/postgres' go test ./ch10bookstore/
+```
+
+Each test case drops and recreates the `books` table.
+
+The PostgreSQL run found one more difference: a title containing a
+backslash was not found by `find_by_title`, because PostgreSQL treats the
+backslash as the escape character of `LIKE` by default, while SQLite does
+not. The query now escapes the backslash and the two wildcards with an
+explicit `ESCAPE` clause, so the term is always literal; the generators
+still leave the wildcards out, as in the chapter, so that the story of the
+chapter holds. The same run also rejected titles longer than the 256
+characters of the column, which SQLite never enforces; the generators now
+stay within the schema.
