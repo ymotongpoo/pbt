@@ -344,8 +344,10 @@ it finds before it reports it.
 Phase 0 uses rapid as the yardstick because the two share a method, so the
 difference shows directly in shrinking quality. As of 2026-10-31, Phases 0
 to 4 are implemented and tested, including parallel command testing and
-targeted search; the port of rapid's tests and the chapter ports under
-`examples/` are still open, and `Make[T]` (Phase 5) is not started.
+targeted search, every chapter of the book is ported under `examples/`,
+and the reflection-based `Make[T]` of Phase 5 exists with struct tags and
+overrides. Still open: the port of rapid's tests, code generation with
+`go/types`, and checking functions against their signatures.
 
 ## What Go offers
 
@@ -409,13 +411,13 @@ Some Erlang-specific constructs take a different form in Go.
 - `rebar3 proper` is `go test`. pbt has no scaffolding like
   `rebar3 new proper base`.
 
-By default, the bookstore of Chapter 10 runs on the pure-Go SQLite
-implementation [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite),
-so that `go test` alone is enough. It runs on PostgreSQL when an environment
-variable supplies a connection string. Of the bugs the book finds, the `LIKE`
+The bookstore of Chapter 10 runs on the pure-Go SQLite implementation
+[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite), so that
+`go test` alone is enough; a PostgreSQL variant behind an environment
+variable is possible later. Of the bugs the book finds, the `LIKE`
 wildcards (`%` and `_`) and the cap on `available` reproduce on SQLite. The
-handling of NUL bytes is driver-specific and does not. Each chapter's README
-states what reproduces. The circuit breaker of Chapter 11 is a small
+handling of NUL bytes is driver-specific and does not. The README of the
+chapter states what reproduces. The circuit breaker of Chapter 11 is a small
 implementation in `examples/` that mirrors the API of Klarna's
 `circuit_breaker`. It has the three states ok, tripped and blocked, thresholds
 for errors and timeouts, and manual block, deblock and reset. Existing Go

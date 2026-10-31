@@ -9,6 +9,8 @@ machines, targeted search, and existential properties.
 **Status: under development.** The API is not stable yet. The design, the
 comparison with rapid, PropEr and QuickCheck, and the plan are in
 [DESIGN.md](DESIGN.md) (a Japanese version is in [DESIGN.ja.md](DESIGN.ja.md)).
+The `examples/` module ports every chapter of the book *PropEr Testing*
+by Fred Hebert, which is the acceptance test of the design.
 
 Requires Go 1.25 or later.
 
@@ -94,6 +96,8 @@ execution time. Package `fsm` adds named states with weighted transitions.
 
 Weights, sizes and shrinking targets are under your control: `Frequency`,
 `Sized`, `Resize`, `ShrinkTo`, `LetShrink`, `NoShrink`, `IntRangeToward`.
+`Make[T]` derives a generator from a struct type, with `pbt` tags for
+ranges and lengths and `WithType` or `WithField` for overrides.
 `Collect`, `Classify`, `Aggregate` and `Measure` print the distribution of a
 passing run, and `Cover` with the `CheckCoverage` option fails the test when
 a declared share of cases is not reached. `Maximize` and `Minimize` turn a
