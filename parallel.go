@@ -21,26 +21,26 @@ const (
 // ParallelProgram is a command sequence for a parallel test: a sequential
 // prefix followed by branches that run concurrently, as PropEr's
 // parallel_commands/1 produces.
-type ParallelProgram[S, Sys any] struct {
-	init     S
-	prefix   []Step[S, Sys]
-	branches [][]Step[S, Sys]
+type ParallelProgram struct {
+	model    model
+	prefix   []Step
+	branches [][]Step
 }
 
 // Prefix returns the commands that run before the branches.
-func (p ParallelProgram[S, Sys]) Prefix() []Step[S, Sys] { return p.prefix }
+func (p ParallelProgram) Prefix() []Step { return p.prefix }
 
 // Branches returns the command sequences that run concurrently.
-func (p ParallelProgram[S, Sys]) Branches() [][]Step[S, Sys] { return p.branches }
+func (p ParallelProgram) Branches() [][]Step { return p.branches }
 
 // String lists the prefix and the branches.
-func (p ParallelProgram[S, Sys]) String() string {
+func (p ParallelProgram) String() string {
 	var b strings.Builder
 	b.WriteString("ParallelProgram{")
-	writeSteps := func(title string, steps []Step[S, Sys]) {
+	writeSteps := func(title string, steps []Step) {
 		fmt.Fprintf(&b, "\n  %s:", title)
 		for _, s := range steps {
-			fmt.Fprintf(&b, "\n    %v = %s", s.Result, describe(s.Command))
+			fmt.Fprintf(&b, "\n    %v = %s", s.Result, s.Command)
 		}
 	}
 	writeSteps("prefix", p.prefix)
@@ -52,40 +52,38 @@ func (p ParallelProgram[S, Sys]) String() string {
 }
 
 // GoString makes %#v print the command lists.
-func (p ParallelProgram[S, Sys]) GoString() string { return p.String() }
+func (p ParallelProgram) GoString() string { return p.String() }
 
-// ParallelCommands generates parallel programs with two branches of at most
-// six commands each.
-func ParallelCommands[S, Sys any](init S, gen func(state S) Gen[Command[S, Sys]]) Gen[ParallelProgram[S, Sys]] {
-	return named(ParallelCommandsN(init, gen, defaultBranches, defaultMaxBranchLen), "ParallelCommands")
-}
-
-// ParallelCommandsN generates parallel programs with the given number of
-// branches, each at most maxBranchLen commands long. The prefix is generated
-// like Commands; every branch is generated from the state the prefix leads
-// to. Commands are dropped from the end of the longest branch until every
-// interleaving of the branches satisfies all preconditions, so that whatever
-// order the branches execute in is a valid test. At most three branches and
-// twelve commands in total are allowed, which bounds the number of
-// interleavings that generation and checking enumerate.
-func ParallelCommandsN[S, Sys any](init S, gen func(state S) Gen[Command[S, Sys]], branches, maxBranchLen int) Gen[ParallelProgram[S, Sys]] {
-	if branches < 1 || branches > maxParallelBranches || maxBranchLen < 1 || branches*maxBranchLen > maxParallelCommands {
-		panic(fmt.Sprintf("pbt: ParallelCommandsN(%d branches, %d commands each): need 1 to %d branches and at most %d commands in total",
-			branches, maxBranchLen, maxParallelBranches, maxParallelCommands))
+// ParallelCommands generates parallel programs: a prefix generated like
+// Commands, followed by branches generated from the state the prefix leads
+// to, two of at most six commands each unless Branches says otherwise.
+// Commands are dropped from the end of the longest branch until every
+// interleaving of the branches satisfies all preconditions, so that
+// whatever order the branches execute in is a valid test. init and gen are
+// those of Commands.
+func ParallelCommands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[ParallelProgram] {
+	cfg := statefulConfig(opts)
+	checkLengths(cfg.minLen, cfg.maxLen)
+	if cfg.branches < 1 || cfg.branches > maxParallelBranches || cfg.maxBranchLen < 1 || cfg.branches*cfg.maxBranchLen > maxParallelCommands {
+		panic(fmt.Sprintf("pbt: Branches(%d, %d): need 1 to %d branches and at most %d commands in total",
+			cfg.branches, cfg.maxBranchLen, maxParallelBranches, maxParallelCommands))
 	}
-	return Gen[ParallelProgram[S, Sys]]{name: fmt.Sprintf("ParallelCommandsN(%d, %d)", branches, maxBranchLen), draw: func(t *T) ParallelProgram[S, Sys] {
+	return Gen[ParallelProgram]{name: "ParallelCommands", draw: func(t *T) ParallelProgram {
+		m := model{init: init, show: cfg.show}
+		m.reset()
 		t.beginSpan("prefix")
-		prefix, state := drawSteps(t, gen, init, 1, 0, -1)
+		prefix := drawSteps(t, gen, 1, cfg.minLen, cfg.maxLen)
 		t.endSpan()
 		nextID := len(prefix) + 1
-		brs := make([][]Step[S, Sys], branches)
+		brs := make([][]Step, cfg.branches)
 		for i := range brs {
+			m.replay(prefix)
 			t.beginSpan("branch")
-			brs[i], _ = drawSteps(t, gen, state, nextID, 0, maxBranchLen)
+			brs[i] = drawSteps(t, gen, nextID, 0, cfg.maxBranchLen)
 			t.endSpan()
 			nextID += len(brs[i])
 		}
-		for !allInterleavingsValid(state, brs, make([]int, len(brs))) {
+		for !m.allInterleavingsValid(prefix, brs) {
 			longest := 0
 			for i := range brs {
 				if len(brs[i]) > len(brs[longest]) {
@@ -94,54 +92,68 @@ func ParallelCommandsN[S, Sys any](init S, gen func(state S) Gen[Command[S, Sys]
 			}
 			brs[longest] = brs[longest][:len(brs[longest])-1]
 		}
-		return ParallelProgram[S, Sys]{init: init, prefix: prefix, branches: brs}
+		return ParallelProgram{model: m, prefix: prefix, branches: brs}
 	}}
 }
 
 // allInterleavingsValid reports whether every interleaving of the branches
-// satisfies the preconditions of its commands when it starts from state.
-func allInterleavingsValid[S, Sys any](state S, branches [][]Step[S, Sys], pos []int) bool {
-	for b := range branches {
-		if pos[b] >= len(branches[b]) {
-			continue
+// satisfies the preconditions of its commands when it starts from the
+// state the prefix leads to. The model is replayed up to each point.
+func (m model) allInterleavingsValid(prefix []Step, branches [][]Step) bool {
+	pos := make([]int, len(branches))
+	var path []Step
+	var valid func() bool
+	valid = func() bool {
+		for b := range branches {
+			if pos[b] >= len(branches[b]) {
+				continue
+			}
+			s := branches[b][pos[b]]
+			m.replay(prefix, path)
+			if !s.Command.pre() {
+				return false
+			}
+			pos[b]++
+			path = append(path, s)
+			ok := valid()
+			path = path[:len(path)-1]
+			pos[b]--
+			if !ok {
+				return false
+			}
 		}
-		s := branches[b][pos[b]]
-		if !s.Command.Precondition(state) {
-			return false
-		}
-		pos[b]++
-		ok := allInterleavingsValid(s.Command.NextState(state, s.Result), branches, pos)
-		pos[b]--
-		if !ok {
-			return false
-		}
+		return true
 	}
-	return true
+	return valid()
 }
 
-// RunParallel executes the prefix sequentially and then the branches in one
-// goroutine each, and checks that some interleaving of the branches explains
-// the results, as PropEr's run_parallel_commands/2 does. The check keeps the
-// order within each branch and ignores the real-time order between
-// branches, so it is weaker than a linearizability check: a read that
-// started after a write completed may still be explained by placing it
-// before the write. A failure is a sign of a race in the system under test;
-// running the property under the race detector helps to locate it. Because
-// the schedule is not under the test's control, a race may need many runs
-// to show, and shrinking keeps only the candidates on which it shows again.
+// RunParallel puts the model in its initial state, executes the prefix
+// sequentially and then the branches in one goroutine each, and checks
+// that some interleaving of the branches explains the results, as PropEr's
+// run_parallel_commands/2 does. The check keeps the order within each
+// branch and ignores the real-time order between branches, so it is weaker
+// than a linearizability check: a read that started after a write
+// completed may still be explained by placing it before the write. A
+// failure is a sign of a race in the system under test; running the
+// property under the race detector helps to locate it. Because the
+// schedule is not under the test's control, a race may need many runs to
+// show, and shrinking keeps only the candidates on which it shows again.
 //
 // Each branch resolves the Vars of the prefix and of its own earlier
-// commands; a command cannot refer to the result of another branch.
-func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys) {
+// commands; a command cannot refer to the result of another branch. The
+// Run functions of the branches execute concurrently and must not touch
+// the model; Pre, Post and Next run on the test's goroutine afterwards.
+func (p ParallelProgram) RunParallel(t *T) {
 	env := Env{vals: map[Var]any{}}
-	state := runSteps(t, p.prefix, p.init, sys, env, nil)
+	p.model.reset()
+	runSteps(t, p.model, p.prefix, env, nil)
 	var prefixHistory []string
 	for i, s := range p.prefix {
 		prefixHistory = append(prefixHistory, historyLine(i+1, s, env.vals[s.Result]))
 	}
 	for _, br := range p.branches {
 		for _, s := range br {
-			t.Aggregate(CommandName(s.Command))
+			t.Aggregate(s.Command.Name)
 		}
 	}
 
@@ -159,7 +171,7 @@ func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys) {
 			for i, s := range br {
 				runtime.Gosched()
 				var stack []byte
-				results[b][i], panics[b][i], stack = executeCommand(s.Command, sys, local)
+				results[b][i], panics[b][i], stack = executeCommand(s.Command, local)
 				if panics[b][i] != nil {
 					stacks[b] = stack
 					return
@@ -194,7 +206,7 @@ func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys) {
 			t.Logf("  branch %d:", b+1)
 			for i, s := range br {
 				if panics[b][i] != nil {
-					t.Logf("    %s panicked: %v", describe(s.Command), panics[b][i])
+					t.Logf("    %s panicked: %v", s.Command, panics[b][i])
 					break
 				}
 				t.Logf("    %s", historyLine(i+1, s, results[b][i]))
@@ -208,37 +220,50 @@ func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys) {
 					t.stack = stacks[b]
 				}
 				logHistory()
-				t.fatalAt(panicKey(panics[b][i], stacks[b]), fmt.Sprintf("branch %d: %s panicked: %v", b+1, describe(s.Command), panics[b][i]))
+				t.fatalAt(panicKey(panics[b][i], stacks[b]), fmt.Sprintf("branch %d: %s panicked: %v", b+1, s.Command, panics[b][i]))
 			}
 		}
 	}
-	if !linearizable(state, p.branches, results, make([]int, len(p.branches)), env) {
+	if !p.explained(results, env) {
 		logHistory()
-		t.Logf("model state after the prefix: %+v", state)
+		p.model.replay(p.prefix)
+		if state, ok := p.model.state(); ok {
+			t.Logf("model state after the prefix: %s", state)
+		}
 		t.fatalAt("no interleaving", fmt.Sprintf("no interleaving of the %d branches satisfies the postconditions", len(p.branches)))
 	}
 }
 
 // explained reports whether some interleaving of the branches, applied to
-// the model from state, accepts every recorded result. Only the order within
-// each branch constrains the interleavings.
-func linearizable[S, Sys any](state S, branches [][]Step[S, Sys], results [][]any, pos []int, env Env) bool {
-	done := true
-	for b := range branches {
-		if pos[b] >= len(branches[b]) {
-			continue
+// the model from the state after the prefix, accepts every recorded
+// result. Only the order within each branch constrains the interleavings.
+// The model is replayed up to each point.
+func (p ParallelProgram) explained(results [][]any, env Env) bool {
+	pos := make([]int, len(p.branches))
+	var path []Step
+	var search func() bool
+	search = func() bool {
+		done := true
+		for b := range p.branches {
+			if pos[b] >= len(p.branches[b]) {
+				continue
+			}
+			done = false
+			s := p.branches[b][pos[b]]
+			p.model.replay(p.prefix, path)
+			if !s.Command.pre() || s.Command.post(env, results[b][pos[b]]) != nil {
+				continue
+			}
+			pos[b]++
+			path = append(path, s)
+			ok := search()
+			path = path[:len(path)-1]
+			pos[b]--
+			if ok {
+				return true
+			}
 		}
-		done = false
-		s := branches[b][pos[b]]
-		if !s.Command.Precondition(state) || s.Command.Postcondition(state, env, results[b][pos[b]]) != nil {
-			continue
-		}
-		pos[b]++
-		ok := linearizable(s.Command.NextState(state, s.Result), branches, results, pos, env)
-		pos[b]--
-		if ok {
-			return true
-		}
+		return done
 	}
-	return done
+	return search()
 }

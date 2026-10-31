@@ -168,6 +168,10 @@ func OneOf[V any](gens ...Gen[V]) Gen[V] {
 	}}
 }
 
+// W pairs a weight with a generator for Frequency. It infers the value type,
+// which a Weighted literal would have to spell out.
+func W[V any](weight int, g Gen[V]) Weighted[V] { return Weighted[V]{Weight: weight, Gen: g} }
+
 // Weighted pairs a generator with its weight for Frequency.
 type Weighted[V any] struct {
 	Weight int

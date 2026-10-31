@@ -32,44 +32,40 @@ func (d *door) Close() error {
 	return nil
 }
 
-// machine names the states and lists the transitions of each one, with
-// weights.
-type doorMachine struct{}
-
-func (doorMachine) Initial() (string, struct{}) { return "closed", struct{}{} }
-
-func (doorMachine) Transitions(state string, _ struct{}) []fsm.Transition[string, struct{}, *door] {
-	type cmd = pbt.Cmd[struct{}, *door]
-	expect := func(want error) func(struct{}, pbt.Env, any) error {
-		return func(_ struct{}, _ pbt.Env, got any) error {
-			if err, _ := got.(error); !errors.Is(err, want) && !(want == nil && err == nil) {
-				return errors.New("unexpected result")
-			}
-			return nil
-		}
-	}
-	open := pbt.Just[pbt.Command[struct{}, *door]](cmd{Name: "open", Run: func(d *door, _ pbt.Env) any { return d.Open() }, Post: expect(nil)})
-	openAgain := pbt.Just[pbt.Command[struct{}, *door]](cmd{Name: "open", Run: func(d *door, _ pbt.Env) any { return d.Open() }, Post: expect(errAlready)})
-	closeDoor := pbt.Just[pbt.Command[struct{}, *door]](cmd{Name: "close", Run: func(d *door, _ pbt.Env) any { return d.Close() }, Post: expect(nil)})
-	closeAgain := pbt.Just[pbt.Command[struct{}, *door]](cmd{Name: "close", Run: func(d *door, _ pbt.Env) any { return d.Close() }, Post: expect(errAlready)})
-	if state == "closed" {
-		return []fsm.Transition[string, struct{}, *door]{
-			{Weight: 3, To: "open", Cmd: open},
-			{Weight: 1, To: "closed", Cmd: closeAgain},
-		}
-	}
-	return []fsm.Transition[string, struct{}, *door]{
-		{Weight: 3, To: "closed", Cmd: closeDoor},
-		{Weight: 1, To: "open", Cmd: openAgain},
-	}
-}
-
-// Commands turns the machine into a stateful property; the statistics
-// label each command with its source state.
+// Commands turns a machine into a stateful property: the transitions of
+// each state, with weights, and the commands that perform them. The
+// statistics label each command with its source and target state.
 func ExampleCommands() {
 	var t *testing.T
 	pbt.Check(t, func(t *pbt.T) {
-		prog := fsm.Commands[string, struct{}, *door](doorMachine{}).Draw(t, "cmds")
-		prog.RunSequential(t, &door{})
+		d := &door{}
+		expect := func(want error) func(pbt.Env, any) error {
+			return func(_ pbt.Env, got any) error {
+				if err, _ := got.(error); !errors.Is(err, want) {
+					return errors.New("unexpected result")
+				}
+				return nil
+			}
+		}
+		open := func(want error) pbt.Gen[pbt.Command] {
+			return pbt.Just(pbt.Command{Name: "open", Run: func(pbt.Env) any { return d.Open() }, Post: expect(want)})
+		}
+		closeDoor := func(want error) pbt.Gen[pbt.Command] {
+			return pbt.Just(pbt.Command{Name: "close", Run: func(pbt.Env) any { return d.Close() }, Post: expect(want)})
+		}
+		transitions := func(state string) []fsm.Transition {
+			if state == "closed" {
+				return []fsm.Transition{
+					{Weight: 3, To: "open", Cmd: open(nil)},
+					{Weight: 1, To: "closed", Cmd: closeDoor(errAlready)},
+				}
+			}
+			return []fsm.Transition{
+				{Weight: 3, To: "closed", Cmd: closeDoor(nil)},
+				{Weight: 1, To: "open", Cmd: open(errAlready)},
+			}
+		}
+		prog := fsm.Commands("closed", nil, transitions).Draw(t, "cmds")
+		prog.RunSequential(t)
 	})
 }

@@ -97,77 +97,76 @@ func ExampleMake() {
 	})
 }
 
-// A stateful test generates a sequence of commands against a model, runs
-// it against the real system and checks every postcondition. Commands can
-// be built inline with Cmd; the model state must be treated as immutable.
+// A stateful test keeps the model and the system in variables of the
+// property and builds the commands as closures over them. pbt generates a
+// sequence of commands against the model, runs it against the system and
+// checks every postcondition; init puts the model back in its initial
+// state whenever the sequence is replayed.
 func ExampleCommands() {
-	type counter struct{ n int }
-	type model struct{ n int }
-	increment := pbt.Just[pbt.Command[model, *counter]](pbt.Cmd[model, *counter]{
-		Name: "increment",
-		Run:  func(c *counter, _ pbt.Env) any { c.n++; return c.n },
-		Next: func(m model, _ pbt.Var) model { return model{m.n + 1} },
-		Post: func(m model, _ pbt.Env, got any) error {
-			if got != m.n+1 {
-				return fmt.Errorf("got %v, want %d", got, m.n+1)
-			}
-			return nil
-		},
-	})
-	reset := pbt.Just[pbt.Command[model, *counter]](pbt.Cmd[model, *counter]{
-		Name: "reset",
-		Run:  func(c *counter, _ pbt.Env) any { c.n = 0; return nil },
-		Next: func(model, pbt.Var) model { return model{} },
-	})
-	commands := func(model) pbt.Gen[pbt.Command[model, *counter]] {
-		return pbt.Frequency(
-			pbt.Weighted[pbt.Command[model, *counter]]{Weight: 3, Gen: increment},
-			pbt.Weighted[pbt.Command[model, *counter]]{Weight: 1, Gen: reset},
-		)
-	}
 	var t *testing.T
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.Commands(model{}, commands).Draw(t, "cmds")
-		prog.RunSequential(t, &counter{})
+		counter := 0 // the system under test
+		model := 0   // what the test believes the counter holds
+		increment := pbt.Just(pbt.Command{
+			Name: "increment",
+			Run:  func(pbt.Env) any { counter++; return counter },
+			Next: func(pbt.Var) { model++ },
+			Post: func(_ pbt.Env, got any) error {
+				if got != model+1 {
+					return fmt.Errorf("got %v, want %d", got, model+1)
+				}
+				return nil
+			},
+		})
+		reset := pbt.Just(pbt.Command{
+			Name: "reset",
+			Run:  func(pbt.Env) any { counter = 0; return nil },
+			Next: func(pbt.Var) { model = 0 },
+		})
+		commands := func() pbt.Gen[pbt.Command] {
+			return pbt.Frequency(pbt.W(3, increment), pbt.W(1, reset))
+		}
+		prog := pbt.Commands(func() { model = 0 }, commands).Draw(t, "cmds")
+		prog.RunSequential(t)
 	})
 }
 
 // Var names a result that only exists once a command has run, so that later
 // commands can refer to it; Resolve reads it during execution.
 func ExampleResolve() {
-	type registry struct{ names map[int]string }
-	type model struct{ ids []pbt.Var }
-	register := pbt.Map(pbt.StringN(1, 5), func(name string) pbt.Command[model, *registry] {
-		return pbt.Cmd[model, *registry]{
-			Name: "register", Args: []any{name},
-			Run:  func(r *registry, _ pbt.Env) any { id := len(r.names) + 1; r.names[id] = name; return id },
-			Next: func(m model, v pbt.Var) model { return model{append(slices.Clone(m.ids), v)} },
-		}
-	})
-	lookup := func(m model) pbt.Gen[pbt.Command[model, *registry]] {
-		return pbt.Map(pbt.SampledFrom(m.ids), func(v pbt.Var) pbt.Command[model, *registry] {
-			return pbt.Cmd[model, *registry]{
-				Name: "lookup", Args: []any{v},
-				Run: func(r *registry, env pbt.Env) any { return r.names[pbt.Resolve[int](env, v)] },
-				Post: func(_ model, _ pbt.Env, got any) error {
-					if got == "" {
-						return fmt.Errorf("%v was not found", v)
-					}
-					return nil
-				},
-			}
-		})
-	}
-	commands := func(m model) pbt.Gen[pbt.Command[model, *registry]] {
-		if len(m.ids) == 0 {
-			return register
-		}
-		return pbt.OneOf(register, lookup(m))
-	}
 	var t *testing.T
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.Commands(model{}, commands).Draw(t, "cmds")
-		prog.RunSequential(t, &registry{names: map[int]string{}})
+		names := map[int]string{} // the system under test: a registry of ids
+		var ids []pbt.Var         // the model: the ids registered so far, as Vars
+		register := pbt.Map(pbt.StringN(1, 5), func(name string) pbt.Command {
+			return pbt.Command{
+				Name: "register", Args: []any{name},
+				Run:  func(pbt.Env) any { id := len(names) + 1; names[id] = name; return id },
+				Next: func(v pbt.Var) { ids = append(ids, v) },
+			}
+		})
+		lookup := func() pbt.Gen[pbt.Command] {
+			return pbt.Map(pbt.SampledFrom(ids), func(v pbt.Var) pbt.Command {
+				return pbt.Command{
+					Name: "lookup", Args: []any{v},
+					Run: func(env pbt.Env) any { return names[pbt.Resolve[int](env, v)] },
+					Post: func(_ pbt.Env, got any) error {
+						if got == "" {
+							return fmt.Errorf("%v was not found", v)
+						}
+						return nil
+					},
+				}
+			})
+		}
+		commands := func() pbt.Gen[pbt.Command] {
+			if len(ids) == 0 {
+				return register
+			}
+			return pbt.OneOf(register, lookup())
+		}
+		prog := pbt.Commands(func() { ids = nil }, commands).Draw(t, "cmds")
+		prog.RunSequential(t)
 	})
 }
 
@@ -178,33 +177,30 @@ func ExampleResolve() {
 // return duplicate values that no interleaving explains. Run such tests
 // under the race detector as well.
 func ExampleParallelCommands() {
-	type counter struct {
-		mu sync.Mutex
-		n  int
-	}
-	type model struct{ n int }
-	commands := func(model) pbt.Gen[pbt.Command[model, *counter]] {
-		return pbt.Just[pbt.Command[model, *counter]](pbt.Cmd[model, *counter]{
+	var t *testing.T
+	pbt.Check(t, func(t *pbt.T) {
+		var mu sync.Mutex
+		counter := 0
+		model := 0
+		increment := pbt.Just(pbt.Command{
 			Name: "increment",
-			Run: func(c *counter, _ pbt.Env) any {
-				c.mu.Lock()
-				defer c.mu.Unlock()
-				c.n++
-				return c.n
+			Run: func(pbt.Env) any {
+				mu.Lock()
+				defer mu.Unlock()
+				counter++
+				return counter
 			},
-			Next: func(m model, _ pbt.Var) model { return model{m.n + 1} },
-			Post: func(m model, _ pbt.Env, got any) error {
-				if got != m.n+1 {
-					return fmt.Errorf("increment returned %v, want %d", got, m.n+1)
+			Next: func(pbt.Var) { model++ },
+			Post: func(_ pbt.Env, got any) error {
+				if got != model+1 {
+					return fmt.Errorf("increment returned %v, want %d", got, model+1)
 				}
 				return nil
 			},
 		})
-	}
-	var t *testing.T
-	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.ParallelCommands(model{}, commands).Draw(t, "cmds")
-		prog.RunParallel(t, &counter{})
+		commands := func() pbt.Gen[pbt.Command] { return increment }
+		prog := pbt.ParallelCommands(func() { model = 0 }, commands).Draw(t, "cmds")
+		prog.RunParallel(t)
 	})
 }
 

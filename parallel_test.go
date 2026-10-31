@@ -33,22 +33,28 @@ func (c *counter) inc() int64 {
 	return c.n.Add(1)
 }
 
-func counterCommands(int64) Gen[Command[int64, *counter]] {
-	return Just[Command[int64, *counter]](Cmd[int64, *counter]{Name: "inc",
-		Run:  func(c *counter, _ Env) any { return c.inc() },
-		Next: func(n int64, _ Var) int64 { return n + 1 },
-		Post: func(n int64, _ Env, res any) error {
+// counterProgram generates parallel programs over a counter and a model
+// count; the counter is created by the caller before the program runs.
+func counterProgram(c **counter) Gen[ParallelProgram] {
+	var n int64
+	inc := Just(Command{Name: "inc",
+		Run:  func(Env) any { return (*c).inc() },
+		Next: func(Var) { n++ },
+		Post: func(_ Env, res any) error {
 			if res != n+1 {
 				return fmt.Errorf("inc() = %v, want %d", res, n+1)
 			}
 			return nil
 		}})
+	return ParallelCommands(func() { n = 0 }, func() Gen[Command] { return inc })
 }
 
 func counterProperty(racy bool) Property {
 	return func(t *T) {
-		prog := ParallelCommands(int64(0), counterCommands).Draw(t, "cmds")
-		prog.RunParallel(t, &counter{racy: racy})
+		var c *counter
+		prog := counterProgram(&c).Draw(t, "cmds")
+		c = &counter{racy: racy}
+		prog.RunParallel(t)
 	}
 }
 
@@ -73,27 +79,21 @@ func TestParallelRaceIsCaught(t *testing.T) {
 // gate only allows open after an open-free prefix: open requires closed,
 // close requires open. Two branches that both open from the same state would
 // have an invalid interleaving, so the generator must trim them.
-type gateModel struct{ open bool }
-
-func gateCommands(m gateModel) Gen[Command[gateModel, *struct{}]] {
-	if m.open {
-		return Just[Command[gateModel, *struct{}]](Cmd[gateModel, *struct{}]{Name: "close",
-			Pre:  func(m gateModel) bool { return m.open },
-			Next: func(gateModel, Var) gateModel { return gateModel{false} }})
-	}
-	return Just[Command[gateModel, *struct{}]](Cmd[gateModel, *struct{}]{Name: "open",
-		Pre:  func(m gateModel) bool { return !m.open },
-		Next: func(gateModel, Var) gateModel { return gateModel{true} }})
-}
-
 func TestParallelBranchesStayInterleavable(t *testing.T) {
 	Check(t, func(t *T) {
-		prog := ParallelCommands(gateModel{}, gateCommands).Draw(t, "cmds")
-		state := prog.init
-		for _, s := range prog.prefix {
-			state = s.Command.NextState(state, s.Result)
+		open := false
+		gen := func() Gen[Command] {
+			if open {
+				return Just(Command{Name: "close",
+					Pre:  func() bool { return open },
+					Next: func(Var) { open = false }})
+			}
+			return Just(Command{Name: "open",
+				Pre:  func() bool { return !open },
+				Next: func(Var) { open = true }})
 		}
-		if !allInterleavingsValid(state, prog.branches, make([]int, len(prog.branches))) {
+		prog := ParallelCommands(func() { open = false }, gen).Draw(t, "cmds")
+		if !prog.model.allInterleavingsValid(prog.prefix, prog.branches) {
 			t.Fatalf("an interleaving violates a precondition:\n%s", prog)
 		}
 		busy := 0
@@ -105,12 +105,35 @@ func TestParallelBranchesStayInterleavable(t *testing.T) {
 		if busy > 1 {
 			t.Fatalf("two non-empty branches cannot both be valid for the gate:\n%s", prog)
 		}
-		prog.RunParallel(t, &struct{}{})
+		prog.RunParallel(t)
 	}, NoSave())
 }
 
+func TestBranchesOptionShapesTheProgram(t *testing.T) {
+	step := Just(Command{Name: "step"})
+	Check(t, func(t *T) {
+		prog := ParallelCommands(nil, func() Gen[Command] { return step }, Branches(3, 2), Length(0, 1)).Draw(t, "cmds")
+		if len(prog.Branches()) != 3 || len(prog.Prefix()) > 1 {
+			t.Fatalf("got %d branches after a prefix of %d", len(prog.Branches()), len(prog.Prefix()))
+		}
+		for _, br := range prog.Branches() {
+			if len(br) > 2 {
+				t.Fatalf("a branch has %d commands", len(br))
+			}
+		}
+	}, NoSave())
+	defer func() {
+		msg, _ := recover().(string)
+		if !strings.Contains(msg, "Branches(4, 1)") {
+			t.Errorf("message %q", msg)
+		}
+	}()
+	ParallelCommands(nil, func() Gen[Command] { return step }, Branches(4, 1))
+}
+
 func TestParallelProgramString(t *testing.T) {
-	prog := ParallelCommands(int64(0), counterCommands).Example(3)
+	var c *counter
+	prog := counterProgram(&c).Example(3)
 	text := prog.String()
 	for _, want := range []string{"ParallelProgram{", "prefix:", "branch 1:", "branch 2:"} {
 		if !strings.Contains(text, want) {

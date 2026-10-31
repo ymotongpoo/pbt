@@ -72,16 +72,12 @@ var shrinkCases = []shrinkCase{
 		}
 	}},
 	{"commands", func(t *T) {
-		type sys struct{}
-		prog := Commands(0, func(n int) Gen[Command[int, sys]] {
-			return Map(IntRange(-5, 5), func(d int) Command[int, sys] {
-				return Cmd[int, sys]{Name: "add", Args: []any{d}, Next: func(n int, _ Var) int { return n + d }}
+		n := 0
+		Commands(func() { n = 0 }, func() Gen[Command] {
+			return Map(IntRange(-5, 5), func(d int) Command {
+				return Command{Name: "add", Args: []any{d}, Next: func(Var) { n += d }}
 			})
 		}).Draw(t, "cmds")
-		n := 0
-		for _, s := range prog.Steps() {
-			n += s.Command.(Cmd[int, sys]).Args[0].(int)
-		}
 		if n >= 7 {
 			t.Fail()
 		}

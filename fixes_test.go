@@ -28,38 +28,36 @@ func TestFloatRangesStayWithinBounds(t *testing.T) {
 }
 
 func TestParallelBranchesResolveTheirOwnVars(t *testing.T) {
-	type sys struct {
-		mu  sync.Mutex
-		ids int
-	}
-	type model struct{ vars []Var }
-	register := Just[Command[model, *sys]](Cmd[model, *sys]{Name: "register",
-		Run: func(s *sys, _ Env) any {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			s.ids++
-			return s.ids
-		},
-		Next: func(m model, v Var) model { return model{append(append([]Var{}, m.vars...), v)} }})
-	gen := func(m model) Gen[Command[model, *sys]] {
-		if len(m.vars) == 0 {
-			return register
-		}
-		lookup := Map(SampledFrom(m.vars), func(v Var) Command[model, *sys] {
-			return Cmd[model, *sys]{Name: "lookup", Args: []any{v},
-				Run: func(s *sys, env Env) any { return Resolve[int](env, v) > 0 },
-				Post: func(_ model, _ Env, got any) error {
-					if got != true {
-						return errNotPositive
-					}
-					return nil
-				}}
-		})
-		return OneOf(register, lookup)
-	}
 	Check(t, func(t *T) {
-		prog := ParallelCommands(model{}, gen).Draw(t, "cmds")
-		prog.RunParallel(t, &sys{})
+		var mu sync.Mutex
+		ids := 0
+		var vars []Var
+		register := Just(Command{Name: "register",
+			Run: func(Env) any {
+				mu.Lock()
+				defer mu.Unlock()
+				ids++
+				return ids
+			},
+			Next: func(v Var) { vars = append(vars, v) }})
+		gen := func() Gen[Command] {
+			if len(vars) == 0 {
+				return register
+			}
+			lookup := Map(SampledFrom(vars), func(v Var) Command {
+				return Command{Name: "lookup", Args: []any{v},
+					Run: func(env Env) any { return Resolve[int](env, v) > 0 },
+					Post: func(_ Env, got any) error {
+						if got != true {
+							return errNotPositive
+						}
+						return nil
+					}}
+			})
+			return OneOf(register, lookup)
+		}
+		prog := ParallelCommands(func() { vars = nil }, gen).Draw(t, "cmds")
+		prog.RunParallel(t)
 	}, NoSave(), Checks(200))
 }
 
@@ -70,15 +68,12 @@ type parallelError struct{ s string }
 func (e *parallelError) Error() string { return e.s }
 
 func TestParallelDiscardIsRaisedOnTheMainGoroutine(t *testing.T) {
-	type sys struct{}
-	gen := func(int) Gen[Command[int, sys]] {
-		return Just[Command[int, sys]](Cmd[int, sys]{Name: "skip",
-			Run: func(sys, Env) any { panic(discardTest{reason: "not applicable"}) }})
-	}
+	skip := Just(Command{Name: "skip",
+		Run: func(Env) any { panic(discardTest{reason: "not applicable"}) }})
 	cfg, _ := newConfig([]Option{Seed(1), Checks(5), NoSave()})
 	r := &runner{tb: t, prop: func(t *T) {
-		prog := ParallelCommandsN(0, gen, 2, 2).Draw(t, "cmds")
-		prog.RunParallel(t, sys{})
+		prog := ParallelCommands(nil, func() Gen[Command] { return skip }, Branches(2, 2)).Draw(t, "cmds")
+		prog.RunParallel(t)
 	}, cfg: cfg}
 	if _, _, err := r.search(); err == nil || !strings.Contains(err.Error(), "discarded") {
 		t.Errorf("expected the run to give up on discards, got %v", err)
@@ -91,8 +86,7 @@ func TestParallelBranchCountIsCapped(t *testing.T) {
 			t.Error("four branches were accepted")
 		}
 	}()
-	type sys struct{}
-	ParallelCommandsN(0, func(int) Gen[Command[int, sys]] { return NoCommands[int, sys]() }, 4, 1)
+	ParallelCommands(nil, NoCommands, Branches(4, 1))
 }
 
 func TestFailureBeatsDiscard(t *testing.T) {
@@ -196,13 +190,12 @@ func TestZeroGenPanicsClearly(t *testing.T) {
 }
 
 func TestUninitializedCommandGeneratorIsRejected(t *testing.T) {
-	type sys struct{}
 	defer func() {
 		if rec := recover(); rec == nil || !strings.Contains(rec.(string), "NoCommands") {
 			t.Errorf("got %v", rec)
 		}
 	}()
-	Commands(0, func(int) Gen[Command[int, sys]] { return Gen[Command[int, sys]]{} }).Example(1)
+	Commands(nil, func() Gen[Command] { return Gen[Command]{} }).Example(1)
 }
 
 func TestAsAnyWidens(t *testing.T) {

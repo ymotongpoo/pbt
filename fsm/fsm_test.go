@@ -61,10 +61,8 @@ func (b *breaker) Reset() {
 
 const limit = 2
 
-type cmd = pbt.Cmd[int, *breaker]
-
-func expect(want error) func(int, pbt.Env, any) error {
-	return func(_ int, _ pbt.Env, got any) error {
+func expect(want error) func(pbt.Env, any) error {
+	return func(_ pbt.Env, got any) error {
 		if got != want {
 			return fmt.Errorf("got %v, want %v", got, want)
 		}
@@ -72,51 +70,53 @@ func expect(want error) func(int, pbt.Env, any) error {
 	}
 }
 
-var (
-	success = pbt.Just[pbt.Command[int, *breaker]](cmd{Name: "success",
-		Run: func(b *breaker, _ pbt.Env) any { return b.Success() }, Post: expect(nil)})
-	successTripped = pbt.Just[pbt.Command[int, *breaker]](cmd{Name: "success",
-		Run: func(b *breaker, _ pbt.Env) any { return b.Success() }, Post: expect(errTripped)})
-	failStaying = pbt.Just[pbt.Command[int, *breaker]](cmd{Name: "fail",
-		Pre:  func(errs int) bool { return errs+1 < limit },
-		Run:  func(b *breaker, _ pbt.Env) any { return b.Fail() },
-		Next: func(errs int, _ pbt.Var) int { return errs + 1 },
+// machine builds the transitions over a breaker and the error count the
+// model keeps. The commands close over both.
+func machine(b **breaker) (init func(), transitions func(string) []fsm.Transition) {
+	errs := 0
+	success := pbt.Just(pbt.Command{Name: "success",
+		Run: func(pbt.Env) any { return (*b).Success() }, Post: expect(nil)})
+	successTripped := pbt.Just(pbt.Command{Name: "success",
+		Run: func(pbt.Env) any { return (*b).Success() }, Post: expect(errTripped)})
+	failStaying := pbt.Just(pbt.Command{Name: "fail",
+		Pre:  func() bool { return errs+1 < limit },
+		Run:  func(pbt.Env) any { return (*b).Fail() },
+		Next: func(pbt.Var) { errs++ },
 		Post: expect(errFailed)})
-	failTripping = pbt.Just[pbt.Command[int, *breaker]](cmd{Name: "fail",
-		Pre:  func(errs int) bool { return errs+1 >= limit },
-		Run:  func(b *breaker, _ pbt.Env) any { return b.Fail() },
-		Next: func(errs int, _ pbt.Var) int { return errs + 1 },
+	failTripping := pbt.Just(pbt.Command{Name: "fail",
+		Pre:  func() bool { return errs+1 >= limit },
+		Run:  func(pbt.Env) any { return (*b).Fail() },
+		Next: func(pbt.Var) { errs++ },
 		Post: expect(errTripped)})
-	reset = pbt.Just[pbt.Command[int, *breaker]](cmd{Name: "reset",
-		Run:  func(b *breaker, _ pbt.Env) any { b.Reset(); return nil },
-		Next: func(int, pbt.Var) int { return 0 }})
-)
-
-type machine struct{}
-
-func (machine) Initial() (string, int) { return "ok", 0 }
-
-func (machine) Transitions(name string, _ int) []fsm.Transition[string, int, *breaker] {
-	switch name {
-	case "ok":
-		return []fsm.Transition[string, int, *breaker]{
-			{Weight: 3, To: "ok", Cmd: success},
-			{Weight: 2, To: "ok", Cmd: failStaying},
-			{Weight: 2, To: "tripped", Cmd: failTripping},
-			{Weight: 1, To: "ok", Cmd: reset},
-		}
-	default:
-		return []fsm.Transition[string, int, *breaker]{
-			{Weight: 2, To: "tripped", Cmd: successTripped},
-			{Weight: 1, To: "ok", Cmd: reset},
+	reset := pbt.Just(pbt.Command{Name: "reset",
+		Run:  func(pbt.Env) any { (*b).Reset(); return nil },
+		Next: func(pbt.Var) { errs = 0 }})
+	transitions = func(state string) []fsm.Transition {
+		switch state {
+		case "ok":
+			return []fsm.Transition{
+				{Weight: 3, To: "ok", Cmd: success},
+				{Weight: 2, To: "ok", Cmd: failStaying},
+				{Weight: 2, To: "tripped", Cmd: failTripping},
+				{Weight: 1, To: "ok", Cmd: reset},
+			}
+		default:
+			return []fsm.Transition{
+				{Weight: 2, To: "tripped", Cmd: successTripped},
+				{Weight: 1, To: "ok", Cmd: reset},
+			}
 		}
 	}
+	return func() { errs = 0 }, transitions
 }
 
 func property(buggy bool) pbt.Property {
 	return func(t *pbt.T) {
-		prog := fsm.Commands[string, int, *breaker](machine{}).Draw(t, "cmds")
-		prog.RunSequential(t, &breaker{limit: limit, buggy: buggy})
+		var b *breaker
+		init, transitions := machine(&b)
+		prog := fsm.Commands("ok", init, transitions).Draw(t, "cmds")
+		b = &breaker{limit: limit, buggy: buggy}
+		prog.RunSequential(t)
 	}
 }
 
@@ -142,7 +142,7 @@ func TestBreakerHolds(t *testing.T) {
 		t.Fatalf("unexpected failure: %q", tb.errors)
 	}
 	logs := strings.Join(tb.logs, "\n")
-	for _, want := range []string{"% ok: fail", "% tripped: success", "% ok: success"} {
+	for _, want := range []string{"% ok -> tripped: fail", "% tripped -> tripped: success", "% ok -> ok: success"} {
 		if !strings.Contains(logs, want) {
 			t.Errorf("statistics lack %q:\n%s", want, logs)
 		}
@@ -160,7 +160,7 @@ func TestBuggyBreakerIsCaughtWithThreeCommands(t *testing.T) {
 	if steps != 3 {
 		t.Errorf("counterexample has %d commands, want 3:\n%s", steps, report)
 	}
-	for _, want := range []string{"ok -> tripped: fail()", "tripped -> tripped: success()", "postcondition of", "got <nil>, want tripped"} {
+	for _, want := range []string{"ok -> tripped: fail()", "tripped -> tripped: success()", "postcondition of", "got <nil>, want tripped", "model state before step 3: tripped"} {
 		if !strings.Contains(report, want) {
 			t.Errorf("report lacks %q:\n%s", want, report)
 		}
@@ -169,7 +169,10 @@ func TestBuggyBreakerIsCaughtWithThreeCommands(t *testing.T) {
 
 func TestParallelBreakerHolds(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := fsm.ParallelCommands[string, int, *breaker](machine{}).Draw(t, "cmds")
-		prog.RunParallel(t, &breaker{limit: limit})
+		var b *breaker
+		init, transitions := machine(&b)
+		prog := fsm.ParallelCommands("ok", init, transitions).Draw(t, "cmds")
+		b = &breaker{limit: limit}
+		prog.RunParallel(t)
 	}, pbt.NoSave(), pbt.Checks(30))
 }

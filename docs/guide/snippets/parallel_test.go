@@ -27,28 +27,26 @@ func (c *Counter) Add(d int) int {
 	return c.n
 }
 
-type counterModel struct{ n int }
-
-func counterCommands(counterModel) pbt.Gen[pbt.Command[counterModel, *Counter]] {
-	return pbt.Map(pbt.IntRange(1, 5), func(d int) pbt.Command[counterModel, *Counter] {
-		return pbt.Cmd[counterModel, *Counter]{
-			Name: "add", Args: []any{d},
-			Run:  func(c *Counter, _ pbt.Env) any { return c.Add(d) },
-			Next: func(m counterModel, _ pbt.Var) counterModel { return counterModel{m.n + d} },
-			Post: func(m counterModel, _ pbt.Env, got any) error {
-				if got != m.n+d {
-					return fmt.Errorf("add(%d) returned %v, want %d", d, got, m.n+d)
-				}
-				return nil
-			},
-		}
-	})
-}
-
 func TestCounterParallel(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.ParallelCommands(counterModel{}, counterCommands).Draw(t, "cmds")
-		prog.RunParallel(t, &Counter{})
+		c := &Counter{}
+		n := 0 // the model: what the counter should hold
+		add := pbt.Map(pbt.IntRange(1, 5), func(d int) pbt.Command {
+			return pbt.Command{
+				Name: "add", Args: []any{d},
+				Run:  func(pbt.Env) any { return c.Add(d) },
+				Next: func(pbt.Var) { n += d },
+				Post: func(_ pbt.Env, got any) error {
+					if got != n+d {
+						return fmt.Errorf("add(%d) returned %v, want %d", d, got, n+d)
+					}
+					return nil
+				},
+			}
+		})
+		commands := func() pbt.Gen[pbt.Command] { return add }
+		prog := pbt.ParallelCommands(func() { n = 0 }, commands).Draw(t, "cmds")
+		prog.RunParallel(t)
 	})
 }
 

@@ -105,35 +105,36 @@ func lineOf(key string) string { return key[strings.LastIndex(key, ":"):] }
 // A stateful property has one key per check and command, so that a failing
 // postcondition of one command cannot shrink into a panic of another.
 func TestStatefulFailuresHaveTheirOwnIdentity(t *testing.T) {
-	type sys = miscounter
 	var errWrong = errors.New("wrong count")
-	inc := Just[Command[int, *sys]](Cmd[int, *sys]{Name: "inc",
-		Run:  func(s *sys, _ Env) any { return s.inc() },
-		Next: func(m int, _ Var) int { return m + 1 },
-		Post: func(m int, _ Env, got any) error {
-			if got.(int) != m+1 {
-				return errWrong
-			}
-			return nil
-		}})
-	boom := Just[Command[int, *sys]](Cmd[int, *sys]{Name: "boom",
-		Pre: func(m int) bool { return m >= 2 },
-		Run: func(s *sys, _ Env) any { panic("boom") }})
-	// The system miscounts from the fourth increment on, and boom panics
-	// once two increments ran: the panic needs a shorter prefix than the
-	// postcondition failure, so a shrinker without identity would trade
-	// one for the other.
-	gen := func(m int) Gen[Command[int, *sys]] {
-		if m >= 2 {
-			return OneOf(inc, boom)
-		}
-		return inc
-	}
 	cfg, _ := newConfig([]Option{Seed(3), NoSave()})
 	r := &runner{tb: nopTB{}, prop: func(t *T) {
-		prog := Commands(0, gen).Draw(t, "cmds")
-		s := &sys{}
-		prog.RunSequential(t, s)
+		var s *miscounter
+		m := 0
+		inc := Just(Command{Name: "inc",
+			Run:  func(Env) any { return s.inc() },
+			Next: func(Var) { m++ },
+			Post: func(_ Env, got any) error {
+				if got.(int) != m+1 {
+					return errWrong
+				}
+				return nil
+			}})
+		boom := Just(Command{Name: "boom",
+			Pre: func() bool { return m >= 2 },
+			Run: func(Env) any { panic("boom") }})
+		// The system miscounts from the fourth increment on, and boom panics
+		// once two increments ran: the panic needs a shorter prefix than the
+		// postcondition failure, so a shrinker without identity would trade
+		// one for the other.
+		gen := func() Gen[Command] {
+			if m >= 2 {
+				return OneOf(inc, boom)
+			}
+			return inc
+		}
+		prog := Commands(func() { m = 0 }, gen).Draw(t, "cmds")
+		s = &miscounter{}
+		prog.RunSequential(t)
 	}, cfg: cfg}
 	fail, _, err := r.search()
 	if err != nil || fail == nil {

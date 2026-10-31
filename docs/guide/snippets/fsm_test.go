@@ -32,16 +32,13 @@ func (a *Account) move(from, to string) error {
 // snippet: end
 
 // snippet: machine
-// accountMachine names the states and lists the transitions out of each
-// one. The state data is empty here; a machine can carry a model value too.
-type accountMachine struct{}
-
-func (accountMachine) Initial() (string, struct{}) { return "new", struct{}{} }
-
-func (accountMachine) Transitions(state string, _ struct{}) []fsm.Transition[string, struct{}, *Account] {
-	type cmd = pbt.Cmd[struct{}, *Account]
-	expect := func(want error) func(struct{}, pbt.Env, any) error {
-		return func(_ struct{}, _ pbt.Env, got any) error {
+// accountProperty names the states and lists the transitions out of each
+// one. The machine carries no state data here; a machine that needs some
+// keeps it in variables of the property, like the model of chapter 5.
+func accountProperty(t *pbt.T) {
+	a := &Account{state: "new"}
+	expect := func(want error) func(pbt.Env, any) error {
+		return func(_ pbt.Env, got any) error {
 			err, _ := got.(error)
 			if !errors.Is(err, want) {
 				return errors.New("unexpected result")
@@ -49,42 +46,39 @@ func (accountMachine) Transitions(state string, _ struct{}) []fsm.Transition[str
 			return nil
 		}
 	}
-	command := func(name string, call func(*Account) error, want error) pbt.Gen[pbt.Command[struct{}, *Account]] {
-		return pbt.Just[pbt.Command[struct{}, *Account]](cmd{Name: name, Run: func(a *Account, _ pbt.Env) any { return call(a) }, Post: expect(want)})
+	command := func(name string, call func() error, want error) pbt.Gen[pbt.Command] {
+		return pbt.Just(pbt.Command{Name: name, Run: func(pbt.Env) any { return call() }, Post: expect(want)})
 	}
-	type transition = fsm.Transition[string, struct{}, *Account]
-	switch state {
-	case "new":
-		return []transition{
-			{Weight: 3, To: "verified", Cmd: command("verify", (*Account).Verify, nil)},
-			{Weight: 1, To: "new", Cmd: command("lock", (*Account).Lock, errState)},
-		}
-	case "verified":
-		return []transition{
-			{Weight: 2, To: "locked", Cmd: command("lock", (*Account).Lock, nil)},
-			{Weight: 1, To: "verified", Cmd: command("verify", (*Account).Verify, errState)},
-		}
-	default: // locked
-		return []transition{
-			{Weight: 2, To: "verified", Cmd: command("unlock", (*Account).Unlock, nil)},
-			{Weight: 1, To: "locked", Cmd: command("lock", (*Account).Lock, errState)},
+	transitions := func(state string) []fsm.Transition {
+		switch state {
+		case "new":
+			return []fsm.Transition{
+				{Weight: 3, To: "verified", Cmd: command("verify", a.Verify, nil)},
+				{Weight: 1, To: "new", Cmd: command("lock", a.Lock, errState)},
+			}
+		case "verified":
+			return []fsm.Transition{
+				{Weight: 2, To: "locked", Cmd: command("lock", a.Lock, nil)},
+				{Weight: 1, To: "verified", Cmd: command("verify", a.Verify, errState)},
+			}
+		default: // locked
+			return []fsm.Transition{
+				{Weight: 2, To: "verified", Cmd: command("unlock", a.Unlock, nil)},
+				{Weight: 1, To: "locked", Cmd: command("lock", a.Lock, errState)},
+			}
 		}
 	}
+	prog := fsm.Commands("new", nil, transitions).Draw(t, "cmds")
+	prog.RunSequential(t)
 }
 
 func TestAccountMachine(t *testing.T) {
-	pbt.Check(t, func(t *pbt.T) {
-		prog := fsm.Commands[string, struct{}, *Account](accountMachine{}).Draw(t, "cmds")
-		prog.RunSequential(t, &Account{state: "new"})
-	})
+	pbt.Check(t, accountProperty)
 }
 
 // snippet: end
 
 func TestAccountMachineLogs(t *testing.T) {
-	logs := passingLogs(t, "TestAccountMachine", func(t *pbt.T) {
-		prog := fsm.Commands[string, struct{}, *Account](accountMachine{}).Draw(t, "cmds")
-		prog.RunSequential(t, &Account{state: "new"})
-	}, pbt.Seed(1))
-	mustContain(t, logs, "% new: verify", "% verified: lock")
+	logs := passingLogs(t, "TestAccountMachine", accountProperty, pbt.Seed(1))
+	mustContain(t, logs, "% new -> verified: verify", "% verified -> locked: lock")
 }

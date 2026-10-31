@@ -59,8 +59,8 @@ type Op struct {
 // ops reads four times as often as it writes; shrinking moves toward the
 // first alternative, the read.
 var ops = pbt.Frequency(
-	pbt.Weighted[Op]{Weight: 4, Gen: pbt.Map(pbt.StringN(1, 3), func(k string) Op { return Op{"get", k} })},
-	pbt.Weighted[Op]{Weight: 1, Gen: pbt.Map(pbt.StringN(1, 3), func(k string) Op { return Op{"put", k} })},
+	pbt.W(4, pbt.Map(pbt.StringN(1, 3), func(k string) Op { return Op{"get", k} })),
+	pbt.W(1, pbt.Map(pbt.StringN(1, 3), func(k string) Op { return Op{"put", k} })),
 )
 
 // snippet: end
