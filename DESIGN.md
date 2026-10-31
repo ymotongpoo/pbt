@@ -1,131 +1,181 @@
-# Go向けプロパティベーステストライブラリ 設計方針（草案）
+# Design of pbt, a property-based testing library for Go (draft)
 
-2026年10月31日時点の草案です。
-ライブラリ名は pbt、importパスは `go.ymotongpoo.com/pbt` です。
-必要な設定は末尾の「リポジトリとモジュールの設定」にまとめています。
+This is the design as of 2026-10-31. The library is named `pbt` and its import
+path is `go.ymotongpoo.com/pbt`. The section "Repository and module setup" at
+the end lists what that requires. A Japanese version of this document is in
+[DESIGN.ja.md](DESIGN.ja.md); when the two disagree, this file wins.
 
-## 目的
+## Goals
 
-**プロパティベーステスト**（PBT）は、入力をランダムに生成して性質（プロパティ）が成り立つかを多数回確かめ、失敗したら入力を最小化して報告するテスト手法です。
-Goには[rapid](https://github.com/flyingmutant/rapid)と[gopter](https://github.com/leanovate/gopter)がありますが、Erlangの[PropEr](https://proper-testing.github.io/)やHaskellの[QuickCheck](https://hackage.haskell.org/package/QuickCheck)に比べると機能の幅が狭い状態です。
-本ライブラリの到達点を次のように置きます。
+**Property-based testing** (PBT) generates random inputs and checks that a
+property holds for each of them. When one fails, it minimizes the input
+before it reports it. Go has [rapid](https://github.com/flyingmutant/rapid)
+and [gopter](https://github.com/leanovate/gopter), but both cover far less
+than Erlang's [PropEr](https://proper-testing.github.io/) or Haskell's
+[QuickCheck](https://hackage.haskell.org/package/QuickCheck). This library
+sets out to:
 
-- PropErが持つ機能（統計、シンボリック変数を伴うステートフルテスト、並行コマンドテスト、標的型PBT、存在性プロパティ、関数の生成、型からの生成器導出）をGoで使えるようにする。
-- rapidの長所（ジェネリクスによる型安全な生成器、ユーザーコード不要の自動縮小、失敗の永続化と自動再実行）は維持する。
-- Go標準の `testing` の延長として自然に使える。
-- Fred Hebert（『Learn You Some Erlang for Great Good!』の著者）による『PropEr Testing』（[propertesting.com](https://propertesting.com/)で公開されている版。以下「本書」）の例題と演習を、すべてGoで書ける。
+- Bring the PropEr feature set to Go: statistics, stateful testing with
+  symbolic variables, parallel command testing, targeted PBT, existential
+  properties, function generation, and generators derived from types.
+- Keep what rapid does well: type-safe generators built on generics,
+  shrinking that needs no user code, and failures that are saved and replayed.
+- Feel like a natural extension of the standard `testing` package.
+- Express every example and exercise of *PropEr Testing* by Fred Hebert, the
+  author of *Learn You Some Erlang for Great Good!*. The edition is the one
+  published at [propertesting.com](https://propertesting.com/). This document
+  calls it "the book".
 
-gopterはジェネリクス以前の `interface{}` ベースのAPIなので、比較の基準にはrapidを使います。
+gopter predates generics and works through `interface{}`, so rapid is the
+point of comparison.
 
-## 既存ライブラリとの機能比較
+## Feature comparison
 
-rapidの列は[pkg.go.devのv1.3.0のインデックス](https://pkg.go.dev/pgregory.net/rapid)で確認した範囲です。
-本ライブラリの列は本草案での提案です。
+The rapid column reflects the
+[pkg.go.dev index of v1.3.0](https://pkg.go.dev/pgregory.net/rapid). The pbt
+column is the proposal in this document.
 
-| 機能 | PropEr | QuickCheck | rapid v1.3.0 | pbt（案） |
+| Feature | PropEr | QuickCheck | rapid v1.3.0 | pbt (proposed) |
 | --- | --- | --- | --- | --- |
-| 型安全な生成器 | －（動的型） | ○ | ○ | ○ |
-| ユーザーコード不要の縮小 | △（独自型には縮小関数が必要） | △（`shrink` の実装が必要） | ○ | ○ |
-| Bind（`?LET`）を跨ぐ縮小 | △（内側を縮小して外側を再生成） | ×（`>>=` で縮小が失われる） | ○ | ○ |
-| 縮小のカスタマイズ（`?SHRINK`、`?LETSHRINK`） | ○ | ○ | × | △（部分木への縮小は自動化。値レベルの指定は後続フェーズ） |
-| サイズパラメーター（`sized`、`resize`） | ○ | ○ | × | ○ |
-| 重み付き選択（`frequency`、`weighted_union`） | ○ | ○ | ×（`OneOf` は均等） | ○ |
-| 分布の検証（`cover`、`checkCoverage`） | × | ○ | × | ○ |
-| 統計（`collect`、`classify`、`aggregate`、`measure`） | ○ | ○ | × | ○ |
-| プロパティの合成（`conjunction`、`?IMPLIES`、`?WHENFAIL`、`?TIMEOUT`） | ○ | ○ | × | ○ |
-| ステートフルテスト | ○ | ×（別ライブラリ） | ○ | ○ |
-| シンボリック変数 | ○ | － | × | ○ |
-| 並行コマンドテスト（線形化可能性の検査） | ○ | × | × | ○ |
-| 標的型PBT | ○ | × | × | ○ |
-| 存在性プロパティ（`?EXISTS`） | ○ | × | × | ○ |
-| 関数の生成 | ○ | ○ | × | ○ |
-| 型からの生成器導出 | ○（型宣言から） | △（総称導出） | ○（`Make[T]`） | ○（リフレクションとコード生成） |
-| 関数仕様からの検査（`check_spec`） | ○ | × | × | △（panicしないこと等に限る） |
-| 失敗の永続化と自動再実行 | △（プロセス内のみ） | ×（シードの再指定のみ） | ○ | ○ |
-| カバレッジ誘導ファザーとの連携 | × | × | ○（`MakeFuzz`） | ×（対象外） |
+| Type-safe generators | n/a (dynamic typing) | yes | yes | yes |
+| Shrinking without user code | partial (custom types need a shrinker) | partial (`shrink` must be implemented) | yes | yes |
+| Shrinking across Bind (`?LET`) | partial (shrinks the inner value, regenerates the outer) | no (`>>=` loses shrinking) | yes | yes |
+| Shrinking control (`?SHRINK`, `?LETSHRINK`) | yes | yes | no | partial (subtree shrinking is automatic; value-level hints come later) |
+| Size parameter (`sized`, `resize`) | yes | yes | no | yes |
+| Weighted choice (`frequency`, `weighted_union`) | yes | yes | no (`OneOf` is uniform) | yes |
+| Distribution checks (`cover`, `checkCoverage`) | no | yes | no | yes |
+| Statistics (`collect`, `classify`, `aggregate`, `measure`) | yes | yes | no | yes |
+| Property combinators (`conjunction`, `?IMPLIES`, `?WHENFAIL`, `?TIMEOUT`) | yes | yes | no | yes |
+| Stateful testing | yes | no (separate libraries) | yes | yes |
+| Symbolic variables | yes | n/a | no | yes |
+| Parallel command testing (linearizability check) | yes | no | no | yes |
+| Targeted PBT | yes | no | no | yes |
+| Existential properties (`?EXISTS`) | yes | no | no | yes |
+| Function generation | yes | yes | no | yes |
+| Generators derived from types | yes (from type declarations) | partial (generic deriving) | yes (`Make[T]`) | yes (reflection and code generation) |
+| Checking functions against specs (`check_spec`) | yes | no | no | partial (limited to "does not panic" and similar) |
+| Saving failures and replaying them | partial (in-process only) | no (only a seed to pass again) | yes | yes |
+| Hooking into a coverage-guided fuzzer | no | no | yes (`MakeFuzz`) | no (out of scope) |
 
-## testing.F の流用可否
+## Reusing testing.F
 
-Goのファジングはユーザーからは `testing.F` として見えますが、本体は `internal/fuzz` にあります。
-Go 1.27.1のソースで確認した事実と、そこから導いた判断を表にまとめます。
+Users see Go's fuzzing as `testing.F`, but the implementation lives in
+`internal/fuzz`. The table lists what the Go 1.27.1 sources show and what
+follows from it.
 
-| 観点 | 確認した事実 | 判断 |
+| Aspect | Fact | Consequence |
 | --- | --- | --- |
-| パッケージの可視性 | `internal/fuzz` はユーザーのモジュールからimportできない | コピーする以外に流用の手段がない |
-| 縮小（minimize）の対象 | `isMinimizable` が真を返すのは `string` と `[]byte` だけで、整数や浮動小数点数は縮小しない。アルゴリズムは末尾の切り詰めと1バイトずつの削除 | 構造を持つ値の縮小には使えない |
-| 変異（mutate） | 全プリミティブ型に対応している | 標的型PBTの近傍関数を設計するときの参考になる |
-| カバレッジ | `go test -fuzz` で計装ビルドされたときだけ取れる | 通常の `go test` 中にライブラリが参照できる情報ではない |
-| プロセス構成 | コーディネーターとワーカーの別プロセス構成で、共有メモリとRPCで通信する | 1秒以内に終わるPBTの実行には重い |
-| `F.Fuzz` の引数 | プリミティブ型と `string`、`[]byte` に限る | 構造を持つ値は `[]byte` から自前で組み立てる必要がある |
+| Visibility | `internal/fuzz` cannot be imported from user modules | Copying the code is the only way to reuse it |
+| Minimization | `isMinimizable` returns true only for `string` and `[]byte`; integers and floats are never minimized. The algorithm trims the tail and then deletes single bytes | Useless for structured values |
+| Mutation | Covers every primitive type | A reference for the neighborhood function of targeted PBT |
+| Coverage | Available only in a binary built by `go test -fuzz` | Not information a library can read during a normal `go test` |
+| Process model | A coordinator and worker processes that talk over shared memory and RPC | Too heavy for a PBT run that finishes within a second |
+| `F.Fuzz` arguments | Only primitive types, `string` and `[]byte` | Structured values would have to be built from `[]byte` by hand |
 
-結論として、`testing.F` は流用も接続もしません（2026年10月31日に決定）。
-縮小器は自前で実装し、失敗の保存先には `testdata/fuzz` と同じ考え方で `testdata/pbt/` を使います。
-選択列はバイト列なので、`func(*testing.T, []byte)` を返す関数を1つ足せば `F.Fuzz` へ後から接続できますが、本ライブラリの範囲には含めません。
+Decision (2026-10-31): pbt neither reuses `testing.F` nor plugs into it. The
+shrinker is our own, and pbt saves failures under `testdata/pbt/`, following
+the idea of `testdata/fuzz`. A choice sequence is a byte sequence, so one
+function that returns `func(*testing.T, []byte)` could connect to `F.Fuzz`
+later. That is outside the scope of this library.
 
-## 中核の設計判断としての縮小方式
+## The core decision: how to shrink
 
-**縮小**（shrinking）は、失敗した入力をより単純な入力に置き換えながら、失敗が再現する最小の入力を探す処理です。
-縮小の方式がAPIの形と機能の上限を決めるので、最初に決めます。
-候補は3つあります。
+**Shrinking** replaces a failing input with simpler inputs until it finds a
+minimal one that still fails. The shrinking method bounds both the API and
+the feature set, so it comes first. There are three candidates.
 
-| 方式 | 代表 | 仕組み | Bindを跨ぐ縮小 | ユーザーの負担 | 値レベルの指定 |
+| Method | Examples | Mechanism | Shrinks across Bind | User effort | Value-level hints |
 | --- | --- | --- | --- | --- | --- |
-| 型主導 | QuickCheck、PropEr、gopter | 生成器ごとに「値から縮小候補の列を返す関数」を持つ | ×（QuickCheckの `>>=` は縮小を失う。PropErの `?LET` は内側を縮小して外側を再生成するため、外側で進めた縮小を保てない） | 独自型には縮小関数を書く | ○ |
-| 統合縮小 | [Hedgehog](https://hedgehog.qa/)、[falsify](https://hackage.haskell.org/package/falsify) | 生成器が値ではなく「値と縮小候補の木（遅延評価）」を返し、木がBindを通って合成される | ○ | 不要 | △（木を加工する） |
-| 選択列 | [Hypothesis](https://hypothesis.readthedocs.io/)、rapid | 生成器は乱数源から取り出した「選択の列」の決定的な関数で、縮小は選択列に対して行い、値はそのたびに再生成する | ○ | 不要 | ×（Hypothesisは提供しない。本設計では後述の `ShrinkTo` と `LetShrink` で補う） |
+| Type-directed | QuickCheck, PropEr, gopter | Each generator carries a function from a value to its shrink candidates | no (QuickCheck's `>>=` loses shrinking; PropEr's `?LET` shrinks the inner value and regenerates the outer one, so progress on the outer value is lost) | A shrinker for every custom type | yes |
+| Integrated | [Hedgehog](https://hedgehog.qa/), [falsify](https://hackage.haskell.org/package/falsify) | A generator returns a lazy tree of a value and its shrink candidates; Bind composes the trees | yes | none | partial (by rewriting the tree) |
+| Choice sequence | [Hypothesis](https://hypothesis.readthedocs.io/), rapid | A generator is a deterministic function of a sequence of choices; the shrinker rewrites the sequence and regenerates the value | yes | none | no in Hypothesis; pbt adds `ShrinkTo` and `LetShrink`, described below |
 
-**選択列**（choice sequence）方式を採ることを提案します。
-理由は3点です。
-Bind、Filter、ユーザーが書く任意の生成コードを跨いで縮小が成立します。
-ステートフルテストのコマンド列も「コマンドの選択」と「引数の選択」の列になるので、コマンドの削除や引数の縮小が同じ仕組みで動きます。
-選択列はバイト列なので、ファイルへの保存とシードからの再現が同じ表現で済みます。
-rapidが、この方式がGoで実用になることを示しています。
+pbt uses the **choice sequence** method, for three reasons. Shrinking works
+across Bind, Filter, and any generator code a user writes. A command sequence
+in a stateful test becomes a sequence of command choices and argument choices.
+Deleting commands and shrinking arguments therefore use the same machinery. A
+choice sequence is a byte sequence, so saving a failure and replaying it from
+a seed share one representation. rapid shows that the method is practical in
+Go.
 
-この方式はHypothesisに由来しますが、採るのは縮小の仕組みだけです。
-Hypothesisに同意できないのは、次節で述べるとおり分布の制御をユーザーに渡さない方針であって、仕組みの側ではありません。
-統合縮小への切り替えは、Go 1.23の `iter.Seq` で遅延評価の木を書けば可能です。
-しかし木を保持するメモリを引き受けることになり、反例の保存にも選択列とは別の表現が要るので、採りません。
+The method comes from Hypothesis, but only the shrinking mechanism does. My
+disagreement with Hypothesis, described in the next section, is about keeping
+distribution control away from users, not about the mechanism. Integrated
+shrinking would be possible with lazy trees built on Go 1.23's `iter.Seq`. It
+would cost memory to hold the trees and a second representation for saved
+failures, so pbt does not use it.
 
-選択列方式でPropErの機能のうち直接は表現できないものと、その補い方を挙げます。
+Some PropEr features have no direct expression in a choice sequence. pbt
+recovers them as follows.
 
-- `?LETSHRINK`（木を部分木へ縮小する）は、選択列に「どの生成器がどの区間を消費したか」のラベル付き区間を記録し、縮小器に「同じラベルの子孫区間で親区間を置き換える」操作を持たせることで実現します。Hypothesisの `pass_to_descendant` と同じ考え方です。明示的に指定したい場合のために `LetShrink` も用意します。部品をすべて生成したうえで「結合するか、部品のどれかをそのまま返すか」を1つの選択として持つ生成器で、生成時は常に結合し、縮小時にその選択が部品のどれかへ変わります。本書8章の `A ++ B ++ C` や木の例に対応します。
-- サイズパラメーターは、Hypothesisとrapidでは公開されていませんが、本ライブラリではPropErと同じく明示的に持ちます。実行器がテスト番号に応じて開始サイズから最大サイズへ増やし、縮小中はサイズを固定して選択列だけを縮めます。
-- `?SHRINK`（別の生成器の値へ縮小させる。本書8章では年を1970年前後へ再中心化し、タイムゾーンの分を0、15、30、45へ寄せる例）は `ShrinkTo(g, alts...)` として提供します。選択肢の先頭に重み0の代替生成器を並べ、末尾に本来の生成器を置いた `Frequency` と同じ構造です。生成時は本来の生成器だけが選ばれ、縮小時に添字が小さくなって代替生成器へ移ります。数値を特定の値へ寄せる用途には `ShrinkToward(center)` も用意します。
-- 任意の値から選択列への符号化を要する一般の値レベル縮小は提供しません。上の2つで本書の用例はすべて書けます。
+- `?LETSHRINK`, which shrinks a tree to one of its subtrees. The sequence
+  records, with a label, which generator consumed which span of choices. The
+  shrinker replaces a span with a descendant span that carries the same
+  label. Hypothesis calls this `pass_to_descendant`. For explicit control,
+  pbt also offers `LetShrink`: it generates all parts and records one extra
+  choice, "combine the parts or return one of them". Generation always
+  combines; shrinking flips the choice to a part. This covers the book's
+  `A ++ B ++ C` and tree examples in Chapter 8.
+- The size parameter. Hypothesis and rapid hide it; pbt exposes it as PropEr
+  does. The runner grows the size from a start size to a maximum, and during
+  shrinking the size stays fixed while the choices shrink.
+- `?SHRINK`, which shrinks toward values of other generators. Chapter 8 uses
+  it to re-center years on 1970 and time-zone minutes on 0, 15, 30 and 45.
+  pbt offers `ShrinkTo(g, alts...)`, which has the structure of a
+  `Frequency` whose first alternatives have weight 0 and whose last
+  alternative is `g`. Generation only picks `g`; shrinking lowers the index
+  and lands on an alternative. `ShrinkToward(center)` covers the common case
+  of pulling a number toward one value.
+- pbt does not offer general value-level shrinking, which would need an
+  encoding from arbitrary values back into choices. The two tools above
+  express every use in the book.
 
-## 設計原則としての分布の制御
+## Design principle: users control the distribution
 
-Hypothesisには `one_of` の各選択肢に重みを与える手段がありません。
-2022年7月に筆者がhypothesis-usersでPropErの `frequency/1` に相当する機能の有無を尋ねたとき、メンテナーのZac Hatfield-Doddsは[返信](https://groups.google.com/d/msgid/hypothesis-users/c67575ea-16c7-41f0-9e88-e16c1d589f8cn%40googlegroups.com)で、提供しない理由を3点挙げています。
-確率の指定はAPIを大きくして学習を難しくすること、ユーザーの注意を入力の全域ではなく特定の種類のデータへ向けてしまうこと、バグはユーザーが考えなかった場所にあるのでHypothesis（HypoFuzzやCrossHairで補強したもの）のほうが入力の探索で人間を上回ること、の3点です。
+Hypothesis has no way to weight the alternatives of `one_of`. In July 2022 I
+asked on hypothesis-users whether PropEr's `frequency/1` had an equivalent.
+The maintainer, Zac Hatfield-Dodds,
+[replied](https://groups.google.com/d/msgid/hypothesis-users/c67575ea-16c7-41f0-9e88-e16c1d589f8cn%40googlegroups.com)
+with three reasons for not providing one. Probability options make the API
+larger and harder to learn. They focus users on particular kinds of data
+instead of the whole domain. And bugs hide where users did not think to look,
+so Hypothesis, with HypoFuzz and CrossHair, outperforms almost any user at
+finding them.
 
-本ライブラリはこの方針を採りません。
-長時間走らせるステートフルテストでは、読み取りと書き込みの比率や、エラー経路へ入る頻度を決めなければ、到達したい状態に辿り着かないことが多いためです。
-PropErとQuickCheckが `frequency` と `sized` を公開し、同時に `collect` や `classify` で分布を観察する手段を用意しているのは、分布の責任をユーザーが持つという前提の表れです。
-分布を渡す以上、それを確かめる道具も渡します。
-QuickCheckの `cover` と `checkCoverage` に相当する機能も含めます。
-「この分類が全体の20%以上を占める」と宣言し、統計的に満たされなければテストを失敗させる機能です。
+pbt does not take that position. In a long-running stateful test, you often
+need to fix the ratio of reads to writes, or how often the test enters an
+error path. Otherwise the test never reaches the state you want. PropEr and
+QuickCheck expose `frequency` and `sized` and, at the same time, give you
+`collect` and `classify` to observe the distribution. That pairing says the
+user owns the distribution. If pbt hands you the distribution, it also hands
+you the tools to check it. It therefore includes an equivalent of
+QuickCheck's `cover` and `checkCoverage`. You declare that a class must make
+up at least 20% of the cases. The test fails when the statistics do not bear
+that out.
 
-エンジンが探索で人間を上回るという論点には、標的型PBTで対応します。
-ユーザーが効用関数を書き、エンジンがそれを最大化する入力を探す形なので、探索の方向もユーザーが決めます。
+To the argument that the engine beats people at exploration, pbt answers with
+targeted PBT. You write a utility function and the engine searches for inputs
+that maximize it, so you also decide where the search goes.
 
-選択列方式で重みを扱うときの約束も決めておきます。
-重みは生成時の確率だけを決め、縮小は重みに関係なく先頭の選択肢へ向かいます。
-つまり `Frequency` の選択肢の並び順が縮小の優先順位になります。
-プリミティブ型の生成器が境界値へ偏らせるのはデフォルトの挙動として残しますが、`Frequency` と `Just` の組み合わせで上書きできる形にします。
+Weights in a choice sequence follow one rule. A weight affects only the
+probability at generation time; shrinking moves toward the first alternative
+no matter what the weights are. The order of the alternatives in `Frequency`
+is the shrinking priority. Primitive generators still lean toward boundary
+values by default, and a combination of `Frequency` and `Just` overrides that.
 
-## APIの骨格
+## API sketch
 
-rapidと同じく、プロパティ本体の中で生成器から値を取り出す命令的な形を基本にします。
-Goには可変長の型パラメーターがないので、QuickCheck式に `ForAll` へ生成器を並べる形は引数の数ごとに関数を用意することになります。
-`ForAll`、`ForAll2`、`ForAll3` は糖衣として提供します。
-PropErのマクロに相当する合成は、`Property` を値として扱う関数で提供します。
+Like rapid, a property draws values from generators inside its body. Go has
+no variadic type parameters, so a QuickCheck-style `ForAll` that lists
+generators needs one function per arity. `ForAll`, `ForAll2` and `ForAll3`
+exist as sugar. The equivalents of PropEr's macros are functions that treat a
+`Property` as a value.
 
 ```go
 package pbt
 
-// 生成器。選択列を消費して値を返す決定的な関数。
-type Gen[T any] struct{ /* 非公開 */ }
+// A generator: a deterministic function that consumes choices and returns a value.
+type Gen[T any] struct{ /* unexported */ }
 func (g Gen[T]) Draw(t *T, label string) T
 
 func Int() Gen[int]
@@ -138,20 +188,20 @@ type Weighted[T any] struct{ Weight int; Gen Gen[T] }
 func Frequency[T any](ws ...Weighted[T]) Gen[T]          // weighted_union
 func Sized[T any](f func(size int) Gen[T]) Gen[T]        // sized
 func Resize[T any](size int, g Gen[T]) Gen[T]            // resize
-func Lazy[T any](f func() Gen[T]) Gen[T]                 // ?LAZY（再帰型）
+func Lazy[T any](f func() Gen[T]) Gen[T]                 // ?LAZY, for recursive types
 func Func[A, B any](ret Gen[B]) Gen[func(A) B]           // function/2
-func Make[T any](opts ...MakeOption) Gen[T]              // 型からの導出
+func Make[T any](opts ...MakeOption) Gen[T]              // derived from the type
 func NoShrink[T any](g Gen[T]) Gen[T]                    // noshrink
 func ShrinkTo[T any](g Gen[T], alts ...Gen[T]) Gen[T]    // ?SHRINK
 func LetShrink[T any](parts []Gen[T], combine func([]T) T) Gen[T] // ?LETSHRINK
 func (g Gen[T]) Example(seed ...uint64) T                // proper_gen:pick
 func SampleShrink[T any](g Gen[T]) iter.Seq[T]           // proper_gen:sampleshrink
 
-// プロパティ。
+// Properties.
 type Property func(*T)
 func Check(tb testing.TB, prop Property, opts ...Option)
-func Setup(f func(t *T) (teardown func())) Option        // ?SETUP（本書10章の起動と停止の配置）
-func Recover(f func()) (panicked any)                    // panicを値として扱う（本書7章の負のテスト）
+func Setup(f func(t *T) (teardown func())) Option        // ?SETUP; where the book's Chapter 10 starts and stops the system
+func Recover(f func()) (panicked any)                    // treat a panic as a value, for the negative tests of Chapter 7
 func ForAll[A any](g Gen[A], body func(*T, A)) Property
 func Conjunction(subs ...Named) Property                 // conjunction
 func Timeout(d time.Duration, prop Property) Property    // ?TIMEOUT
@@ -159,142 +209,183 @@ func (t *T) Assume(cond bool)                            // ?IMPLIES
 func (t *T) Classify(cond bool, label string)            // classify
 func (t *T) Collect(v any)                               // collect
 func (t *T) Measure(name string, v float64)              // measure
-func (t *T) Cover(cond bool, pct float64, label string)  // cover（CheckCoverage オプションで検証）
+func (t *T) Cover(cond bool, pct float64, label string)  // cover; checked with the CheckCoverage option
 func (t *T) OnFail(f func())                             // ?WHENFAIL
 
-// ステートフルテスト。HedgehogのCommandとVarをGoに移植する。
-type Var[T any] struct{ /* 非公開 */ }
+// Stateful testing: Hedgehog's Command and Var, ported to Go.
+type Var[T any] struct{ /* unexported */ }
 type Command[S, Sys any] interface {
 	Pre(state S) bool
 	Run(ctx context.Context, sys Sys) (any, error)
-	Next(state S, result Var[any]) S                     // 生成時はシンボリック
-	Post(state S, env Env, result any) error             // 実行時はEnvで解決
+	Next(state S, result Var[any]) S                     // symbolic during generation
+	Post(state S, env Env, result any) error             // resolved through Env during execution
 }
 func Commands[S, Sys any](init S, gen func(S) Gen[Command[S, Sys]]) Gen[Program[S, Sys]]
 func (p Program[S, Sys]) RunSequential(t *T, sys Sys)
 func (p Program[S, Sys]) RunParallel(t *T, sys Sys, branches int)
 
-// 標的型PBTと存在性プロパティ。
+// Targeted PBT and existential properties.
 func (t *T) Maximize(name string, v float64)             // ?MAXIMIZE
 func Exists(prop Property) Property                      // ?EXISTS
 ```
 
-本書11章の `proper_fsm` に相当する層は、サブパッケージ `fsm` に置きます。
-状態名と状態データの組を持ち、状態ごとの遷移の一覧に重みを付けて（`weight/3`）、`Command` の仕組みの上で動かします。
-失敗時の統計には状態名とコマンド名の組を使います（`state_names` と `command_names` の `zip`）。
+The layer that corresponds to the book's `proper_fsm` in Chapter 11 lives in
+the subpackage `fsm`. It pairs a state name with state data and attaches
+weights to the transitions listed for each state (`weight/3`). It runs on top
+of the `Command` machinery. Failure statistics use pairs of state name and command
+name, as `zip(state_names, command_names)` does.
 
 ```go
 package fsm // go.ymotongpoo.com/pbt/fsm
 
 type Transition[St comparable, D, Sys any] struct{ To St; Cmd pbt.Command[D, Sys] }
 type Machine[St comparable, D, Sys any] interface {
-	Initial() (St, D)                                                     // initial_state、initial_state_data
-	Transitions(state St, data D) []pbt.Weighted[Transition[St, D, Sys]] // 状態関数と weight/3
+	Initial() (St, D)                                                     // initial_state, initial_state_data
+	Transitions(state St, data D) []pbt.Weighted[Transition[St, D, Sys]] // the state functions and weight/3
 }
 ```
 
-実行時のオプションは `-pbt.checks`、`-pbt.seed`、`-pbt.startsize`、`-pbt.maxsize`、`-pbt.shrinktime`、`-pbt.v` のフラグと、同名の環境変数で与えます。
-本書で使われる `rebar3 proper -n`、`-p`、`--start_size` は、順に `-pbt.checks`、`go test -run`、`-pbt.startsize` に対応します。
+Run-time options come from the flags `-pbt.checks`, `-pbt.seed`,
+`-pbt.startsize`, `-pbt.maxsize`, `-pbt.shrinktime` and `-pbt.v`, and from
+environment variables of the same names. The book's `rebar3 proper -n`, `-p`
+and `--start_size` map to `-pbt.checks`, `go test -run` and `-pbt.startsize`.
 
-ステートフルテストで**シンボリック変数**（`Var`）を使うのは、コマンド列の生成時にはまだ実行結果がないためです。
-PropErでは `{var, N}` として生成時のモデル状態に実行結果を参照させ、実行時に実際の値へ解決します。
-Goでは型付きの `Var[T]` と、実行時に値を引く環境 `Env` の組で同じことをします。
-コマンドごとに結果の型が違うので、インターフェース上の結果型は `any` にし、型付きの取り出しはジェネリック関数で行う案を第2フェーズで詰めます。
-コマンドの生成器はモデル状態を受け取るので、`Frequency` の重みを状態に応じて変えられます。
-PropErの `command/1` の中で `frequency` を使う書き方に対応します。
-縮小中はコマンドを削除するたびに事前条件を再評価し、満たさない列は反例の候補から外します。
-本書10章で、事前条件が偽を返すようにして初めて縮小が成立する場面に対応します。
-失敗時には、実行したコマンドと結果、各段階のモデル状態を自動で表示します。
-本書9章で `?WHENFAIL` に書いている内容を標準の出力にします。
+Stateful tests use **symbolic variables** (`Var`) because, while the command
+sequence is generated, no command has run yet and no result exists. PropEr
+lets the model state refer to results as `{var, N}` during generation and
+resolves them to real values during execution. Go does the same with a typed
+`Var[T]` and an environment `Env` that looks values up at run time. Commands
+return results of different types, so the interface uses `any` for the result
+and a generic function performs the typed lookup. Phase 2 settles the details.
+The command generator receives the model state, so the weights of a
+`Frequency` can depend on it. That matches the use of `frequency` inside
+PropEr's `command/1`. While shrinking, every deletion of a command
+re-evaluates the preconditions, and a sequence that violates one is not a
+counterexample candidate. The book's Chapter 10 depends on this: shrinking
+starts to work only once the preconditions return false. On failure, the
+runner prints the executed commands, their results, and the model state at
+each step. Chapter 9 writes the same by hand inside `?WHENFAIL`.
 
-並行コマンドテストは、PropErの `parallel_commands` と同じく「逐次の前置き」と「複数の並行枝」からなるプログラムを生成し、枝をゴルーチンで同時に実行します。
-その後、枝の実行履歴の交互配置を列挙して、逐次モデルと矛盾しない配置が1つでもあるかを調べます。
-これが**線形化可能性**の検査です。
-枝の長さを小さく抑えれば総当たりで足ります。
+Parallel command testing follows PropEr's `parallel_commands`. The generator
+produces a sequential prefix followed by several parallel branches, and the
+runner executes the branches in goroutines. It then enumerates the
+interleavings of the recorded histories to find one that the sequential model
+accepts. That is the **linearizability** check. With short branches, brute
+force is enough.
 
-標的型PBTは、PropErでは値の近傍関数を使う焼きなまし法ですが、選択列方式では「前回の最良の選択列を少し変異させる」ことが近傍の生成になります。
-`internal/fuzz` の変異器の考え方をここで参考にします。
-存在性プロパティも同じ探索器で実装でき、見つかった証拠を縮小して報告します。
+Targeted PBT in PropEr is simulated annealing over neighborhood functions on
+values. In a choice sequence, the neighborhood is a small mutation of the best
+sequence so far; the mutator in `internal/fuzz` is the reference for it. The
+same search implements existential properties, and pbt shrinks the witness
+it finds before it reports it.
 
-## 機能の優先順位
+## Priorities
 
-| フェーズ | 内容 | 完了の判定 |
+| Phase | Contents | Done when |
 | --- | --- | --- |
-| 0 | 中核エンジン。選択列とラベル付き区間、`math/rand/v2` の ChaCha8 による乱数、実行器（回数、サイズの増加、シード）、縮小器（区間の削除、ゼロ化、個別の値の二分探索、隣接する値の再配分、子孫区間への置換）、panicの回収、ラベル付きの Draw 列としての最小反例の報告、`testdata/pbt/` への失敗の保存と自動再実行 | rapidの公開テストを移植し、同等以上の反例へ縮小できる |
-| 1 | 生成器一式（PropErの `proper_types` に対応）、関数の生成、プロパティの合成、統計の出力と分布の検証、縮小の制御（`ShrinkTo`、`ShrinkToward`、`LetShrink`、`NoShrink`、`SampleShrink`） | 本書1章から8章の例題と演習がすべて移植できる |
-| 2 | ステートフルテスト（逐次）、シンボリック変数、`Setup`、縮小中の事前条件の再評価、履歴の表示、`fsm` パッケージ | 本書9章の逐次キャッシュ、10章の書店、11章のサーキットブレーカーが移植できる |
-| 3 | 並行コマンドテスト、レースディテクターと `testing/synctest` との併用 | 本書9章のキャッシュに仕込んだ競合が検出される |
-| 4 | 標的型PBT、存在性プロパティ | PropErのドキュメントにある標的型PBTの例を移植できる（本書のオンライン版にこの章はない） |
-| 5 | 型からの導出（リフレクションによる `Make[T]`、構造体タグによる制約、`go/types` を使った `go generate` でのコード生成）、関数仕様の検査 | 再帰型を含む構造体の生成器が自動で得られる |
-| 6 | 縮小過程の可視化、ドキュメント、rapidとの性能比較 | 移行ガイドと対応表が揃う |
+| 0 | Core engine: the choice sequence with labeled spans, ChaCha8 randomness from `math/rand/v2`, the runner (count, size growth, seed), the shrinker (span deletion, zeroing, binary search on single values, redistribution between neighbors, replacement by a descendant span), panic recovery, the minimal counterexample reported as labeled draws, saving to `testdata/pbt/` and automatic replay | rapid's public tests, ported, shrink to counterexamples at least as small |
+| 1 | The full generator set (matching PropEr's `proper_types`), function generation, property combinators, statistics output and distribution checks, shrinking control (`ShrinkTo`, `ShrinkToward`, `LetShrink`, `NoShrink`, `SampleShrink`) | Every example and exercise of Chapters 1 to 8 of the book is ported |
+| 2 | Sequential stateful testing, symbolic variables, `Setup`, precondition re-evaluation while shrinking, history output, the `fsm` package | The sequential cache of Chapter 9, the bookstore of Chapter 10 and the circuit breaker of Chapter 11 are ported |
+| 3 | Parallel command testing, combined with the race detector and `testing/synctest` | The race planted in the cache of Chapter 9 is detected |
+| 4 | Targeted PBT, existential properties | The targeted PBT examples in the PropEr documentation are ported (the online edition of the book has no chapter on them) |
+| 5 | Generators derived from types (`Make[T]` through reflection, constraints in struct tags, code generation with `go/types` under `go generate`), checking functions against specs | Generators for structs with recursive types are derived automatically |
+| 6 | Visualization of shrinking, documentation, performance comparison with rapid | A migration guide with a correspondence table exists |
 
-第0フェーズの完了判定にrapidを使うのは、同じ方式を採る既存実装との差が縮小の質に直接現れるためです。
+Phase 0 uses rapid as the yardstick because the two share a method, so the
+difference shows directly in shrinking quality. As of 2026-10-31, the Phase 0
+engine exists and passes its tests; the port of rapid's tests is still open.
 
-## Go固有の利点
+## What Go offers
 
-Go固有の機能で、PropErやQuickCheckにはない形で使えるものを挙げます。
+Go has features that PropEr and QuickCheck lack in this form.
 
-- ジェネリクスにより生成器を型付きにできます。メソッドは型パラメーターを持てないので、`Map` や `Bind` はトップレベル関数にします。
-- Go 1.23の `iter.Seq` は、縮小候補や統計の列挙を遅延列として扱うのに向いています。統合縮小へ方針転換する場合の木の表現にもなります。
-- `math/rand/v2` の ChaCha8 はシード付きで決定的に動き、ストリームの分割も容易です。
-- レースディテクターは並行コマンドテストと併用できます。
-- `testing/synctest` はGo 1.25で安定化し、仮想時間の中でタイムアウトを含む性質を決定的に試験できます。rapidもv1.3.0で `SyncTest` を追加しています。
-- `go/types` と `go generate` を使えば、PropErの `proper_typeserver` に相当する「型宣言からの生成器導出」を、リフレクションではなくコード生成で型安全に行えます。
+- Generics make generators type-safe. Methods cannot have type parameters, so
+  `Map` and `Bind` are top-level functions.
+- `iter.Seq` from Go 1.23 suits lazy enumeration of shrink candidates and
+  statistics. It would also represent the trees if the design ever moved to
+  integrated shrinking.
+- ChaCha8 in `math/rand/v2` is seeded, deterministic, and easy to split into
+  streams.
+- The race detector combines with parallel command testing.
+- `testing/synctest`, stable since Go 1.25, runs properties that involve
+  timeouts deterministically under virtual time. rapid added `SyncTest` in
+  v1.3.0.
+- `go/types` with `go generate` can derive generators from type declarations
+  as code, type-safely, where PropEr's `proper_typeserver` works at run time.
 
-対応バージョンは最新の安定版から2つ前までとします（2026年10月31日に決定）。
-2026年10月時点ではGo 1.25、1.26、1.27が対象で、`go.mod` の `go` ディレクティブは1.25にします。
-新しい安定版が出るたびに引き上げます。
+Supported versions are the latest stable release and the two before it
+(decided 2026-10-31). In October 2026 that means Go 1.25, 1.26 and 1.27, and
+the `go` directive in `go.mod` is 1.25. The floor rises with every new
+release.
 
-## 本書の問題への対応
+## Coverage of the book's problems
 
-本書のオンライン版は11章からなり、Elixir向けの記述を除けば、例題と演習は次の表の範囲に収まります。
-各章の例題と演習は `examples/` 配下にGoで移植し、フェーズの完了判定に使います。
-概念を問う演習（4章のQ1とQ2、5章のQ1からQ3、8章のQ1とQ2、10章のQ1、Q2、Q4、Q5）はコードを伴わないので、各章のREADMEにGoでの答えを書きます。
+The online edition of the book has eleven chapters. Apart from the Elixir
+material, its examples and exercises fit the table below. The Go port of
+each chapter's examples and exercises lives under `examples/` and serves as
+the acceptance test of its phase. Some exercises ask for an explanation
+rather than code: Chapter 4 Q1 and Q2, Chapter 5 Q1 to Q3, Chapter 8 Q1 and
+Q2, and Chapter 10 Q1, Q2, Q4 and Q5. Their Go answers go in the README of
+each chapter.
 
-| 章 | 例題と演習 | 必要な機能 | 本設計での対応 |
+| Chapter | Examples and exercises | Features needed | How pbt covers them |
 | --- | --- | --- | --- |
-| 1 | レジの釣り銭 `cash/3` の性質（合計の一致、大きい単位から返す）。反例がクラッシュを起こす | `ForAll`、panicの回収、反例の表示 | 第0フェーズ |
-| 2 | `rebar3 proper -n`、`-p`、`rebar3 as test shell` での生成器の試用 | 回数の指定、プロパティの選択、生成器の試用 | `-pbt.checks`、`go test -run`、`Gen.Example` |
-| 3 | `biggest/1` のモデル、`sort` の不変条件、`last` の一般化、encode と decode の対称性 | 基本の生成器 | 第1フェーズ |
-| 4 | デフォルト生成器の表、`prop_biggest`（空リストで失敗して `non_empty` へ）、`[-1,6,3,1]` から `[0,1]` への縮小、`prop_sort`、`prop_last`、演習Q3からQ7（`lists:seq`、`keysort`、`sets:union` のモデル修正、`dict:merge`、`word_count`） | PropErのデフォルト生成器に対応する一式、`NonEmpty`、`Any` | 第1フェーズ。`term()` は基本型と複合型を値域とする `Any()` に対応させ、ソートの例は `[]int` のような型付きの値で書く |
-| 5 | `collect` と `aggregate`（バケット分け）、`resize`、`?SIZED`、生成器の関数化、`?LET`、`?SUCHTHAT`、`frequency`（`text_like`）、`?LAZY` による再帰（`wordy_string`）、決定的なサイズ付き再帰、シンボリック呼び出し（`dict_symb`）、演習Q4からQ6（木の終了、タイムスタンプの対、ファイルハンドルの生成） | 統計、サイズ、`Bind`、`Filter`、`Frequency`、`Lazy`、反例の可読性 | 第1フェーズ。シンボリック呼び出しはラベル付きの Draw 列の表示で代替する。反例は最終的な値ではなく、構築に使った入力が読める形で出る |
-| 6 | CSVの往復、`"\r\na"` の反例、1列のときの曖昧さ（列数を `Size+1` にする）、ヘッダーとレコードでサイズを共有する入れ子の `?LET`、`date()`、EUnitの例示テストとの併用、カバレッジ | 基本機能、再現実行 | 第1フェーズ。例示テストは `testing` の通常のテストとして同居させ、カバレッジは `go test -cover` で取る |
-| 7 | 段階的な `?LET`（価格表から商品列と期待値へ）、`elements(PriceList)`、`?SIZED` の再帰、`collect` のバケット、負のテスト（結果か特定のエラーか）、重複の生成（`vector(length+1, elements)`）、92%の実行が無効な入力だったという発見 | `Bind`、統計、`Cover` | 第1フェーズ。エラーはGoの `error` 値で受け、panicは `Recover` で値にする |
-| 8 | `?SHRINK` による再中心化（年を1970年へ、タイムゾーンの分を0、15、30、45へ）、`?LETSHRINK`（木から部分木へ、`A ++ B ++ C`、演習Q3の meal、演習Q4の checkout の独立した縮小）、`sampleshrink` | 縮小の制御と観察 | 第1フェーズ。`ShrinkTo`、`ShrinkToward`、`LetShrink`、`SampleShrink` |
-| 9 | statem のコールバック、キャッシュのモデル、`?WHENFAIL` での履歴と状態の表示、`aggregate(command_names)`、バグの注入、`parallel_commands`、`erlang:yield()` による競合の顕在化、`+T9` | `Command`、履歴の表示、コマンド名の統計、並行実行と線形化可能性の検査 | 第2フェーズと第3フェーズ。`runtime.Gosched()` と `-race` を併用する |
-| 10 | PostgreSQLの書店、ISBNの生成器、`friendly_unicode`、shimによる意図のラベル（`new`、`exists`、`avail`）、`partial/1`、事前条件が偽を返して縮小が成立する場面、`--start_size`、起動と停止の配置（演習Q3）、実結果を `next_state` で使う注意（演習Q4） | 縮小中の事前条件の再評価、`Setup`、`Var`、`-pbt.startsize` | 第2フェーズ。shimのラベルはコマンド名に含めて統計に出す |
-| 11 | `proper_fsm` の状態名、`weight/3`、`precondition/4`、`postcondition/5`、`next_state_data/5`、`state_names` による統計、`?TRAPEXIT`、サーキットブレーカー（ok、tripped、blocked）とモデルの修正 | `fsm` パッケージ | 第2フェーズ |
+| 1 | Properties of the cash register `cash/3` (the change adds up; larger denominations come first); a counterexample that crashes | `ForAll`, panic recovery, counterexample output | Phase 0 |
+| 2 | `rebar3 proper -n`, `-p`, trying generators in `rebar3 as test shell` | Case count, property selection, sampling a generator | `-pbt.checks`, `go test -run`, `Gen.Example` |
+| 3 | A model for `biggest/1`, invariants of `sort`, generalizing `last`, symmetry of encode and decode | Basic generators | Phase 1 |
+| 4 | The default generator table, `prop_biggest` (fails on the empty list, then `non_empty`), shrinking `[-1,6,3,1]` to `[0,1]`, `prop_sort`, `prop_last`, exercises Q3 to Q7 (`lists:seq`, `keysort`, fixing the `sets:union` model, `dict:merge`, `word_count`) | Equivalents of PropEr's default generators, `NonEmpty`, `Any` | Phase 1. `term()` maps to an `Any()` over primitive and composite types; the sort examples use typed values such as `[]int` |
+| 5 | `collect` and `aggregate` with buckets, `resize`, `?SIZED`, generators as functions, `?LET`, `?SUCHTHAT`, `frequency` (`text_like`), recursion with `?LAZY` (`wordy_string`), deterministic sized recursion, symbolic calls (`dict_symb`), exercises Q4 to Q6 (terminating trees, pairs of timestamps, generating a file handle) | Statistics, size, `Bind`, `Filter`, `Frequency`, `Lazy`, readable counterexamples | Phase 1. Labeled draws in the report replace symbolic calls: the report shows the inputs used to build a value, not only the final value |
+| 6 | The CSV round trip, the `"\r\na"` counterexample, the one-column ambiguity (use `Size+1` columns), nested `?LET` sharing a size between header and records, `date()`, example tests next to properties, coverage | Basic features, replay | Phase 1. Example tests are plain `testing` tests in the same file; coverage comes from `go test -cover` |
+| 7 | Layered `?LET` (price list, then items and the expected total), `elements(PriceList)`, `?SIZED` recursion, `collect` buckets, negative tests (a result or a specific error), generating duplicates (`vector(length+1, elements)`), the discovery that 92% of the runs had invalid input | `Bind`, statistics, `Cover` | Phase 1. Errors are Go `error` values; `Recover` turns a panic into a value |
+| 8 | Re-centering with `?SHRINK` (years to 1970, time-zone minutes to 0, 15, 30, 45), `?LETSHRINK` (tree to subtree, `A ++ B ++ C`, the meal of Q3, independent shrinking in the checkout of Q4), `sampleshrink` | Shrinking control and observation | Phase 1. `ShrinkTo`, `ShrinkToward`, `LetShrink`, `SampleShrink` |
+| 9 | The statem callbacks, the cache model, history and state in `?WHENFAIL`, `aggregate(command_names)`, an injected bug, `parallel_commands`, exposing a race with `erlang:yield()`, `+T9` | `Command`, history output, command-name statistics, parallel execution with a linearizability check | Phases 2 and 3. `runtime.Gosched()` together with `-race` |
+| 10 | The bookstore on PostgreSQL, ISBN generators, `friendly_unicode`, intent labels through a shim (`new`, `exists`, `avail`), `partial/1`, preconditions that return false so that shrinking works, `--start_size`, where to start and stop the system (Q3), the caveat of using real results in `next_state` (Q4) | Precondition re-evaluation while shrinking, `Setup`, `Var`, `-pbt.startsize` | Phase 2. The shim labels become part of the command name and show up in the statistics |
+| 11 | `proper_fsm`: state names, `weight/3`, `precondition/4`, `postcondition/5`, `next_state_data/5`, statistics by `state_names`, `?TRAPEXIT`, the circuit breaker (ok, tripped, blocked) and the model fixes | The `fsm` package | Phase 2 |
 
-Erlang固有で、Goでは別の形になるものを挙げます。
+Some Erlang-specific constructs take a different form in Go.
 
-- アトムは文字列定数か型付きの定数で書きます。
-- `term()` は値域を限った `Any()` にします。Goでは比較や整列が型ごとに定義されるので、本書で `list(term())` を使う例は型付きの値で書きます。
-- シンボリック呼び出しは、反例を読みやすくする目的と、縮小を引数に対して行う目的の2つで使われています。前者はラベル付きの Draw 列の表示で、後者は選択列方式そのもので賄います。
-- `?TRAPEXIT` はpanicの回収で代替します。ゴルーチンのリークは検知しません。
-- `+T9` によるスケジューラーの攪乱は、`runtime.Gosched()` の挿入と `-race` で代替します。
-- `rebar3 proper` は `go test` です。`rebar3 new proper base` のような雛形生成は用意しません。
+- Atoms become string constants or typed constants.
+- `term()` becomes an `Any()` with a bounded set of types. Comparison and
+  ordering are defined per type in Go, so the examples that use `list(term())`
+  use typed values.
+- Symbolic calls serve two purposes in the book: readable counterexamples and
+  shrinking of the arguments. Labeled draws in the report cover the first;
+  the choice sequence itself covers the second.
+- `?TRAPEXIT` becomes panic recovery. pbt does not detect leaked goroutines.
+- Scheduler perturbation with `+T9` becomes inserted `runtime.Gosched()` calls
+  plus `-race`.
+- `rebar3 proper` is `go test`. pbt has no scaffolding like
+  `rebar3 new proper base`.
 
-10章の書店は、`go test` だけで完結するように、pure Goで書かれたSQLite実装（[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)）をデフォルトにし、環境変数でPostgreSQLの接続先を与えたときだけPostgreSQLで走らせます。
-本書で見つかる不具合のうち、`LIKE` のワイルドカード（`%` と `_`）と `available` の上限はSQLiteでも再現します。
-NULバイトの扱いのようにドライバー固有のものは再現しないので、各章のREADMEに再現の可否を書きます。
-11章のサーキットブレーカーは、Klarnaの `circuit_breaker` のAPI（ok、tripped、blockedの3状態、エラーとタイムアウトのしきい値、手動のblock、deblock、reset）を模した小さな実装を `examples/` 内に置きます。
-Goの既存ライブラリは時間ベースの回復を前提にしていて手動のブロックがなく、本書のモデルと合わないためです。
+By default, the bookstore of Chapter 10 runs on the pure-Go SQLite
+implementation [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite),
+so that `go test` alone is enough. It runs on PostgreSQL when an environment
+variable supplies a connection string. Of the bugs the book finds, the `LIKE`
+wildcards (`%` and `_`) and the cap on `available` reproduce on SQLite. The
+handling of NUL bytes is driver-specific and does not. Each chapter's README
+states what reproduces. The circuit breaker of Chapter 11 is a small
+implementation in `examples/` that mirrors the API of Klarna's
+`circuit_breaker`. It has the three states ok, tripped and blocked, thresholds
+for errors and timeouts, and manual block, deblock and reset. Existing Go
+libraries assume time-based recovery and have no manual block, so they do not
+fit the book's model.
 
-## リポジトリとモジュールの設定
+## Repository and module setup
 
-ルートモジュールは外部依存を持たず、本書の移植は別モジュールにします。
+The root module has no external dependencies; the book ports form a separate
+module.
 
 ```text
-go.ymotongpoo.com/pbt        ルートモジュール。外部依存なし
+go.ymotongpoo.com/pbt        root module, no external dependencies
 ├── go.mod
-├── LICENSE                  Apache License 2.0
-├── fsm/                     本書11章の proper_fsm に相当
-└── examples/                別モジュール go.ymotongpoo.com/pbt/examples。本書の各章の移植
+├── LICENSE.md               Apache License 2.0
+├── fsm/                     the equivalent of proper_fsm (Chapter 11)
+└── examples/                separate module go.ymotongpoo.com/pbt/examples with the book ports
     └── go.mod
 ```
 
-ルートの `go.mod` は次のとおりです。
-`go mod init` は手元のツールチェーンの版（1.27.1）を書くので、手で1.25に直します。
+The root `go.mod` reads as follows. `go mod init` writes the version of the
+local toolchain (1.27.1), so the repository pins the directive at 1.25 by hand.
 
 ```text
 module go.ymotongpoo.com/pbt
@@ -302,36 +393,42 @@ module go.ymotongpoo.com/pbt
 go 1.25
 ```
 
-importパスを `go.ymotongpoo.com/pbt` にするには、`https://go.ymotongpoo.com/pbt?go-get=1` が `go-import` メタタグを含むHTMLを返す必要があります。
-`go get` とモジュールプロキシ（proxy.golang.org）はこのURLを取得し、メタタグに書かれたリポジトリから取得します。
-サブパッケージ `go.ymotongpoo.com/pbt/fsm` を取得するときは `/pbt/fsm?go-get=1` を取得し、接頭辞 `go.ymotongpoo.com/pbt` の確認のために `/pbt?go-get=1` も取得します。
-したがって `/pbt` 配下のどのパスでも同じHTMLを返すようにします。
+For the import path `go.ymotongpoo.com/pbt`, the URL
+`https://go.ymotongpoo.com/pbt?go-get=1` must return HTML that contains a
+`go-import` meta tag. `go get` and the module proxy (proxy.golang.org) fetch
+that URL and clone the repository the tag names. To fetch the subpackage
+`go.ymotongpoo.com/pbt/fsm`, the go command requests `/pbt/fsm?go-get=1` and
+then `/pbt?go-get=1` to confirm the prefix `go.ymotongpoo.com/pbt`. Every path
+under `/pbt` therefore returns the same HTML.
 
-www.ymotongpoo.com と同じCloudflare Pagesに別のプロジェクトを作り、カスタムドメイン `go.ymotongpoo.com` を割り当てる構成にします。
-DNSのCNAMEはPagesのカスタムドメイン設定が作ります。
-配信するファイルは本リポジトリの孤立ブランチ `pages`（`main` と履歴を共有しない）に置いてあり、中身は次の4ファイルです。
-Pagesのプロジェクトを本リポジトリに接続して本番ブランチを `pages` にするか、このブランチのチェックアウトから `wrangler pages deploy` で直接アップロードします。
-Git連携にする場合は、`main` がプレビューとして配信されないように、プレビューの対象ブランチを無しにします。
+The site is a second Cloudflare Pages project next to www.ymotongpoo.com,
+with `go.ymotongpoo.com` as its custom domain. The custom-domain setup creates
+the DNS CNAME. The files live in the orphan branch `pages` of this repository,
+which shares no history with `main`:
 
 ```text
 _redirects
 pbt/index.html
-index.html        ルート用。go-import タグを持たない
-README.md         ブランチの説明と配信手順
+index.html        for the root; carries no go-import tag
+README.md         what the branch is and how to deploy it
 ```
 
-`_redirects` は、`/pbt` 配下のすべてのパスを同じHTMLで応答させる書き換えです。
-Cloudflare Pagesの `_redirects` はステータス200の書き換え（proxying）に対応していて、splat（`*`）は1行に1つだけ書けます。
+Connect the Pages project to this repository with `pages` as the production
+branch, or run `wrangler pages deploy` from a checkout of the branch. With the Git integration, disable preview deployments for other
+branches so that `main` is never published as a site.
+
+`_redirects` rewrites every path under `/pbt` to the same HTML. Cloudflare
+Pages supports status 200 rewrites (proxying) in `_redirects`, and a rule may
+contain one splat (`*`).
 
 ```text
 /pbt    /pbt/index.html 200
 /pbt/*  /pbt/index.html 200
 ```
 
-`pbt/index.html` は次のとおりです。
-GitHubのリポジトリ名は `ymotongpoo/pbt` と仮定しています。
-`go-source` はpkg.go.devがソースへのリンクを張るためのもので、省略しても取得には影響しません。
-人間が開いたときはpkg.go.devへ転送します。
+`pbt/index.html` is shown below. The repository is `github.com/ymotongpoo/pbt`.
+The `go-source` tag lets pkg.go.dev link to the source and does not affect
+fetching. The page redirects human visitors to pkg.go.dev.
 
 ```html
 <!DOCTYPE html>
@@ -347,39 +444,45 @@ GitHubのリポジトリ名は `ymotongpoo/pbt` と仮定しています。
 </html>
 ```
 
-`examples/` を別モジュール `go.ymotongpoo.com/pbt/examples` にしても、同じメタタグで解決できます。
-goコマンドはリポジトリ内の `examples/go.mod` を探し、タグは `examples/v0.1.0` の形になります。
+The same meta tag resolves `examples/` as the separate module
+`go.ymotongpoo.com/pbt/examples`. The go command looks for `examples/go.mod`
+in the repository, and its tags take the form `examples/v0.1.0`.
 
-公開後の確認は次の手順で行います。
-タグ `v0.1.0` を打ってから実行します。
-proxy.golang.orgは最初の要求時に取得してキャッシュするので、タグを打ち直した場合は新しいタグを使います。
+Verify the setup after publishing, once a tag such as `v0.1.0` exists.
+proxy.golang.org fetches a version on first request and caches it, so a
+re-pushed tag needs a new version number.
 
 ```sh
 curl -sL 'https://go.ymotongpoo.com/pbt?go-get=1' | grep go-import
 cd "$(mktemp -d)" && go mod init example.com/check && go get go.ymotongpoo.com/pbt@latest
 ```
 
-pkg.go.devはライセンスを認識できるモジュールだけドキュメントを表示します。
-Apache License 2.0は認識の対象です。
-メジャーバージョンを2以上に上げるときは、モジュールパスを `go.ymotongpoo.com/pbt/v2` にします。
+pkg.go.dev renders documentation only for modules whose license it
+recognizes; Apache License 2.0 qualifies. A major version 2 or later changes
+the module path to `go.ymotongpoo.com/pbt/v2`.
 
-## 決定事項
+## Decisions
 
-2026年10月31日に次を決めました。
+The decisions below date from 2026-10-31.
 
-| 項目 | 決定 |
+| Item | Decision |
 | --- | --- |
-| Hypothesisへの立場 | 不同意は分布の制御をユーザーに渡さない方針に対するもの。縮小は選択列方式で進め、分布の制御と検証を設計原則に置く |
-| `testing.F` | 流用も接続もしない |
-| 失敗の保存先 | `testdata/pbt/<テスト名>/<ハッシュ>`。`go test` のたびに自動で再実行する |
-| 対応バージョン | 最新の安定版から2つ前まで。現時点ではGo 1.25以上 |
-| 名前とimportパス | パッケージ名 `pbt`、モジュールパス `go.ymotongpoo.com/pbt` |
-| ライセンス | Apache License 2.0 |
-| rapid互換レイヤー | 設けない |
-| 到達目標 | 本書の例題と演習をすべて移植できること |
+| Position on Hypothesis | The disagreement is with keeping distribution control from users, not with the engine. Shrinking uses choice sequences; distribution control and distribution checks are design principles |
+| `testing.F` | Neither reused nor connected |
+| Where failures are saved | `testdata/pbt/<test name>/<hash>`, replayed by every `go test` run |
+| Supported versions | The latest stable release and the two before it; Go 1.25 and later at present |
+| Name and import path | Package `pbt`, module path `go.ymotongpoo.com/pbt` |
+| License | Apache License 2.0 |
+| Compatibility layer for rapid | None |
+| Acceptance target | Every example and exercise in the book can be ported |
 
-残っている判断は細部だけです。
-10章の移植に使うデータベース（上記の案ではSQLiteをデフォルトにする）と、`Any()` の値域です。
-どちらも実装時に決めれば足ります。
+Two details remain open: the database for the Chapter 10 port (SQLite by
+default, as proposed above) and the value set of `Any()`. Both can wait
+until implementation.
 
-次の文書として、第0フェーズの仕様（選択列の表現、区間のモデル、縮小の各操作の順序と打ち切り条件、`testdata/pbt/` のファイル形式）を書きます。
+The next document is the Phase 0 specification. It covers:
+
+- the representation of the choice sequence,
+- the span model,
+- the order of the shrink passes and their stopping conditions,
+- the file format under `testdata/pbt/`.

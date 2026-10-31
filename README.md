@@ -9,7 +9,7 @@ targeted properties.
 **Status: under development.** The API is not stable yet. The core engine
 (generators, shrinking, replay of saved counterexamples) is in place; the
 features above are being added in the order laid out in
-[DESIGN.md](DESIGN.md) (Japanese).
+[DESIGN.md](DESIGN.md) (a Japanese version is in [DESIGN.ja.md](DESIGN.ja.md)).
 
 Requires Go 1.25 or later.
 
