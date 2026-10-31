@@ -15,7 +15,10 @@ by Fred Hebert, which is the acceptance test of the design, and its
 session store and a ledger the way a project would. The
 [user guide](https://go.ymotongpoo.com/pbt/guide/) explains the library
 chapter by chapter, with a [Japanese version](https://go.ymotongpoo.com/pbt/guide/ja/);
-its sources are under `docs/guide`.
+its sources are under `docs/guide`. Coding agents start from
+[llms.txt](https://go.ymotongpoo.com/pbt/llms.txt), which indexes the
+Markdown version of every guide page, and from [AGENTS.md](AGENTS.md) when
+they work on this repository.
 
 Requires Go 1.25 or later.
 
