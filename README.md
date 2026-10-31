@@ -10,7 +10,10 @@ machines, targeted search, and existential properties.
 comparison with rapid, PropEr and QuickCheck, and the plan are in
 [DESIGN.md](DESIGN.md) (a Japanese version is in [DESIGN.ja.md](DESIGN.ja.md)).
 The `examples/` module ports every chapter of the book *PropEr Testing*
-by Fred Hebert, which is the acceptance test of the design.
+by Fred Hebert, which is the acceptance test of the design. The
+[user guide](https://go.ymotongpoo.com/pbt/guide/) explains the library
+chapter by chapter, with a [Japanese version](https://go.ymotongpoo.com/pbt/guide/ja/);
+its sources are under `docs/guide`.
 
 Requires Go 1.25 or later.
 
