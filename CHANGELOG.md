@@ -5,6 +5,44 @@ The notable changes of pbt are recorded here. The format follows
 [Semantic Versioning](https://semver.org/) with a major version of 0, so a
 minor version may change the API.
 
+## 0.3.0 - 2026-10-31
+
+### Changed
+
+- The stateful API has no type parameters. `Command` is a struct of
+  functions that close over the model and the system under test, which
+  live in variables of the test; `Commands(init, gen)` and
+  `ParallelCommands(init, gen)` take a function that puts the model in its
+  initial state and a generator of the next command for the current state;
+  `RunSequential(t)` and `RunParallel(t)` take no system. pbt replays a
+  sequence by calling `init` and then the `Next` of every command, so the
+  model is changed in place instead of being copied.
+- Package `fsm` follows: `fsm.Commands(initial, init, transitions)` takes
+  the name of the first state, an init function for the state data and a
+  function from a state name to its transitions. `Transition` has no type
+  parameters and state names are strings. Commands are named
+  "from -> to: name" in the program and in the statistics.
+
+### Added
+
+- `W(weight, gen)`, which pairs a weight with a generator for `Frequency`
+  and infers the type a `Weighted` literal would spell out.
+- `Length(min, max)`, `Branches(n, maxLen)` and `ModelState(f)`, options of
+  `Commands` and `ParallelCommands`, which replace `CommandsN` and
+  `ParallelCommandsN` and let the report show the model.
+
+### Removed
+
+- `Cmd`, the `Command` interface, `CommandName`, `CommandsN`,
+  `ParallelCommandsN`, `fsm.State` and `fsm.Machine`.
+
+To upgrade a stateful test from 0.2: move the model and the system into
+variables of the property, drop the type arguments and the `state` and
+`sys` parameters of the command functions, make `Next` update the model in
+place, write an `init` function that resets it, and pass neither the
+initial state to `Commands` nor the system to `RunSequential`. Chapters 5
+to 7 of the guide show the result.
+
 ## 0.2.0 - 2026-10-31
 
 ### Added
