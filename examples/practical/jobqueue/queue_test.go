@@ -28,17 +28,6 @@ var (
 	steps = []time.Duration{time.Second, 10 * time.Second, visibility, time.Minute}
 )
 
-// System is the queue together with the clock the test controls.
-type System struct {
-	queue *Queue
-	clock *clock.Clock
-}
-
-func newSystem(opts Options) *System {
-	clk := clock.New()
-	return &System{queue: New(clk.Now, visibility, maxAttempts, opts), clock: clk}
-}
-
 // jobModel is what the test knows about one job. The id is the Var of the
 // enqueue that created it, and lease the Var of the lease that holds it.
 type jobModel struct {
@@ -59,23 +48,29 @@ type leaseModel struct {
 	job int
 }
 
-type model struct {
+// harness holds the queue under test, the clock the test controls, and
+// the model: the elapsed time, every job and every lease ever issued.
+type harness struct {
+	queue  *Queue
+	clock  *clock.Clock
 	now    time.Duration
 	jobs   []jobModel
 	leases []leaseModel
 }
 
-func (m model) clone() model {
-	return model{m.now, slices.Clone(m.jobs), slices.Clone(m.leases)}
+func newHarness(opts Options) *harness {
+	clk := clock.New()
+	return &harness{queue: New(clk.Now, visibility, maxAttempts, opts), clock: clk}
 }
 
-// settled applies the lease expiries that happened by m.now, the way the
+func (h *harness) reset() { h.now, h.jobs, h.leases = 0, nil, nil }
+
+// settle applies the lease expiries that happened by now, the way the
 // queue does lazily.
-func (m model) settled() model {
-	m = m.clone()
-	for i := range m.jobs {
-		j := &m.jobs[i]
-		if j.phase != leased || m.now < j.until {
+func (h *harness) settle() {
+	for i := range h.jobs {
+		j := &h.jobs[i]
+		if j.phase != leased || h.now < j.until {
 			continue
 		}
 		if j.attempts >= maxAttempts {
@@ -84,14 +79,13 @@ func (m model) settled() model {
 			j.phase, j.readyAt = ready, j.until
 		}
 	}
-	return m
 }
 
 // next returns the index of the job a lease takes now, or -1.
-func (m model) next() int {
+func (h *harness) next() int {
 	pick := -1
-	for i, j := range m.jobs {
-		if j.phase == ready && (pick < 0 || j.readyAt < m.jobs[pick].readyAt) {
+	for i, j := range h.jobs {
+		if j.phase == ready && (pick < 0 || j.readyAt < h.jobs[pick].readyAt) {
 			pick = i
 		}
 	}
@@ -99,14 +93,14 @@ func (m model) next() int {
 }
 
 // current reports whether l is the current lease of its job.
-func (m model) current(l leaseModel) bool {
-	j := m.jobs[l.job]
+func (h *harness) current(l leaseModel) bool {
+	j := h.jobs[l.job]
 	return j.phase == leased && j.lease == l.v
 }
 
-func (m model) stats() Stats {
+func (h *harness) stats() Stats {
 	var s Stats
-	for _, j := range m.jobs {
+	for _, j := range h.jobs {
 		switch j.phase {
 		case ready:
 			s.Ready++
@@ -120,9 +114,6 @@ func (m model) stats() Stats {
 	}
 	return s
 }
-
-type cmd = pbt.Cmd[model, *System]
-type command = pbt.Command[model, *System]
 
 // taken is the result of a lease command.
 type taken struct {
@@ -138,74 +129,69 @@ func (r taken) GoString() string {
 	return fmt.Sprintf("%s %q", r.lease.Token, r.lease.Payload)
 }
 
-var enqueue = pbt.Map(pbt.SampledFrom(payloads), func(p string) command {
-	return cmd{Name: "enqueue", Args: []any{p},
-		Run: func(s *System, _ pbt.Env) any { return s.queue.Enqueue(p) },
-		Next: func(m model, v pbt.Var) model {
-			m = m.clone()
-			m.jobs = append(m.jobs, jobModel{id: v, payload: p, readyAt: m.now})
-			return m
-		}}
-})
+func (h *harness) enqueue() pbt.Gen[pbt.Command] {
+	return pbt.Map(pbt.SampledFrom(payloads), func(p string) pbt.Command {
+		return pbt.Command{Name: "enqueue", Args: []any{p},
+			Run:  func(pbt.Env) any { return h.queue.Enqueue(p) },
+			Next: func(v pbt.Var) { h.jobs = append(h.jobs, jobModel{id: v, payload: p, readyAt: h.now}) }}
+	})
+}
 
-var lease = pbt.Just[command](cmd{Name: "lease",
-	Run: func(s *System, _ pbt.Env) any { l, ok := s.queue.Lease(); return taken{l, ok} },
-	Next: func(m model, v pbt.Var) model {
-		i := m.next()
-		if i < 0 {
-			return m
-		}
-		m = m.clone()
-		j := &m.jobs[i]
-		j.phase, j.until, j.lease = leased, m.now+visibility, v
-		j.attempts++
-		m.leases = append(m.leases, leaseModel{v, i})
-		return m
-	},
-	Post: func(m model, env pbt.Env, got any) error {
-		r := got.(taken)
-		i := m.next()
-		switch {
-		case i < 0 && r.ok:
-			return fmt.Errorf("lease() returned %v, want no job", r.lease)
-		case i < 0:
+func (h *harness) lease() pbt.Gen[pbt.Command] {
+	return pbt.Just(pbt.Command{Name: "lease",
+		Run: func(pbt.Env) any { l, ok := h.queue.Lease(); return taken{l, ok} },
+		Next: func(v pbt.Var) {
+			i := h.next()
+			if i < 0 {
+				return
+			}
+			j := &h.jobs[i]
+			j.phase, j.until, j.lease = leased, h.now+visibility, v
+			j.attempts++
+			h.leases = append(h.leases, leaseModel{v, i})
+		},
+		Post: func(env pbt.Env, got any) error {
+			r := got.(taken)
+			i := h.next()
+			switch {
+			case i < 0 && r.ok:
+				return fmt.Errorf("lease() returned %v, want no job", r.lease)
+			case i < 0:
+				return nil
+			case !r.ok:
+				return fmt.Errorf("lease() returned no job, want %v", h.jobs[i].id)
+			}
+			want := pbt.Resolve[JobID](env, h.jobs[i].id)
+			if r.lease.Job != want || r.lease.Payload != h.jobs[i].payload {
+				return fmt.Errorf("lease() returned %s %q, want %s %q", r.lease.Job, r.lease.Payload, want, h.jobs[i].payload)
+			}
 			return nil
-		case !r.ok:
-			return fmt.Errorf("lease() returned no job, want %v", m.jobs[i].id)
-		}
-		want := pbt.Resolve[JobID](env, m.jobs[i].id)
-		if r.lease.Job != want || r.lease.Payload != m.jobs[i].payload {
-			return fmt.Errorf("lease() returned %s %q, want %s %q", r.lease.Job, r.lease.Payload, want, m.jobs[i].payload)
-		}
-		return nil
-	}})
+		}})
+}
 
 // finish is an ack or a nack of one of the leases issued so far. The lease
 // is resolved from the result of the lease command, so the report names
 // it by its Var.
-func finish(name string, m model, apply func(m model, j *jobModel)) pbt.Gen[command] {
-	return pbt.Map(pbt.SampledFrom(m.leases), func(l leaseModel) command {
-		return cmd{Name: name, Args: []any{l.v},
-			Pre: func(m model) bool { return slices.Contains(m.leases, l) },
-			Run: func(s *System, env pbt.Env) any {
+func (h *harness) finish(name string, apply func(j *jobModel)) pbt.Gen[pbt.Command] {
+	return pbt.Map(pbt.SampledFrom(h.leases), func(l leaseModel) pbt.Command {
+		return pbt.Command{Name: name, Args: []any{l.v},
+			Pre: func() bool { return slices.Contains(h.leases, l) },
+			Run: func(env pbt.Env) any {
 				held := pbt.Resolve[taken](env, l.v).lease
 				if name == "ack" {
-					return s.queue.Ack(held)
+					return h.queue.Ack(held)
 				}
-				return s.queue.Nack(held)
+				return h.queue.Nack(held)
 			},
-			Next: func(m model, _ pbt.Var) model {
-				if !m.current(l) {
-					return m
+			Next: func(pbt.Var) {
+				if h.current(l) {
+					apply(&h.jobs[l.job])
 				}
-				m = m.clone()
-				apply(m, &m.jobs[l.job])
-				return m
 			},
-			Post: func(m model, _ pbt.Env, got any) error {
+			Post: func(_ pbt.Env, got any) error {
 				err, _ := got.(error)
 				var want error
-				if !m.current(l) {
+				if !h.current(l) {
 					want = ErrStaleLease
 				}
 				if !errors.Is(err, want) {
@@ -216,52 +202,59 @@ func finish(name string, m model, apply func(m model, j *jobModel)) pbt.Gen[comm
 	})
 }
 
-func ack(m model) pbt.Gen[command] {
-	return finish("ack", m, func(_ model, j *jobModel) { j.phase = done })
+func (h *harness) ack() pbt.Gen[pbt.Command] {
+	return h.finish("ack", func(j *jobModel) { j.phase = done })
 }
 
-func nack(m model) pbt.Gen[command] {
-	return finish("nack", m, func(m model, j *jobModel) {
+func (h *harness) nack() pbt.Gen[pbt.Command] {
+	return h.finish("nack", func(j *jobModel) {
 		if j.attempts >= maxAttempts {
 			j.phase = dead
 		} else {
-			j.phase, j.readyAt = ready, m.now
+			j.phase, j.readyAt = ready, h.now
 		}
 	})
 }
 
-var advance = pbt.Map(pbt.SampledFrom(steps), func(d time.Duration) command {
-	return cmd{Name: "advance", Args: []any{d.String()},
-		Run:  func(s *System, _ pbt.Env) any { s.clock.Advance(d); return nil },
-		Next: func(m model, _ pbt.Var) model { m.now += d; return m.settled() }}
-})
+func (h *harness) advance() pbt.Gen[pbt.Command] {
+	return pbt.Map(pbt.SampledFrom(steps), func(d time.Duration) pbt.Command {
+		return pbt.Command{Name: "advance", Args: []any{d.String()},
+			Run:  func(pbt.Env) any { h.clock.Advance(d); return nil },
+			Next: func(pbt.Var) { h.now += d; h.settle() }}
+	})
+}
 
-var stats = pbt.Just[command](cmd{Name: "stats",
-	Run: func(s *System, _ pbt.Env) any { return s.queue.Stats() },
-	Post: func(m model, _ pbt.Env, got any) error {
-		if want := m.stats(); got != want {
-			return fmt.Errorf("stats() = %+v, want %+v", got, want)
-		}
-		return nil
-	}})
+func (h *harness) statsCommand() pbt.Gen[pbt.Command] {
+	return pbt.Just(pbt.Command{Name: "stats",
+		Run: func(pbt.Env) any { return h.queue.Stats() },
+		Post: func(_ pbt.Env, got any) error {
+			if want := h.stats(); got != want {
+				return fmt.Errorf("stats() = %+v, want %+v", got, want)
+			}
+			return nil
+		}})
+}
 
-func commands(m model) pbt.Gen[command] {
-	alts := []pbt.Weighted[command]{
-		{Weight: 3, Gen: enqueue},
-		{Weight: 3, Gen: lease},
-		{Weight: 2, Gen: advance},
-		{Weight: 1, Gen: stats},
+func (h *harness) commands() pbt.Gen[pbt.Command] {
+	alts := []pbt.Weighted[pbt.Command]{
+		pbt.W(3, h.enqueue()),
+		pbt.W(3, h.lease()),
+		pbt.W(2, h.advance()),
+		pbt.W(1, h.statsCommand()),
 	}
-	if len(m.leases) > 0 {
-		alts = append(alts, pbt.Weighted[command]{Weight: 2, Gen: ack(m)}, pbt.Weighted[command]{Weight: 1, Gen: nack(m)})
+	if len(h.leases) > 0 {
+		alts = append(alts, pbt.W(2, h.ack()), pbt.W(1, h.nack()))
 	}
 	return pbt.Frequency(alts...)
 }
 
+func (h *harness) program() pbt.Gen[pbt.Program] {
+	return pbt.Commands(h.reset, h.commands, pbt.ModelState(func() any { return h.jobs }))
+}
+
 func TestQueue(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.Commands(model{}, commands).Draw(t, "cmds")
-		prog.RunSequential(t, newSystem(Options{}))
+		newHarness(Options{}).program().Draw(t, "cmds").RunSequential(t)
 	})
 }
 
@@ -271,8 +264,7 @@ func TestQueue(t *testing.T) {
 // the lease expire, leases it again and acks with the first lease.
 func TestStaleAckIsCaught(t *testing.T) {
 	report := expect.Failure(t, func(t *pbt.T) {
-		prog := pbt.Commands(model{}, commands).Draw(t, "cmds")
-		prog.RunSequential(t, newSystem(Options{IgnoreToken: true}))
+		newHarness(Options{IgnoreToken: true}).program().Draw(t, "cmds").RunSequential(t)
 	}, pbt.Seed(1))
 	program := report[strings.Index(report, "Program{"):strings.Index(report, "}")]
 	if strings.Count(program, "= lease()") != 2 || !strings.Contains(program, "= ack(var2)") || !strings.Contains(report, "ack(var2) returned <nil>, want jobqueue: lease is not current") {

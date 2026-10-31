@@ -28,6 +28,11 @@ parallel runs.
 
 ## Patterns the examples share
 
+- **One struct for the system and the model.** Each test keeps both in a
+  `harness` struct and writes the commands as closures over it, with a
+  `reset` method as the `init` of `pbt.Commands`. The same program can then
+  run against a fresh system several times, as the parallel tests do by
+  replacing the system between runs.
 - **Fake time.** `internal/clock` is a clock that moves only when a command
   says so. The system takes `clock.Now` as its time source, and the model
   keeps the elapsed time as a number, so a lease expires or a session times

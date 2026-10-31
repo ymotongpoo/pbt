@@ -5,7 +5,6 @@ package ratelimit
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -28,30 +27,32 @@ var (
 	steps = []time.Duration{100 * time.Millisecond, 250 * time.Millisecond, 500 * time.Millisecond, window, 2 * window}
 )
 
-// System is the limiter together with the clock the test controls.
-type System struct {
+// harness holds the limiter under test, the clock the test controls, and
+// the model: the time elapsed since the start and every request that was
+// allowed, per client. The model never prunes: the sequences are short,
+// and the rule is easier to read over the whole history.
+type harness struct {
 	limiter *Limiter
 	clock   *clock.Clock
+	now     time.Duration
+	grants  map[string][]time.Duration
 }
 
-func newSystem(opts Options) *System {
+func newHarness(opts Options) *harness {
 	clk := clock.New()
-	return &System{limiter: New(clk.Now, limit, window, opts), clock: clk}
+	return &harness{limiter: New(clk.Now, limit, window, opts), clock: clk}
 }
 
-// model is the time elapsed since the start and every request that was
-// allowed, per client. It never prunes: the sequences are short, and the
-// rule is easier to read over the whole history.
-type model struct {
-	now    time.Duration
-	grants map[string][]time.Duration
+func (h *harness) reset() {
+	h.now = 0
+	h.grants = map[string][]time.Duration{}
 }
 
 // recent counts the allowed requests of client inside the current window.
-func (m model) recent(client string) int {
+func (h *harness) recent(client string) int {
 	n := 0
-	for _, at := range m.grants[client] {
-		if m.now-at < window {
+	for _, at := range h.grants[client] {
+		if h.now-at < window {
 			n++
 		}
 	}
@@ -60,10 +61,10 @@ func (m model) recent(client string) int {
 
 // idle lists the clients the limiter should forget: those it remembers
 // whose last allowed request is a whole window old.
-func (m model) idle() []string {
+func (h *harness) idle() []string {
 	var idle []string
-	for client, log := range m.grants {
-		if m.now-log[len(log)-1] >= window {
+	for client, log := range h.grants {
+		if h.now-log[len(log)-1] >= window {
 			idle = append(idle, client)
 		}
 	}
@@ -71,69 +72,60 @@ func (m model) idle() []string {
 	return idle
 }
 
-func (m model) grant(client string) model {
-	grants := maps.Clone(m.grants)
-	grants[client] = append(slices.Clone(grants[client]), m.now)
-	return model{m.now, grants}
+func (h *harness) allow() pbt.Gen[pbt.Command] {
+	return pbt.Map(pbt.SampledFrom(clients), func(client string) pbt.Command {
+		return pbt.Command{Name: "allow", Args: []any{client},
+			Run: func(pbt.Env) any { return h.limiter.Allow(client) },
+			Next: func(pbt.Var) {
+				if h.recent(client) < limit {
+					h.grants[client] = append(h.grants[client], h.now)
+				}
+			},
+			Post: func(_ pbt.Env, got any) error {
+				recent := h.recent(client)
+				if want := recent < limit; got != want {
+					return fmt.Errorf("allow(%q) = %v, want %v with %d requests in the last %v", client, got, want, recent, window)
+				}
+				return nil
+			}}
+	})
 }
 
-func (m model) forget(clients []string) model {
-	grants := maps.Clone(m.grants)
-	for _, c := range clients {
-		delete(grants, c)
-	}
-	return model{m.now, grants}
+func (h *harness) advance() pbt.Gen[pbt.Command] {
+	return pbt.Map(pbt.SampledFrom(steps), func(d time.Duration) pbt.Command {
+		return pbt.Command{Name: "advance", Args: []any{d.String()},
+			Run:  func(pbt.Env) any { h.clock.Advance(d); return nil },
+			Next: func(pbt.Var) { h.now += d }}
+	})
 }
 
-type cmd = pbt.Cmd[model, *System]
-type command = pbt.Command[model, *System]
-
-var allow = pbt.Map(pbt.SampledFrom(clients), func(client string) command {
-	return cmd{Name: "allow", Args: []any{client},
-		Run: func(s *System, _ pbt.Env) any { return s.limiter.Allow(client) },
-		Next: func(m model, _ pbt.Var) model {
-			if m.recent(client) < limit {
-				return m.grant(client)
+func (h *harness) sweep() pbt.Gen[pbt.Command] {
+	return pbt.Just(pbt.Command{Name: "sweep",
+		Run: func(pbt.Env) any { return h.limiter.Sweep() },
+		Next: func(pbt.Var) {
+			for _, c := range h.idle() {
+				delete(h.grants, c)
 			}
-			return m
 		},
-		Post: func(m model, _ pbt.Env, got any) error {
-			recent := m.recent(client)
-			if want := recent < limit; got != want {
-				return fmt.Errorf("allow(%q) = %v, want %v with %d requests in the last %v", client, got, want, recent, window)
+		Post: func(_ pbt.Env, got any) error {
+			if idle := h.idle(); got != len(idle) {
+				return fmt.Errorf("sweep() forgot %v clients, want %d %v", got, len(idle), idle)
 			}
 			return nil
-		}}
-})
+		}})
+}
 
-var advance = pbt.Map(pbt.SampledFrom(steps), func(d time.Duration) command {
-	return cmd{Name: "advance", Args: []any{d.String()},
-		Run:  func(s *System, _ pbt.Env) any { s.clock.Advance(d); return nil },
-		Next: func(m model, _ pbt.Var) model { m.now += d; return m }}
-})
+func (h *harness) commands() pbt.Gen[pbt.Command] {
+	return pbt.Frequency(pbt.W(5, h.allow()), pbt.W(2, h.advance()), pbt.W(1, h.sweep()))
+}
 
-var sweep = pbt.Just[command](cmd{Name: "sweep",
-	Run:  func(s *System, _ pbt.Env) any { return s.limiter.Sweep() },
-	Next: func(m model, _ pbt.Var) model { return m.forget(m.idle()) },
-	Post: func(m model, _ pbt.Env, got any) error {
-		if idle := m.idle(); got != len(idle) {
-			return fmt.Errorf("sweep() forgot %v clients, want %d %v", got, len(idle), idle)
-		}
-		return nil
-	}})
-
-func commands(model) pbt.Gen[command] {
-	return pbt.Frequency(
-		pbt.Weighted[command]{Weight: 5, Gen: allow},
-		pbt.Weighted[command]{Weight: 2, Gen: advance},
-		pbt.Weighted[command]{Weight: 1, Gen: sweep},
-	)
+func (h *harness) program() pbt.Gen[pbt.Program] {
+	return pbt.Commands(h.reset, h.commands, pbt.ModelState(func() any { return h.grants }))
 }
 
 func TestLimiter(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.Commands(model{grants: map[string][]time.Duration{}}, commands).Draw(t, "cmds")
-		prog.RunSequential(t, newSystem(Options{}))
+		newHarness(Options{}).program().Draw(t, "cmds").RunSequential(t)
 	})
 }
 
@@ -143,8 +135,7 @@ func TestLimiter(t *testing.T) {
 // the sweep.
 func TestEagerSweepIsCaught(t *testing.T) {
 	report := expect.Failure(t, func(t *pbt.T) {
-		prog := pbt.Commands(model{grants: map[string][]time.Duration{}}, commands).Draw(t, "cmds")
-		prog.RunSequential(t, newSystem(Options{EagerSweep: true}))
+		newHarness(Options{EagerSweep: true}).program().Draw(t, "cmds").RunSequential(t)
 	}, pbt.Seed(1))
 	program := report[strings.Index(report, "Program{"):strings.Index(report, "}")]
 	if strings.Count(program, "\n") > 4 || !strings.Contains(report, "sweep() forgot 1 clients, want 0") {

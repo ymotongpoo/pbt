@@ -16,20 +16,16 @@ import (
 	"go.ymotongpoo.com/pbt"
 )
 
-// model maps each ISBN to the row the store should hold. It is immutable:
-// every update returns a copy.
-type model map[string]Book
-
-func (m model) with(b Book) model {
-	out := maps.Clone(m)
-	if out == nil {
-		out = model{}
-	}
-	out[b.ISBN] = b
-	return out
+// harness holds the store under test and the model: the row the store
+// should hold for each ISBN. The commands are closures over it.
+type harness struct {
+	store *Store
+	books map[string]Book
 }
 
-func (m model) isbns() []string { return slices.Sorted(maps.Keys(m)) }
+func (h *harness) reset() { h.books = map[string]Book{} }
+
+func (h *harness) isbns() []string { return slices.Sorted(maps.Keys(h.books)) }
 
 // The ISBN generators of the chapter: a group from the registered ranges,
 // the remaining digits split between publisher and title, and a check
@@ -76,8 +72,8 @@ func partial(s string) pbt.Gen[string] {
 	})
 }
 
-func (m model) matches(field func(Book) string, term string) bool {
-	for _, b := range m {
+func (h *harness) matches(field func(Book) string, term string) bool {
+	for _, b := range h.books {
 		if strings.Contains(field(b), term) {
 			return true
 		}
@@ -88,10 +84,8 @@ func (m model) matches(field func(Book) string, term string) bool {
 func byAuthor(b Book) string { return b.Author }
 func byTitle(b Book) string  { return b.Title }
 
-type cmd = pbt.Cmd[model, *Store]
-
-func expectErr(want error) func(model, pbt.Env, any) error {
-	return func(_ model, _ pbt.Env, got any) error {
+func expectErr(want error) func(pbt.Env, any) error {
+	return func(_ pbt.Env, got any) error {
 		err, _ := got.(error)
 		if want == nil && err != nil || want != nil && !errors.Is(err, want) {
 			return fmt.Errorf("got %v, want %v", got, want)
@@ -105,114 +99,115 @@ func expectErr(want error) func(model, pbt.Env, any) error {
 // command name, so the statistics show how often each path ran, and the
 // preconditions keep every intent true even after shrinking removes
 // earlier commands.
-func commands(m model) pbt.Gen[pbt.Command[model, *Store]] {
-	notIn := func(isbn string) func(model) bool {
-		return func(m model) bool { _, ok := m[isbn]; return !ok }
+func (h *harness) commands() pbt.Gen[pbt.Command] {
+	notIn := func(isbn string) func() bool {
+		return func() bool { _, ok := h.books[isbn]; return !ok }
 	}
-	base := []pbt.Weighted[pbt.Command[model, *Store]]{
-		{Weight: 3, Gen: pbt.Custom("add_book:new", func(t *pbt.T) pbt.Command[model, *Store] {
+	s := h.store
+	base := []pbt.Weighted[pbt.Command]{
+		pbt.W(3, pbt.Custom("add_book:new", func(t *pbt.T) pbt.Command {
 			b := Book{ISBN: isbn.Draw(t, ""), Title: title.Draw(t, ""), Author: author.Draw(t, "")}
 			b.Owned = pbt.IntRange(0, 5).Draw(t, "")
 			b.Available = pbt.IntRange(0, b.Owned).Draw(t, "")
-			return cmd{Name: "add_book:new", Args: []any{b.ISBN, b.Title, b.Author, b.Owned, b.Available},
+			return pbt.Command{Name: "add_book:new", Args: []any{b.ISBN, b.Title, b.Author, b.Owned, b.Available},
 				Pre:  notIn(b.ISBN),
-				Run:  func(s *Store, _ pbt.Env) any { return s.AddBook(b.ISBN, b.Title, b.Author, b.Owned, b.Available) },
-				Next: func(m model, _ pbt.Var) model { return m.with(b) },
+				Run:  func(pbt.Env) any { return s.AddBook(b.ISBN, b.Title, b.Author, b.Owned, b.Available) },
+				Next: func(pbt.Var) { h.books[b.ISBN] = b },
 				Post: expectErr(nil)}
-		})},
-		{Weight: 1, Gen: pbt.Map(isbn, func(i string) pbt.Command[model, *Store] {
-			return cmd{Name: "add_copy:invalid", Args: []any{i}, Pre: notIn(i),
-				Run: func(s *Store, _ pbt.Env) any { return s.AddCopy(i) }, Post: expectErr(ErrNotFound)}
-		})},
-		{Weight: 1, Gen: pbt.Map(isbn, func(i string) pbt.Command[model, *Store] {
-			return cmd{Name: "borrow_copy:invalid", Args: []any{i}, Pre: notIn(i),
-				Run: func(s *Store, _ pbt.Env) any { return s.BorrowCopy(i) }, Post: expectErr(ErrNotFound)}
-		})},
-		{Weight: 1, Gen: pbt.Map(isbn, func(i string) pbt.Command[model, *Store] {
-			return cmd{Name: "return_copy:invalid", Args: []any{i}, Pre: notIn(i),
-				Run: func(s *Store, _ pbt.Env) any { return s.ReturnCopy(i) }, Post: expectErr(ErrNotFound)}
-		})},
-		{Weight: 1, Gen: pbt.Map(isbn, func(i string) pbt.Command[model, *Store] {
-			return cmd{Name: "find_by_isbn:invalid", Args: []any{i}, Pre: notIn(i),
-				Run: func(s *Store, _ pbt.Env) any { return result(s.FindByISBN(i)) }, Post: expectRows(nil)}
-		})},
-		{Weight: 1, Gen: pbt.Map(pbt.StringOfN(friendlyRune, 1, -1), func(term string) pbt.Command[model, *Store] {
-			return cmd{Name: "find_by_author:invalid", Args: []any{term},
-				Pre: func(m model) bool { return !m.matches(byAuthor, term) },
-				Run: func(s *Store, _ pbt.Env) any { return result(s.FindByAuthor(term)) }, Post: expectRows(nil)}
-		})},
-		{Weight: 1, Gen: pbt.Map(pbt.StringOfN(friendlyRune, 1, -1), func(term string) pbt.Command[model, *Store] {
-			return cmd{Name: "find_by_title:invalid", Args: []any{term},
-				Pre: func(m model) bool { return !m.matches(byTitle, term) },
-				Run: func(s *Store, _ pbt.Env) any { return result(s.FindByTitle(term)) }, Post: expectRows(nil)}
-		})},
+		})),
+		pbt.W(1, pbt.Map(isbn, func(i string) pbt.Command {
+			return pbt.Command{Name: "add_copy:invalid", Args: []any{i}, Pre: notIn(i),
+				Run: func(pbt.Env) any { return s.AddCopy(i) }, Post: expectErr(ErrNotFound)}
+		})),
+		pbt.W(1, pbt.Map(isbn, func(i string) pbt.Command {
+			return pbt.Command{Name: "borrow_copy:invalid", Args: []any{i}, Pre: notIn(i),
+				Run: func(pbt.Env) any { return s.BorrowCopy(i) }, Post: expectErr(ErrNotFound)}
+		})),
+		pbt.W(1, pbt.Map(isbn, func(i string) pbt.Command {
+			return pbt.Command{Name: "return_copy:invalid", Args: []any{i}, Pre: notIn(i),
+				Run: func(pbt.Env) any { return s.ReturnCopy(i) }, Post: expectErr(ErrNotFound)}
+		})),
+		pbt.W(1, pbt.Map(isbn, func(i string) pbt.Command {
+			return pbt.Command{Name: "find_by_isbn:invalid", Args: []any{i}, Pre: notIn(i),
+				Run: func(pbt.Env) any { return result(s.FindByISBN(i)) }, Post: expectRows(nil)}
+		})),
+		pbt.W(1, pbt.Map(pbt.StringOfN(friendlyRune, 1, -1), func(term string) pbt.Command {
+			return pbt.Command{Name: "find_by_author:invalid", Args: []any{term},
+				Pre: func() bool { return !h.matches(byAuthor, term) },
+				Run: func(pbt.Env) any { return result(s.FindByAuthor(term)) }, Post: expectRows(nil)}
+		})),
+		pbt.W(1, pbt.Map(pbt.StringOfN(friendlyRune, 1, -1), func(term string) pbt.Command {
+			return pbt.Command{Name: "find_by_title:invalid", Args: []any{term},
+				Pre: func() bool { return !h.matches(byTitle, term) },
+				Run: func(pbt.Env) any { return result(s.FindByTitle(term)) }, Post: expectRows(nil)}
+		})),
 	}
-	if len(m) == 0 {
+	if len(h.books) == 0 {
 		return pbt.Frequency(base...)
 	}
-	known := pbt.SampledFrom(m.isbns())
-	in := func(i string) func(model) bool {
-		return func(m model) bool { _, ok := m[i]; return ok }
+	known := pbt.SampledFrom(h.isbns())
+	in := func(i string) func() bool {
+		return func() bool { _, ok := h.books[i]; return ok }
 	}
-	stateful := []pbt.Weighted[pbt.Command[model, *Store]]{
-		{Weight: 1, Gen: pbt.Map(known, func(i string) pbt.Command[model, *Store] {
-			return cmd{Name: "add_book:exists", Args: []any{i}, Pre: in(i),
-				Run:  func(s *Store, _ pbt.Env) any { return s.AddBook(i, "dup", "dup", 1, 1) },
+	stateful := []pbt.Weighted[pbt.Command]{
+		pbt.W(1, pbt.Map(known, func(i string) pbt.Command {
+			return pbt.Command{Name: "add_book:exists", Args: []any{i}, Pre: in(i),
+				Run:  func(pbt.Env) any { return s.AddBook(i, "dup", "dup", 1, 1) },
 				Post: expectErr(ErrDuplicate)}
-		})},
-		{Weight: 2, Gen: pbt.Map(known, func(i string) pbt.Command[model, *Store] {
-			return cmd{Name: "add_copy:exists", Args: []any{i}, Pre: in(i),
-				Run:  func(s *Store, _ pbt.Env) any { return s.AddCopy(i) },
-				Next: func(m model, _ pbt.Var) model { b := m[i]; b.Owned++; b.Available++; return m.with(b) },
+		})),
+		pbt.W(2, pbt.Map(known, func(i string) pbt.Command {
+			return pbt.Command{Name: "add_copy:exists", Args: []any{i}, Pre: in(i),
+				Run:  func(pbt.Env) any { return s.AddCopy(i) },
+				Next: func(pbt.Var) { b := h.books[i]; b.Owned++; b.Available++; h.books[i] = b },
 				Post: expectErr(nil)}
-		})},
-		{Weight: 2, Gen: pbt.Map(known, func(i string) pbt.Command[model, *Store] {
-			return cmd{Name: "borrow_copy:avail", Args: []any{i},
-				Pre:  func(m model) bool { b, ok := m[i]; return ok && b.Available > 0 },
-				Run:  func(s *Store, _ pbt.Env) any { return s.BorrowCopy(i) },
-				Next: func(m model, _ pbt.Var) model { b := m[i]; b.Available--; return m.with(b) },
+		})),
+		pbt.W(2, pbt.Map(known, func(i string) pbt.Command {
+			return pbt.Command{Name: "borrow_copy:avail", Args: []any{i},
+				Pre:  func() bool { b, ok := h.books[i]; return ok && b.Available > 0 },
+				Run:  func(pbt.Env) any { return s.BorrowCopy(i) },
+				Next: func(pbt.Var) { b := h.books[i]; b.Available--; h.books[i] = b },
 				Post: expectErr(nil)}
-		})},
-		{Weight: 1, Gen: pbt.Map(known, func(i string) pbt.Command[model, *Store] {
-			return cmd{Name: "borrow_copy:unavail", Args: []any{i},
-				Pre:  func(m model) bool { b, ok := m[i]; return ok && b.Available == 0 },
-				Run:  func(s *Store, _ pbt.Env) any { return s.BorrowCopy(i) },
+		})),
+		pbt.W(1, pbt.Map(known, func(i string) pbt.Command {
+			return pbt.Command{Name: "borrow_copy:unavail", Args: []any{i},
+				Pre:  func() bool { b, ok := h.books[i]; return ok && b.Available == 0 },
+				Run:  func(pbt.Env) any { return s.BorrowCopy(i) },
 				Post: expectErr(ErrUnavailable)}
-		})},
-		{Weight: 2, Gen: pbt.Map(known, func(i string) pbt.Command[model, *Store] {
-			return cmd{Name: "return_copy:taken", Args: []any{i},
-				Pre:  func(m model) bool { b, ok := m[i]; return ok && b.Owned > b.Available },
-				Run:  func(s *Store, _ pbt.Env) any { return s.ReturnCopy(i) },
-				Next: func(m model, _ pbt.Var) model { b := m[i]; b.Available++; return m.with(b) },
+		})),
+		pbt.W(2, pbt.Map(known, func(i string) pbt.Command {
+			return pbt.Command{Name: "return_copy:taken", Args: []any{i},
+				Pre:  func() bool { b, ok := h.books[i]; return ok && b.Owned > b.Available },
+				Run:  func(pbt.Env) any { return s.ReturnCopy(i) },
+				Next: func(pbt.Var) { b := h.books[i]; b.Available++; h.books[i] = b },
 				Post: expectErr(nil)}
-		})},
-		{Weight: 1, Gen: pbt.Map(known, func(i string) pbt.Command[model, *Store] {
-			return cmd{Name: "return_copy:full", Args: []any{i},
-				Pre:  func(m model) bool { b, ok := m[i]; return ok && b.Owned == b.Available },
-				Run:  func(s *Store, _ pbt.Env) any { return s.ReturnCopy(i) },
+		})),
+		pbt.W(1, pbt.Map(known, func(i string) pbt.Command {
+			return pbt.Command{Name: "return_copy:full", Args: []any{i},
+				Pre:  func() bool { b, ok := h.books[i]; return ok && b.Owned == b.Available },
+				Run:  func(pbt.Env) any { return s.ReturnCopy(i) },
 				Post: expectErr(ErrAllReturned)}
-		})},
-		{Weight: 2, Gen: pbt.Map(known, func(i string) pbt.Command[model, *Store] {
-			return cmd{Name: "find_by_isbn:exists", Args: []any{i}, Pre: in(i),
-				Run:  func(s *Store, _ pbt.Env) any { return result(s.FindByISBN(i)) },
-				Post: func(m model, _ pbt.Env, got any) error { return expectRows([]Book{m[i]})(m, pbt.Env{}, got) }}
-		})},
-		{Weight: 2, Gen: pbt.Bind(known, func(i string) pbt.Gen[pbt.Command[model, *Store]] {
-			return pbt.Map(partial(m[i].Author), func(term string) pbt.Command[model, *Store] {
-				return cmd{Name: "find_by_author:exists", Args: []any{term},
-					Pre:  func(m model) bool { return m.matches(byAuthor, term) },
-					Run:  func(s *Store, _ pbt.Env) any { return result(s.FindByAuthor(term)) },
-					Post: expectMatches(byAuthor, term)}
+		})),
+		pbt.W(2, pbt.Map(known, func(i string) pbt.Command {
+			return pbt.Command{Name: "find_by_isbn:exists", Args: []any{i}, Pre: in(i),
+				Run:  func(pbt.Env) any { return result(s.FindByISBN(i)) },
+				Post: func(env pbt.Env, got any) error { return expectRows([]Book{h.books[i]})(env, got) }}
+		})),
+		pbt.W(2, pbt.Bind(known, func(i string) pbt.Gen[pbt.Command] {
+			return pbt.Map(partial(h.books[i].Author), func(term string) pbt.Command {
+				return pbt.Command{Name: "find_by_author:exists", Args: []any{term},
+					Pre:  func() bool { return h.matches(byAuthor, term) },
+					Run:  func(pbt.Env) any { return result(s.FindByAuthor(term)) },
+					Post: h.expectMatches(byAuthor, term)}
 			})
-		})},
-		{Weight: 2, Gen: pbt.Bind(known, func(i string) pbt.Gen[pbt.Command[model, *Store]] {
-			return pbt.Map(partial(m[i].Title), func(term string) pbt.Command[model, *Store] {
-				return cmd{Name: "find_by_title:exists", Args: []any{term},
-					Pre:  func(m model) bool { return m.matches(byTitle, term) },
-					Run:  func(s *Store, _ pbt.Env) any { return result(s.FindByTitle(term)) },
-					Post: expectMatches(byTitle, term)}
+		})),
+		pbt.W(2, pbt.Bind(known, func(i string) pbt.Gen[pbt.Command] {
+			return pbt.Map(partial(h.books[i].Title), func(term string) pbt.Command {
+				return pbt.Command{Name: "find_by_title:exists", Args: []any{term},
+					Pre:  func() bool { return h.matches(byTitle, term) },
+					Run:  func(pbt.Env) any { return result(s.FindByTitle(term)) },
+					Post: h.expectMatches(byTitle, term)}
 			})
-		})},
+		})),
 	}
 	return pbt.Frequency(append(base, stateful...)...)
 }
@@ -227,8 +222,8 @@ type rows struct {
 
 func result(books []Book, err error) rows { return rows{books, err} }
 
-func expectRows(want []Book) func(model, pbt.Env, any) error {
-	return func(_ model, _ pbt.Env, got any) error {
+func expectRows(want []Book) func(pbt.Env, any) error {
+	return func(_ pbt.Env, got any) error {
 		r, ok := got.(rows)
 		if !ok || r.err != nil {
 			return fmt.Errorf("got %v, want rows", got)
@@ -245,8 +240,9 @@ func expectRows(want []Book) func(model, pbt.Env, any) error {
 
 // expectMatches checks every returned row against the model and, beyond
 // the chapter, that no matching row is missing.
-func expectMatches(field func(Book) string, term string) func(model, pbt.Env, any) error {
-	return func(m model, _ pbt.Env, got any) error {
+func (h *harness) expectMatches(field func(Book) string, term string) func(pbt.Env, any) error {
+	return func(_ pbt.Env, got any) error {
+		m := h.books
 		r, ok := got.(rows)
 		if !ok || r.err != nil {
 			return fmt.Errorf("got %v, want rows", got)
@@ -290,14 +286,16 @@ func openStore(t *pbt.T) *Store {
 
 func TestBookstore(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.Commands(model{}, commands).Draw(t, "cmds")
-		prog.RunSequential(t, openStore(t))
+		h := &harness{store: openStore(t)}
+		prog := pbt.Commands(h.reset, h.commands, pbt.ModelState(func() any { return h.books })).Draw(t, "cmds")
+		prog.RunSequential(t)
 	})
 }
 
 func TestBookstoreParallel(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.ParallelCommands(model{}, commands).Draw(t, "cmds")
-		prog.RunParallel(t, openStore(t))
+		h := &harness{store: openStore(t)}
+		prog := pbt.ParallelCommands(h.reset, h.commands).Draw(t, "cmds")
+		prog.RunParallel(t)
 	}, pbt.Checks(30))
 }

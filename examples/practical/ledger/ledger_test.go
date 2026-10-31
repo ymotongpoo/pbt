@@ -6,7 +6,6 @@ package ledger
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"strings"
 	"testing"
 
@@ -26,38 +25,32 @@ func newLedger(opts Options) *Ledger {
 	return New(bal, opts)
 }
 
-// model is what the test expects every balance to be. It is copied before
-// every change: the shrinker regenerates sequences from earlier states, and
-// a model changed in place would carry later results back into them.
-type model struct{ balances map[string]int }
-
-func initial() model {
-	m := model{balances: map[string]int{}}
-	for _, a := range accounts {
-		m.balances[a] = opening
-	}
-	return m
+// harness holds the ledger under test and the model: the balance the test
+// expects every account to have. The commands are closures over it, and
+// reset puts the model back to the opening balances whenever pbt replays
+// a sequence.
+type harness struct {
+	ledger   *Ledger
+	balances map[string]int
 }
 
-func (m model) moved(from, to string, amount int) model {
-	balances := maps.Clone(m.balances)
-	balances[from] -= amount
-	balances[to] += amount
-	return model{balances}
+func (h *harness) reset() {
+	h.balances = map[string]int{}
+	for _, a := range accounts {
+		h.balances[a] = opening
+	}
 }
 
 // outcome is what the model says a transfer must return.
-func (m model) outcome(from, to string, amount int) error {
+func (h *harness) outcome(from, to string, amount int) error {
 	switch {
 	case from == to:
 		return ErrSameAccount
-	case m.balances[from] < amount:
+	case h.balances[from] < amount:
 		return ErrInsufficient
 	}
 	return nil
 }
-
-type cmd = pbt.Cmd[model, *Ledger]
 
 type balance struct {
 	bal int
@@ -71,48 +64,53 @@ var (
 	amount = pbt.IntRange(1, opening+opening/2)
 )
 
-var transfer = pbt.Custom("transfer", func(t *pbt.T) pbt.Command[model, *Ledger] {
-	from, to := account.Draw(t, "from"), account.Draw(t, "to")
-	n := amount.Draw(t, "amount")
-	return cmd{Name: "transfer", Args: []any{from, to, n},
-		Run: func(l *Ledger, _ pbt.Env) any { return l.Transfer(from, to, n) },
-		Next: func(m model, _ pbt.Var) model {
-			if m.outcome(from, to, n) != nil {
-				return m
-			}
-			return m.moved(from, to, n)
-		},
-		Post: func(m model, _ pbt.Env, got any) error {
-			err, _ := got.(error)
-			if want := m.outcome(from, to, n); !errors.Is(err, want) {
-				return fmt.Errorf("transfer returned %v, want %v", err, want)
-			}
-			return nil
-		}}
-})
+func (h *harness) transfer() pbt.Gen[pbt.Command] {
+	return pbt.Custom("transfer", func(t *pbt.T) pbt.Command {
+		from, to := account.Draw(t, "from"), account.Draw(t, "to")
+		n := amount.Draw(t, "amount")
+		return pbt.Command{Name: "transfer", Args: []any{from, to, n},
+			Run: func(pbt.Env) any { return h.ledger.Transfer(from, to, n) },
+			Next: func(pbt.Var) {
+				if h.outcome(from, to, n) == nil {
+					h.balances[from] -= n
+					h.balances[to] += n
+				}
+			},
+			Post: func(_ pbt.Env, got any) error {
+				err, _ := got.(error)
+				if want := h.outcome(from, to, n); !errors.Is(err, want) {
+					return fmt.Errorf("transfer returned %v, want %v", err, want)
+				}
+				return nil
+			}}
+	})
+}
 
-var query = pbt.Map(account, func(name string) pbt.Command[model, *Ledger] {
-	return cmd{Name: "balance", Args: []any{name},
-		Run: func(l *Ledger, _ pbt.Env) any { bal, err := l.Balance(name); return balance{bal, err} },
-		Post: func(m model, _ pbt.Env, got any) error {
-			if want := (balance{m.balances[name], nil}); got != want {
-				return fmt.Errorf("balance(%q) = %v, want %v", name, got, want)
-			}
-			return nil
-		}}
-})
+func (h *harness) query() pbt.Gen[pbt.Command] {
+	return pbt.Map(account, func(name string) pbt.Command {
+		return pbt.Command{Name: "balance", Args: []any{name},
+			Run: func(pbt.Env) any { bal, err := h.ledger.Balance(name); return balance{bal, err} },
+			Post: func(_ pbt.Env, got any) error {
+				if want := (balance{h.balances[name], nil}); got != want {
+					return fmt.Errorf("balance(%q) = %v, want %v", name, got, want)
+				}
+				return nil
+			}}
+	})
+}
 
-func commands(model) pbt.Gen[pbt.Command[model, *Ledger]] {
-	return pbt.Frequency(
-		pbt.Weighted[pbt.Command[model, *Ledger]]{Weight: 3, Gen: transfer},
-		pbt.Weighted[pbt.Command[model, *Ledger]]{Weight: 1, Gen: query},
-	)
+func (h *harness) commands() pbt.Gen[pbt.Command] {
+	return pbt.Frequency(pbt.W(3, h.transfer()), pbt.W(1, h.query()))
+}
+
+func (h *harness) program() pbt.Gen[pbt.Program] {
+	return pbt.Commands(h.reset, h.commands, pbt.ModelState(func() any { return h.balances }))
 }
 
 func TestLedger(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.Commands(initial(), commands).Draw(t, "cmds")
-		prog.RunSequential(t, newLedger(Options{}))
+		h := &harness{ledger: newLedger(Options{})}
+		h.program().Draw(t, "cmds").RunSequential(t)
 	})
 }
 
@@ -121,42 +119,41 @@ func TestLedger(t *testing.T) {
 // money is conserved and no account is overdrawn. This is the test to
 // write when the exact outcome is hard to predict but the invariants are
 // clear.
-type noModel struct{}
+func (h *harness) anyTransfer() pbt.Gen[pbt.Command] {
+	return pbt.Custom("transfer", func(t *pbt.T) pbt.Command {
+		from, to := account.Draw(t, "from"), account.Draw(t, "to")
+		n := amount.Draw(t, "amount")
+		return pbt.Command{Name: "transfer", Args: []any{from, to, n},
+			Run: func(pbt.Env) any { return h.ledger.Transfer(from, to, n) }}
+	})
+}
 
-var anyTransfer = pbt.Custom("transfer", func(t *pbt.T) pbt.Command[noModel, *Ledger] {
-	from, to := account.Draw(t, "from"), account.Draw(t, "to")
-	n := amount.Draw(t, "amount")
-	return pbt.Cmd[noModel, *Ledger]{Name: "transfer", Args: []any{from, to, n},
-		Run: func(l *Ledger, _ pbt.Env) any { return l.Transfer(from, to, n) }}
-})
-
-var audit = pbt.Just[pbt.Command[noModel, *Ledger]](pbt.Cmd[noModel, *Ledger]{Name: "audit",
-	Run: func(l *Ledger, _ pbt.Env) any { return l.Balances() },
-	Post: func(_ noModel, _ pbt.Env, got any) error {
-		total := 0
-		for name, bal := range got.(map[string]int) {
-			if bal < 0 {
-				return fmt.Errorf("%s is overdrawn: %d", name, bal)
+func (h *harness) audit() pbt.Gen[pbt.Command] {
+	return pbt.Just(pbt.Command{Name: "audit",
+		Run: func(pbt.Env) any { return h.ledger.Balances() },
+		Post: func(_ pbt.Env, got any) error {
+			total := 0
+			for name, bal := range got.(map[string]int) {
+				if bal < 0 {
+					return fmt.Errorf("%s is overdrawn: %d", name, bal)
+				}
+				total += bal
 			}
-			total += bal
-		}
-		if want := opening * len(accounts); total != want {
-			return fmt.Errorf("the ledger holds %d, want %d", total, want)
-		}
-		return nil
-	}})
+			if want := opening * len(accounts); total != want {
+				return fmt.Errorf("the ledger holds %d, want %d", total, want)
+			}
+			return nil
+		}})
+}
 
-func invariants(noModel) pbt.Gen[pbt.Command[noModel, *Ledger]] {
-	return pbt.Frequency(
-		pbt.Weighted[pbt.Command[noModel, *Ledger]]{Weight: 3, Gen: anyTransfer},
-		pbt.Weighted[pbt.Command[noModel, *Ledger]]{Weight: 1, Gen: audit},
-	)
+func (h *harness) invariants() pbt.Gen[pbt.Command] {
+	return pbt.Frequency(pbt.W(3, h.anyTransfer()), pbt.W(1, h.audit()))
 }
 
 func TestLedgerInvariants(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.Commands(noModel{}, invariants).Draw(t, "cmds")
-		prog.RunSequential(t, newLedger(Options{}))
+		h := &harness{ledger: newLedger(Options{})}
+		pbt.Commands(nil, h.invariants).Draw(t, "cmds").RunSequential(t)
 	})
 }
 
@@ -166,16 +163,16 @@ func TestLedgerInvariants(t *testing.T) {
 // two commands.
 func TestSelfTransferIsCaught(t *testing.T) {
 	report := expect.Failure(t, func(t *pbt.T) {
-		prog := pbt.Commands(initial(), commands).Draw(t, "cmds")
-		prog.RunSequential(t, newLedger(Options{AllowSelfTransfer: true}))
+		h := &harness{ledger: newLedger(Options{AllowSelfTransfer: true})}
+		h.program().Draw(t, "cmds").RunSequential(t)
 	}, pbt.Seed(1))
 	if !strings.Contains(report, "want ledger: cannot transfer to the same account") {
 		t.Errorf("expected the model to reject the self transfer:\n%s", report)
 	}
 
 	report = expect.Failure(t, func(t *pbt.T) {
-		prog := pbt.Commands(noModel{}, invariants).Draw(t, "cmds")
-		prog.RunSequential(t, newLedger(Options{AllowSelfTransfer: true}))
+		h := &harness{ledger: newLedger(Options{AllowSelfTransfer: true})}
+		pbt.Commands(nil, h.invariants).Draw(t, "cmds").RunSequential(t)
 	}, pbt.Seed(1))
 	program := report[strings.Index(report, "Program{"):strings.Index(report, "}")]
 	if strings.Count(program, "= transfer(") != 1 || !strings.Contains(program, "= audit()") || !strings.Contains(report, "the ledger holds") {
@@ -185,8 +182,8 @@ func TestSelfTransferIsCaught(t *testing.T) {
 
 func TestLedgerParallel(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.ParallelCommands(initial(), commands).Draw(t, "cmds")
-		prog.RunParallel(t, newLedger(Options{}))
+		h := &harness{ledger: newLedger(Options{})}
+		pbt.ParallelCommands(h.reset, h.commands).Draw(t, "cmds").RunParallel(t)
 	})
 }
 
@@ -195,9 +192,11 @@ func TestLedgerParallel(t *testing.T) {
 // order of the model allows, since the second must have been refused.
 func TestOverdraftRaceIsCaught(t *testing.T) {
 	report := expect.Failure(t, func(t *pbt.T) {
-		prog := pbt.ParallelCommands(initial(), commands).Draw(t, "cmds")
+		h := &harness{}
+		prog := pbt.ParallelCommands(h.reset, h.commands).Draw(t, "cmds")
 		for range 5 {
-			prog.RunParallel(t, newLedger(Options{TwoPhase: true}))
+			h.ledger = newLedger(Options{TwoPhase: true})
+			prog.RunParallel(t)
 		}
 	}, pbt.Seed(1), pbt.Checks(300))
 	if !strings.Contains(report, "no interleaving") {

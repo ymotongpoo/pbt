@@ -24,15 +24,20 @@ type note struct {
 	version int
 }
 
-// model is the notes that exist and the Vars of those that were deleted,
-// which the commands keep presenting to check that they stay gone.
-type model struct {
-	live []note
-	gone []pbt.Var
+// harness holds the client of the server under test and the model: the
+// notes that exist and the Vars of those that were deleted, which the
+// commands keep presenting to check that they stay gone. A test replaces
+// the client to run one program against a fresh server.
+type harness struct {
+	client *Client
+	live   []note
+	gone   []pbt.Var
 }
 
-func (m model) find(v pbt.Var) (note, bool) {
-	for _, n := range m.live {
+func (h *harness) reset() { h.live, h.gone = nil, nil }
+
+func (h *harness) find(v pbt.Var) (note, bool) {
+	for _, n := range h.live {
 		if n.id == v {
 			return n, true
 		}
@@ -40,38 +45,34 @@ func (m model) find(v pbt.Var) (note, bool) {
 	return note{}, false
 }
 
-func (m model) knows(v pbt.Var) bool {
-	_, live := m.find(v)
-	return live || slices.Contains(m.gone, v)
+func (h *harness) knows(v pbt.Var) bool {
+	_, live := h.find(v)
+	return live || slices.Contains(h.gone, v)
 }
 
 // all lists every Var the model knows, live first.
-func (m model) all() []pbt.Var {
-	all := make([]pbt.Var, 0, len(m.live)+len(m.gone))
-	for _, n := range m.live {
+func (h *harness) all() []pbt.Var {
+	all := make([]pbt.Var, 0, len(h.live)+len(h.gone))
+	for _, n := range h.live {
 		all = append(all, n.id)
 	}
-	return append(all, m.gone...)
+	return append(all, h.gone...)
 }
 
-func (m model) put(n note) model {
-	live := slices.Clone(m.live)
-	for i := range live {
-		if live[i].id == n.id {
-			live[i] = n
-			return model{live, m.gone}
+func (h *harness) put(n note) {
+	for i := range h.live {
+		if h.live[i].id == n.id {
+			h.live[i] = n
+			return
 		}
 	}
-	return model{append(live, n), m.gone}
+	h.live = append(h.live, n)
 }
 
-func (m model) remove(v pbt.Var) model {
-	live := slices.DeleteFunc(slices.Clone(m.live), func(n note) bool { return n.id == v })
-	return model{live, append(slices.Clone(m.gone), v)}
+func (h *harness) remove(v pbt.Var) {
+	h.live = slices.DeleteFunc(h.live, func(n note) bool { return n.id == v })
+	h.gone = append(h.gone, v)
 }
-
-type cmd = pbt.Cmd[model, *Client]
-type command = pbt.Command[model, *Client]
 
 // idOf is the id the server gave the note created by the response v.
 func idOf(env pbt.Env, v pbt.Var) string { return pbt.Resolve[Response](env, v).Note.ID }
@@ -86,8 +87,8 @@ func call(f func() (Response, error)) any {
 	return r
 }
 
-// expect checks the status of a response and, when a note is wanted, its
-// fields.
+// expectResponse checks the status of a response and, when a note is
+// wanted, its fields.
 func expectResponse(got any, status int, want *Note) error {
 	r, ok := got.(Response)
 	if !ok {
@@ -104,28 +105,30 @@ func expectResponse(got any, status int, want *Note) error {
 
 var title = pbt.Map(pbt.IntRange(1, 999), func(n int) string { return fmt.Sprintf("note %d", n) })
 
-var create = pbt.Map(title, func(title string) command {
-	return cmd{Name: "create", Args: []any{title},
-		Run:  func(c *Client, _ pbt.Env) any { return call(func() (Response, error) { return c.Create(title) }) },
-		Next: func(m model, v pbt.Var) model { return m.put(note{id: v, title: title, version: 1}) },
-		Post: func(_ model, _ pbt.Env, got any) error {
-			if err := expectResponse(got, http.StatusCreated, nil); err != nil {
-				return err
-			}
-			if n := got.(Response).Note; n.ID == "" || n.Title != title || n.Version != 1 {
-				return fmt.Errorf("created %+v, want title %q at version 1", n, title)
-			}
-			return nil
-		}}
-})
+func (h *harness) create() pbt.Gen[pbt.Command] {
+	return pbt.Map(title, func(title string) pbt.Command {
+		return pbt.Command{Name: "create", Args: []any{title},
+			Run:  func(pbt.Env) any { return call(func() (Response, error) { return h.client.Create(title) }) },
+			Next: func(v pbt.Var) { h.put(note{id: v, title: title, version: 1}) },
+			Post: func(_ pbt.Env, got any) error {
+				if err := expectResponse(got, http.StatusCreated, nil); err != nil {
+					return err
+				}
+				if n := got.(Response).Note; n.ID == "" || n.Title != title || n.Version != 1 {
+					return fmt.Errorf("created %+v, want title %q at version 1", n, title)
+				}
+				return nil
+			}}
+	})
+}
 
-func get(m model) pbt.Gen[command] {
-	return pbt.Map(pbt.SampledFrom(m.all()), func(v pbt.Var) command {
-		return cmd{Name: "get", Args: []any{v},
-			Pre: func(m model) bool { return m.knows(v) },
-			Run: func(c *Client, env pbt.Env) any { return call(func() (Response, error) { return c.Get(idOf(env, v)) }) },
-			Post: func(m model, env pbt.Env, got any) error {
-				n, live := m.find(v)
+func (h *harness) get() pbt.Gen[pbt.Command] {
+	return pbt.Map(pbt.SampledFrom(h.all()), func(v pbt.Var) pbt.Command {
+		return pbt.Command{Name: "get", Args: []any{v},
+			Pre: func() bool { return h.knows(v) },
+			Run: func(env pbt.Env) any { return call(func() (Response, error) { return h.client.Get(idOf(env, v)) }) },
+			Post: func(env pbt.Env, got any) error {
+				n, live := h.find(v)
 				if !live {
 					return expectResponse(got, http.StatusNotFound, nil)
 				}
@@ -135,30 +138,31 @@ func get(m model) pbt.Gen[command] {
 }
 
 // update sends the version the client believes the note is at. The
-// generator sends a stale one some of the time, and the model decides
-// from the version it sends whether the server must accept it.
-func update(m model) pbt.Gen[command] {
-	return pbt.Custom("update", func(t *pbt.T) command {
-		v := pbt.SampledFrom(m.all()).Draw(t, "")
+// generator sends a stale one some of the time, and the postcondition
+// decides from the version it sent and the model's current version
+// whether the server must accept it, so the command stays valid after the
+// shrinker removes the commands around it.
+func (h *harness) update() pbt.Gen[pbt.Command] {
+	return pbt.Custom("update", func(t *pbt.T) pbt.Command {
+		v := pbt.SampledFrom(h.all()).Draw(t, "")
 		title := title.Draw(t, "")
-		n, _ := m.find(v)
+		n, _ := h.find(v)
 		version := n.version
 		if n.version > 1 && pbt.Bool().Draw(t, "") {
 			version--
 		}
-		return cmd{Name: "update", Args: []any{v, title, version},
-			Pre: func(m model) bool { return m.knows(v) },
-			Run: func(c *Client, env pbt.Env) any {
-				return call(func() (Response, error) { return c.Update(idOf(env, v), title, version) })
+		return pbt.Command{Name: "update", Args: []any{v, title, version},
+			Pre: func() bool { return h.knows(v) },
+			Run: func(env pbt.Env) any {
+				return call(func() (Response, error) { return h.client.Update(idOf(env, v), title, version) })
 			},
-			Next: func(m model, _ pbt.Var) model {
-				if n, live := m.find(v); live && n.version == version {
-					return m.put(note{id: v, title: title, version: version + 1})
+			Next: func(pbt.Var) {
+				if n, live := h.find(v); live && n.version == version {
+					h.put(note{id: v, title: title, version: version + 1})
 				}
-				return m
 			},
-			Post: func(m model, env pbt.Env, got any) error {
-				n, live := m.find(v)
+			Post: func(env pbt.Env, got any) error {
+				n, live := h.find(v)
 				switch {
 				case !live:
 					return expectResponse(got, http.StatusNotFound, nil)
@@ -170,21 +174,18 @@ func update(m model) pbt.Gen[command] {
 	})
 }
 
-func remove(m model) pbt.Gen[command] {
-	return pbt.Map(pbt.SampledFrom(m.all()), func(v pbt.Var) command {
-		return cmd{Name: "delete", Args: []any{v},
-			Pre: func(m model) bool { return m.knows(v) },
-			Run: func(c *Client, env pbt.Env) any {
-				return call(func() (Response, error) { return c.Delete(idOf(env, v)) })
-			},
-			Next: func(m model, _ pbt.Var) model {
-				if _, live := m.find(v); live {
-					return m.remove(v)
+func (h *harness) delete() pbt.Gen[pbt.Command] {
+	return pbt.Map(pbt.SampledFrom(h.all()), func(v pbt.Var) pbt.Command {
+		return pbt.Command{Name: "delete", Args: []any{v},
+			Pre: func() bool { return h.knows(v) },
+			Run: func(env pbt.Env) any { return call(func() (Response, error) { return h.client.Delete(idOf(env, v)) }) },
+			Next: func(pbt.Var) {
+				if _, live := h.find(v); live {
+					h.remove(v)
 				}
-				return m
 			},
-			Post: func(m model, _ pbt.Env, got any) error {
-				if _, live := m.find(v); live {
+			Post: func(_ pbt.Env, got any) error {
+				if _, live := h.find(v); live {
 					return expectResponse(got, http.StatusNoContent, nil)
 				}
 				return expectResponse(got, http.StatusNotFound, nil)
@@ -192,35 +193,37 @@ func remove(m model) pbt.Gen[command] {
 	})
 }
 
-var list = pbt.Just[command](cmd{Name: "list",
-	Run: func(c *Client, _ pbt.Env) any { return call(func() (Response, error) { return c.List() }) },
-	Post: func(m model, env pbt.Env, got any) error {
-		if err := expectResponse(got, http.StatusOK, nil); err != nil {
-			return err
-		}
-		want := make([]Note, 0, len(m.live))
-		for _, n := range m.live {
-			want = append(want, Note{idOf(env, n.id), n.title, n.version})
-		}
-		byID := func(a, b Note) int { return seq(a.ID) - seq(b.ID) }
-		slices.SortFunc(want, byID)
-		notes := slices.SortedFunc(slices.Values(got.(Response).Notes), byID)
-		if !slices.Equal(notes, want) {
-			return fmt.Errorf("list returned %v, want %v", notes, want)
-		}
-		return nil
-	}})
+func (h *harness) list() pbt.Gen[pbt.Command] {
+	return pbt.Just(pbt.Command{Name: "list",
+		Run: func(pbt.Env) any { return call(func() (Response, error) { return h.client.List() }) },
+		Post: func(env pbt.Env, got any) error {
+			if err := expectResponse(got, http.StatusOK, nil); err != nil {
+				return err
+			}
+			want := make([]Note, 0, len(h.live))
+			for _, n := range h.live {
+				want = append(want, Note{idOf(env, n.id), n.title, n.version})
+			}
+			byID := func(a, b Note) int { return seq(a.ID) - seq(b.ID) }
+			slices.SortFunc(want, byID)
+			notes := slices.SortedFunc(slices.Values(got.(Response).Notes), byID)
+			if !slices.Equal(notes, want) {
+				return fmt.Errorf("list returned %v, want %v", notes, want)
+			}
+			return nil
+		}})
+}
 
-func commands(m model) pbt.Gen[command] {
-	alts := []pbt.Weighted[command]{{Weight: 3, Gen: create}, {Weight: 1, Gen: list}}
-	if len(m.all()) > 0 {
-		alts = append(alts,
-			pbt.Weighted[command]{Weight: 3, Gen: get(m)},
-			pbt.Weighted[command]{Weight: 3, Gen: update(m)},
-			pbt.Weighted[command]{Weight: 1, Gen: remove(m)},
-		)
+func (h *harness) commands() pbt.Gen[pbt.Command] {
+	alts := []pbt.Weighted[pbt.Command]{pbt.W(3, h.create()), pbt.W(1, h.list())}
+	if len(h.all()) > 0 {
+		alts = append(alts, pbt.W(3, h.get()), pbt.W(3, h.update()), pbt.W(1, h.delete()))
 	}
 	return pbt.Frequency(alts...)
+}
+
+func (h *harness) program() pbt.Gen[pbt.Program] {
+	return pbt.Commands(h.reset, h.commands, pbt.ModelState(func() any { return h.live }))
 }
 
 // serve starts a fresh server for one test case and returns a client of
@@ -233,8 +236,8 @@ func serve(t *pbt.T, opts Options) *Client {
 
 func TestNotesAPI(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.Commands(model{}, commands).Draw(t, "cmds")
-		prog.RunSequential(t, serve(t, Options{}))
+		h := &harness{client: serve(t, Options{})}
+		h.program().Draw(t, "cmds").RunSequential(t)
 	})
 }
 
@@ -243,8 +246,8 @@ func TestNotesAPI(t *testing.T) {
 // version exists, and updates it again with the old version.
 func TestStaleUpdateIsCaught(t *testing.T) {
 	report := expect.Failure(t, func(t *pbt.T) {
-		prog := pbt.Commands(model{}, commands).Draw(t, "cmds")
-		prog.RunSequential(t, serve(t, Options{IgnoreIfMatch: true}))
+		h := &harness{client: serve(t, Options{IgnoreIfMatch: true})}
+		h.program().Draw(t, "cmds").RunSequential(t)
 	}, pbt.Seed(1))
 	program := report[strings.Index(report, "Program{"):strings.Index(report, "}")]
 	if strings.Count(program, "\n") > 4 || strings.Count(program, "= update(") != 2 || !strings.Contains(report, "status 200, want 412") {
@@ -254,19 +257,21 @@ func TestStaleUpdateIsCaught(t *testing.T) {
 
 func TestNotesAPIParallel(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.ParallelCommands(model{}, commands).Draw(t, "cmds")
-		prog.RunParallel(t, serve(t, Options{}))
+		h := &harness{client: serve(t, Options{})}
+		pbt.ParallelCommands(h.reset, h.commands).Draw(t, "cmds").RunParallel(t)
 	})
 }
 
 // Two concurrent creates on the racy server get the same id, and the
-// second overwrites the first. A get or an update of the first note then
-// returns the second note's title, which no interleaving explains.
+// second overwrites the first. A get or a list after them then shows one
+// note where the model has two, which no interleaving explains.
 func TestRacyIDsAreCaught(t *testing.T) {
 	report := expect.Failure(t, func(t *pbt.T) {
-		prog := pbt.ParallelCommands(model{}, commands).Draw(t, "cmds")
+		h := &harness{}
+		prog := pbt.ParallelCommands(h.reset, h.commands).Draw(t, "cmds")
 		for range 3 {
-			prog.RunParallel(t, serve(t, Options{RacyIDs: true}))
+			h.client = serve(t, Options{RacyIDs: true})
+			prog.RunParallel(t)
 		}
 	}, pbt.Seed(1), pbt.Checks(200))
 	if !strings.Contains(report, "no interleaving") {

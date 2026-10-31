@@ -18,30 +18,27 @@ import (
 
 const ttl = 30 * time.Minute
 
-// System is the store together with the clock the test controls.
-type System struct {
+// harness holds the store under test, the clock the test controls, and
+// the state data of the machine: the session the test follows. The token
+// is a Var, since it is issued when login runs; age is the time since the
+// login or the last refresh, which decides when a wait expires the
+// session. The state name is the machine's.
+type harness struct {
 	store *Store
 	clock *clock.Clock
-}
-
-func newSystem(opts Options) *System {
-	clk := clock.New()
-	return &System{store: New(clk.Now, ttl, opts), clock: clk}
-}
-
-// data is the state data of the machine: the session the test follows.
-// The token is a Var, since it is issued when login runs; age is the time
-// since the login or the last refresh, which decides when a wait expires
-// the session.
-type data struct {
 	token pbt.Var
 	user  string
 	age   time.Duration
 }
 
-type cmd = pbt.Cmd[data, *System]
-type command = pbt.Command[data, *System]
-type transition = fsm.Transition[string, data, *System]
+func newHarness(opts Options) *harness {
+	clk := clock.New()
+	return &harness{store: New(clk.Now, ttl, opts), clock: clk}
+}
+
+func (h *harness) reset() { h.token, h.user, h.age = pbt.Var{}, "", 0 }
+
+func (h *harness) data() any { return fmt.Sprintf("%v %s age=%v", h.token, h.user, h.age) }
 
 var users = []string{"ann", "bo", "cy"}
 
@@ -50,8 +47,8 @@ type used struct {
 	err  error
 }
 
-func expectErr(name string, want error) func(data, pbt.Env, any) error {
-	return func(_ data, _ pbt.Env, got any) error {
+func expectErr(name string, want error) func(pbt.Env, any) error {
+	return func(_ pbt.Env, got any) error {
 		err, _ := got.(error)
 		if !errors.Is(err, want) {
 			return fmt.Errorf("%s returned %v, want %v", name, err, want)
@@ -60,109 +57,111 @@ func expectErr(name string, want error) func(data, pbt.Env, any) error {
 	}
 }
 
-var login = pbt.Map(pbt.SampledFrom(users), func(u string) command {
-	return cmd{Name: "login", Args: []any{u},
-		Run:  func(s *System, _ pbt.Env) any { return s.store.Login(u) },
-		Next: func(_ data, v pbt.Var) data { return data{token: v, user: u} }}
-})
+func (h *harness) login() pbt.Gen[pbt.Command] {
+	return pbt.Map(pbt.SampledFrom(users), func(u string) pbt.Command {
+		return pbt.Command{Name: "login", Args: []any{u},
+			Run:  func(pbt.Env) any { return h.store.Login(u) },
+			Next: func(v pbt.Var) { h.token, h.user, h.age = v, u, 0 }}
+	})
+}
 
 // useUnknown presents a token the store never issued.
-var useUnknown = pbt.Just[command](cmd{Name: "use", Args: []any{"bogus"},
-	Run:  func(s *System, _ pbt.Env) any { _, err := s.store.Use("bogus"); return err },
-	Post: expectErr("use", ErrUnknown)})
+func (h *harness) useUnknown() pbt.Gen[pbt.Command] {
+	return pbt.Just(pbt.Command{Name: "use", Args: []any{"bogus"},
+		Run:  func(pbt.Env) any { _, err := h.store.Use("bogus"); return err },
+		Post: expectErr("use", ErrUnknown)})
+}
 
-func use(d data, want error) pbt.Gen[command] {
-	return pbt.Just[command](cmd{Name: "use", Args: []any{d.token},
-		Run: func(s *System, env pbt.Env) any {
-			user, err := s.store.Use(pbt.Resolve[Token](env, d.token))
+func (h *harness) use(want error) pbt.Gen[pbt.Command] {
+	return pbt.Just(pbt.Command{Name: "use", Args: []any{h.token},
+		Run: func(env pbt.Env) any {
+			user, err := h.store.Use(pbt.Resolve[Token](env, h.token))
 			return used{user, err}
 		},
-		Post: func(d data, _ pbt.Env, got any) error {
+		Post: func(_ pbt.Env, got any) error {
 			r := got.(used)
-			if !errors.Is(r.err, want) || r.user != d.user && want == nil {
-				return fmt.Errorf("use returned (%q, %v), want (%q, %v)", r.user, r.err, d.user, want)
+			if !errors.Is(r.err, want) || r.user != h.user && want == nil {
+				return fmt.Errorf("use returned (%q, %v), want (%q, %v)", r.user, r.err, h.user, want)
 			}
 			return nil
 		}})
 }
 
-func refresh(d data, want error) pbt.Gen[command] {
-	return pbt.Just[command](cmd{Name: "refresh", Args: []any{d.token},
-		Run: func(s *System, env pbt.Env) any { return s.store.Refresh(pbt.Resolve[Token](env, d.token)) },
-		Next: func(d data, _ pbt.Var) data {
+func (h *harness) refresh(want error) pbt.Gen[pbt.Command] {
+	return pbt.Just(pbt.Command{Name: "refresh", Args: []any{h.token},
+		Run: func(env pbt.Env) any { return h.store.Refresh(pbt.Resolve[Token](env, h.token)) },
+		Next: func(pbt.Var) {
 			if want == nil {
-				d.age = 0
+				h.age = 0
 			}
-			return d
 		},
 		Post: expectErr("refresh", want)})
 }
 
-func logout(d data, want error) pbt.Gen[command] {
-	return pbt.Just[command](cmd{Name: "logout", Args: []any{d.token},
-		Run:  func(s *System, env pbt.Env) any { return s.store.Logout(pbt.Resolve[Token](env, d.token)) },
+func (h *harness) logout(want error) pbt.Gen[pbt.Command] {
+	return pbt.Just(pbt.Command{Name: "logout", Args: []any{h.token},
+		Run:  func(env pbt.Env) any { return h.store.Logout(pbt.Resolve[Token](env, h.token)) },
 		Post: expectErr("logout", want)})
 }
 
 // wait advances the clock by a whole number of minutes between lo and hi.
-func wait(lo, hi time.Duration) pbt.Gen[command] {
-	return pbt.Map(pbt.IntRange(int(lo/time.Minute), int(hi/time.Minute)), func(mins int) command {
+func (h *harness) wait(lo, hi time.Duration) pbt.Gen[pbt.Command] {
+	return pbt.Map(pbt.IntRange(int(lo/time.Minute), int(hi/time.Minute)), func(mins int) pbt.Command {
 		d := time.Duration(mins) * time.Minute
-		return cmd{Name: "wait", Args: []any{d.String()},
-			Run:  func(s *System, _ pbt.Env) any { s.clock.Advance(d); return nil },
-			Next: func(st data, _ pbt.Var) data { st.age += d; return st }}
+		return pbt.Command{Name: "wait", Args: []any{d.String()},
+			Run:  func(pbt.Env) any { h.clock.Advance(d); return nil },
+			Next: func(pbt.Var) { h.age += d }}
 	})
 }
 
-// machine names the states and the transitions out of each. Time is a
+// transitions names the states and the transitions out of each. Time is a
 // command like any other, split by where it leads: a wait that keeps the
 // session within its time to live stays in active, a wait that goes past
 // it moves to expired.
-type machine struct{}
-
-func (machine) Initial() (string, data) { return "anonymous", data{} }
-
-func (machine) Transitions(state string, d data) []transition {
+func (h *harness) transitions(state string) []fsm.Transition {
 	switch state {
 	case "anonymous":
-		return []transition{
-			{Weight: 3, To: "active", Cmd: login},
-			{Weight: 1, To: "anonymous", Cmd: useUnknown},
+		return []fsm.Transition{
+			{Weight: 3, To: "active", Cmd: h.login()},
+			{Weight: 1, To: "anonymous", Cmd: h.useUnknown()},
 		}
 	case "active":
-		left := ttl - d.age
-		ts := []transition{
-			{Weight: 3, To: "active", Cmd: use(d, nil)},
-			{Weight: 2, To: "active", Cmd: refresh(d, nil)},
-			{Weight: 2, To: "expired", Cmd: wait(left, left+ttl)},
-			{Weight: 1, To: "revoked", Cmd: logout(d, nil)},
+		left := ttl - h.age
+		ts := []fsm.Transition{
+			{Weight: 3, To: "active", Cmd: h.use(nil)},
+			{Weight: 2, To: "active", Cmd: h.refresh(nil)},
+			{Weight: 2, To: "expired", Cmd: h.wait(left, left+ttl)},
+			{Weight: 1, To: "revoked", Cmd: h.logout(nil)},
 		}
 		if left > time.Minute {
-			ts = append(ts, transition{Weight: 3, To: "active", Cmd: wait(time.Minute, left-time.Minute)})
+			ts = append(ts, fsm.Transition{Weight: 3, To: "active", Cmd: h.wait(time.Minute, left-time.Minute)})
 		}
 		return ts
 	case "expired":
-		return []transition{
-			{Weight: 2, To: "expired", Cmd: use(d, ErrExpired)},
-			{Weight: 2, To: "expired", Cmd: refresh(d, ErrExpired)},
-			{Weight: 1, To: "expired", Cmd: logout(d, ErrExpired)},
-			{Weight: 2, To: "active", Cmd: login},
+		return []fsm.Transition{
+			{Weight: 2, To: "expired", Cmd: h.use(ErrExpired)},
+			{Weight: 2, To: "expired", Cmd: h.refresh(ErrExpired)},
+			{Weight: 1, To: "expired", Cmd: h.logout(ErrExpired)},
+			{Weight: 2, To: "active", Cmd: h.login()},
 		}
 	default: // revoked
-		return []transition{
-			{Weight: 2, To: "revoked", Cmd: use(d, ErrRevoked)},
-			{Weight: 1, To: "revoked", Cmd: refresh(d, ErrRevoked)},
-			{Weight: 1, To: "revoked", Cmd: logout(d, ErrRevoked)},
-			{Weight: 1, To: "revoked", Cmd: wait(time.Minute, 2*ttl)},
-			{Weight: 2, To: "active", Cmd: login},
+		return []fsm.Transition{
+			{Weight: 2, To: "revoked", Cmd: h.use(ErrRevoked)},
+			{Weight: 1, To: "revoked", Cmd: h.refresh(ErrRevoked)},
+			{Weight: 1, To: "revoked", Cmd: h.logout(ErrRevoked)},
+			{Weight: 1, To: "revoked", Cmd: h.wait(time.Minute, 2*ttl)},
+			{Weight: 2, To: "active", Cmd: h.login()},
 		}
 	}
 }
 
+func (h *harness) program() pbt.Gen[pbt.Program] {
+	return fsm.Commands("anonymous", h.reset, h.transitions, pbt.ModelState(h.data))
+}
+
 func TestSessions(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
-		prog := fsm.Commands[string, data, *System](machine{}).Draw(t, "cmds")
-		prog.RunSequential(t, newSystem(Options{}))
+		newHarness(Options{}).program().Draw(t, "cmds").RunSequential(t)
 	})
 }
 
@@ -171,8 +170,7 @@ func TestSessions(t *testing.T) {
 // login, a wait past the time to live, and the refresh.
 func TestRevivedSessionIsCaught(t *testing.T) {
 	report := expect.Failure(t, func(t *pbt.T) {
-		prog := fsm.Commands[string, data, *System](machine{}).Draw(t, "cmds")
-		prog.RunSequential(t, newSystem(Options{ReviveOnRefresh: true}))
+		newHarness(Options{ReviveOnRefresh: true}).program().Draw(t, "cmds").RunSequential(t)
 	}, pbt.Seed(1))
 	program := report[strings.Index(report, "Program{"):strings.Index(report, "}")]
 	if strings.Count(program, "\n") > 4 || !strings.Contains(report, "refresh returned <nil>, want sessions: session expired") {
