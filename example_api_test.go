@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"go.ymotongpoo.com/pbt"
@@ -171,16 +172,33 @@ func ExampleResolve() {
 }
 
 // A parallel program runs its branches concurrently and accepts the result
-// when some interleaving of the branches explains it. Run it under the
-// race detector as well.
+// when some interleaving of the branches explains it, so every command
+// must return something the postcondition can check. The counter guards
+// its state with a mutex; a counter that read and wrote without it would
+// return duplicate values that no interleaving explains. Run such tests
+// under the race detector as well.
 func ExampleParallelCommands() {
-	type counter struct{ n int }
+	type counter struct {
+		mu sync.Mutex
+		n  int
+	}
 	type model struct{ n int }
 	commands := func(model) pbt.Gen[pbt.Command[model, *counter]] {
 		return pbt.Just[pbt.Command[model, *counter]](pbt.Cmd[model, *counter]{
 			Name: "increment",
-			Run:  func(c *counter, _ pbt.Env) any { c.n++; return nil },
+			Run: func(c *counter, _ pbt.Env) any {
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				c.n++
+				return c.n
+			},
 			Next: func(m model, _ pbt.Var) model { return model{m.n + 1} },
+			Post: func(m model, _ pbt.Env, got any) error {
+				if got != m.n+1 {
+					return fmt.Errorf("increment returned %v, want %d", got, m.n+1)
+				}
+				return nil
+			},
 		})
 	}
 	var t *testing.T

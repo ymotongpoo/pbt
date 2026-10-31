@@ -99,8 +99,8 @@ func TestMakeRejectsUnsupportedTypes(t *testing.T) {
 
 func TestMakeRejectsBadTags(t *testing.T) {
 	defer func() {
-		if rec := recover(); rec == nil || !strings.Contains(rec.(string), "invalid pbt tag") {
-			t.Errorf("expected a panic about the tag, got %v", rec)
+		if rec := recover(); rec == nil || !strings.Contains(rec.(string), `"abc"`) {
+			t.Errorf("expected a panic naming the bad bound, got %v", rec)
 		}
 	}()
 	Make[struct {
