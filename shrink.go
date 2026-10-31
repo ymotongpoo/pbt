@@ -21,6 +21,15 @@ type shrinker struct {
 	cur      *T
 	deadline time.Time
 	steps    int
+
+	// onAccept, when set, runs after every accepted candidate; returning
+	// false stops shrinking. SampleShrink uses it.
+	onAccept func() bool
+	stop     bool
+
+	maskFor *T
+	frozen  []bool // choices inside NoShrink spans
+	inside  []bool // spans nested inside a NoShrink span
 }
 
 func (r *runner) shrink(t *T) (*T, int) {
@@ -30,7 +39,7 @@ func (r *runner) shrink(t *T) (*T, int) {
 }
 
 func (s *shrinker) exhausted() bool {
-	return s.steps >= maxShrinkSteps || !time.Now().Before(s.deadline)
+	return s.stop || s.steps >= maxShrinkSteps || !time.Now().Before(s.deadline)
 }
 
 func (s *shrinker) try(cand []uint64) bool {
@@ -41,9 +50,59 @@ func (s *shrinker) try(cand []uint64) bool {
 	t := s.r.run(cand, s.cur.size, nil)
 	if t.failed && !t.discarded && simpler(t.choices, s.cur.choices) {
 		s.cur = t
+		if s.onAccept != nil && !s.onAccept() {
+			s.stop = true
+		}
 		return true
 	}
 	return false
+}
+
+// masks computes which choices and spans NoShrink protects in the current
+// counterexample.
+func (s *shrinker) masks() {
+	if s.maskFor == s.cur {
+		return
+	}
+	spans := s.cur.spans
+	s.frozen = make([]bool, len(s.cur.choices))
+	s.inside = make([]bool, len(spans))
+	for i, sp := range spans {
+		if sp.noshrink {
+			for j := sp.start; j < sp.end && j < len(s.frozen); j++ {
+				s.frozen[j] = true
+			}
+		}
+		for p := sp.parent; p >= 0; p = spans[p].parent {
+			if spans[p].noshrink {
+				s.inside[i] = true
+				break
+			}
+		}
+	}
+	s.maskFor = s.cur
+}
+
+// frozenRange reports whether any choice in [start, end) is protected.
+func (s *shrinker) frozenRange(start, end int) bool {
+	s.masks()
+	for i := start; i < end && i < len(s.frozen); i++ {
+		if s.frozen[i] {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *shrinker) frozenAt(i int) bool {
+	s.masks()
+	return i < len(s.frozen) && s.frozen[i]
+}
+
+// insideNoShrink reports whether span i is nested inside a NoShrink span.
+func (s *shrinker) insideNoShrink(i int) bool {
+	s.masks()
+	return s.inside[i]
 }
 
 func simpler(a, b []uint64) bool {
@@ -79,44 +138,48 @@ func (s *shrinker) run() {
 	}
 }
 
-// spansByStartDesc returns the spans of the current counterexample ordered so
-// that later and larger spans come first. Rewriting a span then never moves a
-// span that is still to be visited.
-func (s *shrinker) spansByStartDesc() []span {
-	sp := slices.Clone(s.cur.spans)
-	slices.SortFunc(sp, func(a, b span) int {
-		if a.start != b.start {
-			return b.start - a.start
+// spansByStartDesc returns the indices of the spans of the current
+// counterexample ordered so that later and larger spans come first.
+// Rewriting a span then never moves a span that is still to be visited.
+func (s *shrinker) spansByStartDesc() []int {
+	spans := s.cur.spans
+	idx := make([]int, len(spans))
+	for i := range idx {
+		idx[i] = i
+	}
+	slices.SortFunc(idx, func(a, b int) int {
+		if spans[a].start != spans[b].start {
+			return spans[b].start - spans[a].start
 		}
-		return b.end - a.end
+		return spans[b].end - spans[a].end
 	})
-	return sp
+	return idx
 }
 
-func firstStartBelow(spans []span, pos int) int {
-	for i, sp := range spans {
-		if sp.start < pos {
-			return i
+func (s *shrinker) firstStartBelow(idx []int, pos int) int {
+	for k, i := range idx {
+		if s.cur.spans[i].start < pos {
+			return k
 		}
 	}
-	return len(spans)
+	return len(idx)
 }
 
 // deleteSpans removes whole spans: list elements, rejected Filter attempts,
-// subtrees.
+// subtrees. Spans nested inside a NoShrink span stay.
 func (s *shrinker) deleteSpans() bool {
 	progress := false
-	spans := s.spansByStartDesc()
-	for k := 0; k < len(spans) && !s.exhausted(); k++ {
-		sp := spans[k]
+	idx := s.spansByStartDesc()
+	for k := 0; k < len(idx) && !s.exhausted(); k++ {
+		sp := s.cur.spans[idx[k]]
 		cur := s.cur.choices
-		if sp.end <= sp.start || sp.end > len(cur) {
+		if sp.end <= sp.start || sp.end > len(cur) || s.insideNoShrink(idx[k]) {
 			continue
 		}
 		if s.try(slices.Concat(cur[:sp.start], cur[sp.end:])) {
 			progress = true
-			spans = s.spansByStartDesc()
-			k = firstStartBelow(spans, sp.start) - 1
+			idx = s.spansByStartDesc()
+			k = s.firstStartBelow(idx, sp.start) - 1
 		}
 	}
 	return progress
@@ -125,11 +188,11 @@ func (s *shrinker) deleteSpans() bool {
 // zeroSpans replaces every choice of a span with 0, the simplest value.
 func (s *shrinker) zeroSpans() bool {
 	progress := false
-	spans := s.spansByStartDesc()
-	for k := 0; k < len(spans) && !s.exhausted(); k++ {
-		sp := spans[k]
+	idx := s.spansByStartDesc()
+	for k := 0; k < len(idx) && !s.exhausted(); k++ {
+		sp := s.cur.spans[idx[k]]
 		cur := s.cur.choices
-		if sp.end <= sp.start || sp.end > len(cur) {
+		if sp.end <= sp.start || sp.end > len(cur) || s.frozenRange(sp.start, sp.end) {
 			continue
 		}
 		if !slices.ContainsFunc(cur[sp.start:sp.end], func(v uint64) bool { return v != 0 }) {
@@ -139,8 +202,8 @@ func (s *shrinker) zeroSpans() bool {
 		clear(cand[sp.start:sp.end])
 		if s.try(cand) {
 			progress = true
-			spans = s.spansByStartDesc()
-			k = firstStartBelow(spans, sp.start) - 1
+			idx = s.spansByStartDesc()
+			k = s.firstStartBelow(idx, sp.start) - 1
 		}
 	}
 	return progress
@@ -156,7 +219,7 @@ restart:
 		spans := s.cur.spans
 		for i, sp := range spans {
 			size := sp.end - sp.start
-			if size < 2 {
+			if size < 2 || s.frozenRange(sp.start, sp.end) {
 				continue
 			}
 			var descs []span
@@ -214,7 +277,7 @@ restart:
 		}
 		for parent := -1; parent < len(spans); parent++ {
 			for _, group := range children[parent] {
-				if len(group) < 2 {
+				if len(group) < 2 || s.frozenRange(group[0].start, group[len(group)-1].end) {
 					continue
 				}
 				cur := s.cur.choices
@@ -251,7 +314,7 @@ func (s *shrinker) minimizeDuplicates() bool {
 	progress := false
 	groups := make(map[choiceGroup][]int)
 	for i, v := range s.cur.choices {
-		if v != 0 && s.cur.metas[i].kind != kindFlag {
+		if v != 0 && s.cur.metas[i].kind != kindFlag && !s.frozenAt(i) {
 			g := choiceGroup{s.cur.metas[i], v}
 			groups[g] = append(groups[g], i)
 		}
@@ -320,7 +383,7 @@ func (s *shrinker) searchDown(lo, hi uint64, ok func(uint64) bool) bool {
 func (s *shrinker) minimizeChoices() bool {
 	progress := false
 	for i := 0; i < len(s.cur.choices) && !s.exhausted(); i++ {
-		if s.cur.choices[i] == 0 {
+		if s.cur.choices[i] == 0 || s.frozenAt(i) {
 			continue
 		}
 		set := func(x uint64) bool {
@@ -376,12 +439,12 @@ func (s *shrinker) minimizeZigzag(i int, set func(uint64) bool) bool {
 func (s *shrinker) redistribute() bool {
 	progress := false
 	for i := 0; i < len(s.cur.choices) && !s.exhausted(); i++ {
-		if s.cur.metas[i].kind == kindFlag || s.cur.choices[i] == 0 {
+		if s.cur.metas[i].kind == kindFlag || s.cur.choices[i] == 0 || s.frozenAt(i) {
 			continue
 		}
 		for j := i + 1; j < len(s.cur.choices) && j <= i+redistributeWindow && !s.exhausted(); j++ {
 			mi, mj := s.cur.metas[i], s.cur.metas[j]
-			if mi.kind != mj.kind || mj.kind == kindFlag {
+			if mi.kind != mj.kind || mj.kind == kindFlag || s.frozenAt(j) {
 				continue
 			}
 			vi, vj := s.cur.choices[i], s.cur.choices[j]
