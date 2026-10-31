@@ -97,7 +97,7 @@ func TestCheckRejectsBadOptions(t *testing.T) {
 }
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
-	c := &T{size: 7, choices: []uint64{0, 1, 2, 18446744073709551615, 5}, draws: []drawRecord{{"xs", "SliceOf(Int())", []int{1, -2}}}}
+	c := &T{size: 7, choices: []uint64{0, 1, 2, 18446744073709551615, 5}, draws: []drawRecord{{label: "xs", gen: "SliceOf(Int())", value: []int{1, -2}}}}
 	for i := range 40 {
 		c.choices = append(c.choices, uint64(i))
 	}

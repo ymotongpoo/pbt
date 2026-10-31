@@ -74,12 +74,13 @@ type span struct {
 	noshrink   bool // the shrinker must not change the choices inside
 }
 
-// drawRecord is one value drawn directly by the property, kept for the
-// report.
+// drawRecord is one value the property drew, kept for the report: every
+// draw at the top level, and every labeled draw inside a generator.
 type drawRecord struct {
 	label string
 	gen   string
 	value any
+	depth int
 }
 
 type (

@@ -32,11 +32,14 @@ func (g Gen[V]) String() string {
 }
 
 // Draw generates a value. The label names the value in the report of a
-// failing test case; pass "" to use the generator's description.
+// failing test case; pass "" to use the generator's description. A draw at
+// the top level of the property always appears in the report; a draw inside
+// a generator appears when it has a label, indented under the value it
+// contributes to, which is how the report shows how a value was built.
 func (g Gen[V]) Draw(t *T, label string) V {
 	v := g.drawSpan(t)
-	if len(t.open) == 0 {
-		t.draws = append(t.draws, drawRecord{label: label, gen: g.String(), value: v})
+	if depth := len(t.open); depth == 0 || label != "" {
+		t.draws = append(t.draws, drawRecord{label: label, gen: g.String(), value: v, depth: depth})
 	}
 	return v
 }

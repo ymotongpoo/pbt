@@ -22,7 +22,8 @@ func (r *runner) format(t *T, headline string, trailer []string) string {
 		fmt.Fprintf(&b, "[pbt] utility %s = %s\n", t.utilityName, formatNum(t.utility))
 	}
 	for _, d := range t.draws {
-		fmt.Fprintf(&b, "[pbt] %s\n", strings.ReplaceAll(formatDraw(d), "\n", "\n[pbt]   "))
+		indent := strings.Repeat("  ", d.depth)
+		fmt.Fprintf(&b, "[pbt] %s%s\n", indent, strings.ReplaceAll(formatDraw(d), "\n", "\n[pbt]   "+indent))
 	}
 	for _, l := range t.logs {
 		fmt.Fprintf(&b, "[pbt] log: %s\n", l)
