@@ -41,3 +41,17 @@ type Tree struct {
 	Children []Tree
 	Parent   *Tree
 }
+
+//go:generate go run go.ymotongpoo.com/pbt/cmd/pbtgen -type Dept,Employee -output mutual_gen.go
+
+// Dept and Employee are mutually recursive.
+type Dept struct {
+	Name  string
+	Staff []Employee
+}
+
+// Employee refers back to its department and to peers.
+type Employee struct {
+	Dept  *Dept
+	Peers []Employee
+}

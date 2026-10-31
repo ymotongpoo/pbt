@@ -12,7 +12,7 @@ import (
 func GenOrder() pbt.Gen[Order] {
 	return pbt.Custom("Order", func(t *pbt.T) Order {
 		var v Order
-		v.Customer = GenCustomer().Draw(t, "Customer")
+		v.Customer = pbt.Lazy(GenCustomer).Draw(t, "")
 		v.Lines = pbt.SliceOf(pbt.Custom("struct", func(t *pbt.T) struct {
 			SKU string "pbt:\"min=1,max=8\""
 			Qty uint8  "pbt:\"min=1\""
@@ -21,20 +21,20 @@ func GenOrder() pbt.Gen[Order] {
 				SKU string "pbt:\"min=1,max=8\""
 				Qty uint8  "pbt:\"min=1\""
 			}
-			v.SKU = pbt.StringN(1, 8).Draw(t, "SKU")
-			v.Qty = pbt.IntegerRange[uint8](1, math.MaxUint8).Draw(t, "Qty")
+			v.SKU = pbt.StringN(1, 8).Draw(t, "")
+			v.Qty = pbt.IntegerRange[uint8](1, math.MaxUint8).Draw(t, "")
 			return v
-		})).Draw(t, "Lines")
-		v.Notes = pbt.MapOfN(pbt.String(), pbt.String(), 0, 3).Draw(t, "Notes")
+		})).Draw(t, "")
+		v.Notes = pbt.MapOfN(pbt.String(), pbt.String(), 0, 3).Draw(t, "")
 		v.Temps = pbt.Custom("[2]Celsius", func(t *pbt.T) [2]Celsius {
 			var v [2]Celsius
 			for i := range v {
-				v[i] = GenCelsius().Draw(t, "")
+				v[i] = pbt.Lazy(GenCelsius).Draw(t, "")
 			}
 			return v
-		}).Draw(t, "Temps")
-		v.Rush = pbt.Ptr(pbt.Bool(), true).Draw(t, "Rush")
-		v.Weight = pbt.Float32Range(0, 100).Draw(t, "Weight")
+		}).Draw(t, "")
+		v.Rush = pbt.Ptr(pbt.Bool(), true).Draw(t, "")
+		v.Weight = pbt.Float32Range(0, 100).Draw(t, "")
 		return v
 	})
 }
@@ -43,31 +43,29 @@ func GenOrder() pbt.Gen[Order] {
 func GenCustomer() pbt.Gen[Customer] {
 	return pbt.Custom("Customer", func(t *pbt.T) Customer {
 		var v Customer
-		v.ID = pbt.IntegerRange[int](1, math.MaxInt).Draw(t, "ID")
-		v.Name = pbt.String().Draw(t, "Name")
-		v.Email = emailGen.Draw(t, "Email")
-		v.vip = pbt.Bool().Draw(t, "vip")
+		v.ID = pbt.IntegerRange[int](1, math.MaxInt).Draw(t, "")
+		v.Name = pbt.String().Draw(t, "")
+		v.Email = emailGen.Draw(t, "")
+		v.vip = pbt.Bool().Draw(t, "")
 		return v
 	})
 }
 
 // GenTree generates Tree values.
 func GenTree() pbt.Gen[Tree] {
-	return pbt.Recursive(pbt.Custom("Tree", func(t *pbt.T) Tree {
+	return pbt.Bounded(pbt.Custom("Tree", func(t *pbt.T) Tree {
 		var v Tree
-		v.Label = pbt.String().Draw(t, "Label")
-		v.Children = pbt.Just[[]Tree](nil).Draw(t, "Children")
-		v.Parent = pbt.Just[*Tree](nil).Draw(t, "Parent")
+		v.Label = pbt.String().Draw(t, "")
+		v.Children = pbt.Just[[]Tree](nil).Draw(t, "")
+		v.Parent = pbt.Just[*Tree](nil).Draw(t, "")
 		return v
-	}), func(self pbt.Gen[Tree]) pbt.Gen[Tree] {
-		return pbt.Custom("Tree", func(t *pbt.T) Tree {
-			var v Tree
-			v.Label = pbt.String().Draw(t, "Label")
-			v.Children = pbt.SliceOf(self).Draw(t, "Children")
-			v.Parent = pbt.Ptr(self, true).Draw(t, "Parent")
-			return v
-		})
-	})
+	}), pbt.Custom("Tree", func(t *pbt.T) Tree {
+		var v Tree
+		v.Label = pbt.String().Draw(t, "")
+		v.Children = pbt.SliceOf(pbt.Lazy(GenTree)).Draw(t, "")
+		v.Parent = pbt.Ptr(pbt.Lazy(GenTree), true).Draw(t, "")
+		return v
+	}))
 }
 
 // GenCelsius generates Celsius values.

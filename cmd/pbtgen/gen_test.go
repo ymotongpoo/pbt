@@ -25,6 +25,20 @@ func TestGeneratedFixtureIsCurrent(t *testing.T) {
 	}
 }
 
+func TestGeneratedMutualFixtureIsCurrent(t *testing.T) {
+	src, err := Generate("internal/fixture", []string{"Dept", "Employee"}, "mutual_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile("internal/fixture/mutual_gen.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(src) != string(want) {
+		t.Errorf("internal/fixture/mutual_gen.go is stale; run go generate ./internal/fixture\n--- generated ---\n%s", src)
+	}
+}
+
 func TestGenerateRejectsUnknownTypes(t *testing.T) {
 	if _, err := Generate("internal/fixture", []string{"Nope"}, "pbt_gen.go"); err == nil {
 		t.Error("expected an error for an unknown type")

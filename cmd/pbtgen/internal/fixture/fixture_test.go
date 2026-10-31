@@ -46,3 +46,42 @@ func TestGeneratedGenerators(t *testing.T) {
 		_ = c
 	}, pbt.NoSave())
 }
+
+// internalDepts and internalEmployees count the nodes that have children;
+// leaves are not bounded by the budget, their parents are.
+func internalDepts(d Dept) int {
+	n := 0
+	if len(d.Staff) > 0 {
+		n++
+	}
+	for _, e := range d.Staff {
+		n += internalEmployees(e)
+	}
+	return n
+}
+
+func internalEmployees(e Employee) int {
+	n := 0
+	if e.Dept != nil || len(e.Peers) > 0 {
+		n++
+	}
+	if e.Dept != nil {
+		n += internalDepts(*e.Dept)
+	}
+	for _, p := range e.Peers {
+		n += internalEmployees(p)
+	}
+	return n
+}
+
+// Mutually recursive types share one budget, so the internal nodes of the
+// whole value stay within the size parameter.
+func TestMutualRecursionIsBounded(t *testing.T) {
+	pbt.Check(t, func(t *pbt.T) {
+		d := GenDept().Draw(t, "dept")
+		if n := internalDepts(d); n > t.Size()+1 {
+			t.Fatalf("%d internal nodes at size %d", n, t.Size())
+		}
+		t.Collect(internalDepts(d))
+	}, pbt.NoSave())
+}
