@@ -6,7 +6,7 @@ The `examples` module of the repository ports every chapter of the book [PropEr 
 
 | Book chapter | Package | Shows |
 | --- | --- | --- |
-| 1, 4 | `ch01cash`, `ch04stateless` | first properties, modeling, the exercises on lists |
+| 1 to 4 | `ch01cash`, `ch04stateless` | first properties, modeling, the exercises on lists |
 | 5 | `ch05generators` | custom generators, `Collect` and `Aggregate`, recursive and `Sized` generators |
 | 6 | `ch06birthday` | a CSV round trip, templates, example tests next to properties |
 | 7 | `ch07checkout` | layered `Bind`, negative tests, discovering a specification bug |

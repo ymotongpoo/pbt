@@ -4,17 +4,21 @@
 
 リポジトリの `examples` モジュールには、Fred Hebertの『[PropEr Testing](https://propertesting.com/)』の全章をGoに移植したものがあります。
 この本は、pbtの背後にある考え方を学ぶのに最も良い長編の入門書で、移植はErlangの各例題がGoでどう読めるかを示しています。
+書籍版は『Property-Based Testing with PropEr, Erlang, and Elixir』として刊行されており、その日本語訳が拙訳『[実践プロパティベーステスト ― PropErとErlang/Elixirではじめよう](https://www.lambdanote.com/products/proper)』（Fred Hebert著、ラムダノート、2023年）です。
+ウェブ版は書籍になる前の草稿で、章の切り方が違い、標的型プロパティの章がありません。
+表には両方の章番号を載せました。
+日本語版の8章「標的型プロパティ」に対応する機能は、本ガイドの8章で扱っています。
 
-| 本の章 | パッケージ | 内容 |
-| --- | --- | --- |
-| 1、4 | `ch01cash`、`ch04stateless` | 最初のプロパティ、モデル化、リストに関する演習 |
-| 5 | `ch05generators` | 自作の生成器、`Collect` と `Aggregate`、再帰的な生成器と `Sized` |
-| 6 | `ch06birthday` | CSVの往復、テンプレート、プロパティと並ぶ例示テスト |
-| 7 | `ch07checkout` | 段階的な `Bind`、負のテスト、仕様のバグの発見 |
-| 8 | `ch08shrinking` | `ShrinkTo`、`LetShrink`、`SampleShrink` |
-| 9 | `ch09cache` | キャッシュの逐次と並行のステートフルテスト |
-| 10 | `ch10bookstore` | データベースに対するステートフルテスト。SQLiteとPostgreSQL |
-| 11 | `ch11breaker` | `fsm` パッケージによる状態機械 |
+| ウェブ版の章 | 日本語版の章 | パッケージ | 内容 |
+| --- | --- | --- | --- |
+| 1〜4 | 1〜3 | `ch01cash`、`ch04stateless` | 最初のプロパティ、モデル化、リストに関する演習 |
+| 5 | 4 | `ch05generators` | 自作の生成器、`Collect` と `Aggregate`、再帰的な生成器と `Sized` |
+| 6 | 5 | `ch06birthday` | CSVの往復、テンプレート、プロパティと並ぶ例示テスト |
+| 7 | 6 | `ch07checkout` | 段階的な `Bind`、負のテスト、仕様のバグの発見 |
+| 8 | 7 | `ch08shrinking` | `ShrinkTo`、`LetShrink`、`SampleShrink` |
+| 9 | 9 | `ch09cache` | キャッシュの逐次と並行のステートフルテスト |
+| 10 | 10 | `ch10bookstore` | データベースに対するステートフルテスト。SQLiteとPostgreSQL |
+| 11 | 11 | `ch11breaker` | `fsm` パッケージによる状態機械 |
 
 各パッケージのREADMEに、その章の演習への解答があります。
 `examples` の中で `go test ./...` を実行してください。
