@@ -11,33 +11,33 @@ PropErの `proper_fsm` に当たるものです。
 
 ## 機械
 
-機械は `fsm.Machine[N, D, Sys]` を実装します。
-`N` は状態名の型、`D` は名前とともに運ぶ状態データ、`Sys` はテスト対象のシステムです。
-`Initial` は最初の状態を返し、`Transitions` はある状態で可能な遷移を返します。
+機械は、状態名からその状態で可能な遷移への関数です。
+`fsm.Commands(initial, init, transitions)` は、最初の状態の名前、状態データを初期状態に戻す関数、そしてこの関数を受け取ります。
+状態データがある機械では、5章のモデルと同じくプロパティの中の変数にデータを置きます。
+データがなければ `init` は `nil` で構いません。
 
 <!-- snippet: fsm_test.go#machine -->
 
-各 `Transition` は `Weight`、遷移先の状態 `To`、そして状態データに対するコマンドの生成器 `Cmd` を持ちます。
-コマンドの `Pre`、`Next`、`Post` が見るのはデータで、名前ではありません。
-名前を動かすのは機械です。
+各 `Transition` は `Weight`、遷移先の状態 `To`、そしてコマンドの生成器 `Cmd` を持ちます。
+コマンドの `Pre`、`Next`、`Post` が見るのは状態データです。
+名前を動かすのはパッケージです。
 `verified` での2回目の `verify` のように同じ状態にとどまる遷移は、拒否されるべき操作を機械で検査する方法です。
 
-`fsm.Commands(m)` はプログラムの生成器を返します。
-そのモデル状態は名前とデータの組 `fsm.State[N, D]` です。
 プログラムは5章と同じく `RunSequential` で実行し、`fsm.ParallelCommands` は6章の並行の形を与えます。
+報告には失敗したステップの前の状態名が載り、`pbt.ModelState` で渡したものがその横に並びます。
 
 ## 状態ごとの統計
 
-コマンドには遷移元の状態のラベルが付くので、通過した実行の要約には機械がどの遷移を取ったかが現れます。
+コマンドは遷移元と遷移先の状態名を持つので、通過した実行の要約には機械がどの遷移を取ったかが現れます。
 
 ```text
 [pbt] OK, passed 100 checks (seed 0x1)
-[pbt]  32.7% verified: lock
-[pbt]  31.5% locked: unlock
-[pbt]  17.2% verified: verify
-[pbt]  15.1% locked: lock
-[pbt]   2.8% new: verify
-[pbt]   0.7% new: lock
+[pbt]  32.7% verified -> locked: lock
+[pbt]  31.5% locked -> verified: unlock
+[pbt]  17.2% verified -> verified: verify
+[pbt]  15.1% locked -> locked: lock
+[pbt]   2.8% new -> verified: verify
+[pbt]   0.7% new -> new: lock
 ```
 
 `new` の割合が低いのは当然です。
