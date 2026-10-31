@@ -117,6 +117,10 @@ func Setup(f func(t *T) (teardown func())) Option { return func(c *config) { c.s
 // it, Check only logs the shortfall.
 func CheckCoverage() Option { return func(c *config) { c.checkCover = true } }
 
+// Verbose makes Check log the summary of a passing run and every accepted
+// shrinking step, as the -pbt.v flag does.
+func Verbose() Option { return func(c *config) { c.verbose = true } }
+
 // SearchSteps sets the number of cases a targeted search runs, as PropEr's
 // search_steps does. It applies once the property calls Maximize or Minimize.
 func SearchSteps(n int) Option { return func(c *config) { c.search = n } }
