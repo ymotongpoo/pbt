@@ -17,6 +17,20 @@ The `examples` module of the repository ports every chapter of the book [PropEr 
 
 Each package has a README that answers the exercises of its chapter. Run them with `go test ./...` inside `examples`.
 
+## Practical examples
+
+The `examples/practical` directory tests small but realistic systems the way a project would: through their public API, against a model, with a planted bug whose report the tests check. The examples build on chapters 5 to 7.
+
+| Package | System | Shows |
+| --- | --- | --- |
+| `httpapi` | a REST API with optimistic concurrency, served by `httptest` | server-assigned ids as `Var`s, status codes as postconditions, a parallel run against a server that allocates ids outside its lock |
+| `jobqueue` | a worker queue with leases, a visibility timeout and dead letters | a fake clock advanced by a command, stale leases kept in the model, an ack that does not check its lease |
+| `ratelimit` | a sliding-window limiter per client | the rule "at most N requests in any window" as the model, a sweep that forgets clients too early |
+| `sessions` | a session store with expiry, refresh and logout | the `fsm` package with state data and a clock, time as a transition split by where it leads |
+| `ledger` | transfers between accounts | a model next to an audit that checks only the invariants, an overdraft race caught in parallel |
+
+Run `go test -v -run Caught ./practical/...` inside `examples` to read the reports of the planted bugs. The README of the directory describes the patterns the examples share.
+
 ## Coming from rapid
 
 [MIGRATION.md](https://github.com/ymotongpoo/pbt/blob/main/MIGRATION.md) maps rapid's API onto pbt, table by table, and lists what pbt adds. Most rapid tests translate line by line; the stateful tests change shape, because pbt generates the whole sequence against the model before running it. [BENCHMARK.md](https://github.com/ymotongpoo/pbt/blob/main/BENCHMARK.md) compares the two libraries on the same properties.

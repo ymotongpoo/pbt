@@ -22,4 +22,12 @@ suite stays green.
 The exercises that ask for an explanation rather than code are answered
 in the README of the chapter's package.
 
+## Practical examples
+
+The `practical` directory holds examples that are not from the book: a
+REST API, a worker queue with leases, a rate limiter, a session store and
+a ledger, each tested through its public API against a model, with a
+planted bug whose report the tests check. See
+[practical/README.md](practical/README.md).
+
 Run everything with `go test ./...` from this directory.
