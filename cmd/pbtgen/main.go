@@ -14,8 +14,9 @@ import (
 func main() {
 	typeList := flag.String("type", "", "comma-separated list of type names to generate generators for")
 	output := flag.String("output", "", "output file; the default is pbt_gen.go in the package directory")
+	prefix := flag.String("prefix", "Gen", "prefix of the generated function names, which are the prefix followed by the type name")
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: pbtgen -type T1,T2 [-output file] [directory]")
+		fmt.Fprintln(os.Stderr, "usage: pbtgen -type T1,T2 [-output file] [-prefix Gen] [directory]")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -34,7 +35,7 @@ func main() {
 		}
 	}
 	out := outputPath(dir, *output)
-	src, err := Generate(dir, names, filepath.Base(out))
+	src, err := Generate(dir, names, filepath.Base(out), *prefix)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pbtgen:", err)
 		os.Exit(1)

@@ -11,7 +11,10 @@
 //
 //	//go:generate go run go.ymotongpoo.com/pbt/cmd/pbtgen -type Order,Customer
 //
-// For each type T, pbtgen writes a function GenT that returns pbt.Gen[T].
+// For each type T, pbtgen writes a function GenT that returns pbt.Gen[T];
+// the -prefix flag replaces Gen, and a name the package already declares is
+// an error. Files that the build constraints exclude on the current platform
+// are left out, as go build leaves them out.
 // Fields may carry a pbt struct tag: "-" leaves the field zero, "min=A,max=B"
 // bounds a number or the length of a string, slice or map, and "gen=EXPR"
 // uses the Go expression EXPR as the field's generator. Types from other
@@ -24,6 +27,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/format"
 	"go/importer"
 	"go/parser"
@@ -39,42 +43,31 @@ import (
 // generator holds what one run of pbtgen knows about the package.
 type generator struct {
 	pkg       *types.Package
+	prefix    string // of the generated function names
 	requested map[string]bool
 	imports   map[string]string // import path -> name
 	funcs     []string
 }
 
-// Generate type-checks the package in dir, leaving out test files and the
-// output file itself, and returns the source of a file with a generator
-// function for each named type.
-func Generate(dir string, typeNames []string, output string) ([]byte, error) {
+// Generate type-checks the package in dir, leaving out test files, files
+// that the build constraints exclude for the current platform, files written
+// by pbtgen and the output file itself, and returns the source of a file
+// with a generator function named prefix+T for each named type T.
+func Generate(dir string, typeNames []string, output, prefix string) ([]byte, error) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go") && fi.Name() != output && !generatedByPbtgen(filepath.Join(dir, fi.Name()))
-	}, 0)
+	files, name, err := parsePackage(fset, dir, output)
 	if err != nil {
 		return nil, err
-	}
-	var files []*ast.File
-	var name string
-	for n, p := range pkgs {
-		if strings.HasSuffix(n, "_test") {
-			continue
-		}
-		name = n
-		for _, f := range p.Files {
-			files = append(files, f)
-		}
-	}
-	if name == "" {
-		return nil, fmt.Errorf("no Go package in %s", dir)
 	}
 	conf := types.Config{Importer: importer.ForCompiler(fset, "source", nil), Error: func(error) {}}
 	pkg, err := conf.Check(name, fset, files, nil)
 	if err != nil {
 		return nil, fmt.Errorf("type-checking %s: %v", dir, err)
 	}
-	g := &generator{pkg: pkg, requested: map[string]bool{}, imports: map[string]string{}}
+	if prefix == "" {
+		return nil, fmt.Errorf("the prefix of the generated functions must not be empty")
+	}
+	g := &generator{pkg: pkg, prefix: prefix, requested: map[string]bool{}, imports: map[string]string{}}
 	for _, n := range typeNames {
 		g.requested[n] = true
 	}
@@ -84,11 +77,52 @@ func Generate(dir string, typeNames []string, output string) ([]byte, error) {
 		if !ok {
 			return nil, fmt.Errorf("%s is not a type in package %s", n, name)
 		}
+		if taken := pkg.Scope().Lookup(prefix + n); taken != nil {
+			return nil, fmt.Errorf("cannot write %s for %s: package %s already declares it at %s; choose another -prefix",
+				prefix+n, n, name, fset.Position(taken.Pos()))
+		}
 		if err := g.emitType(tn); err != nil {
 			return nil, err
 		}
 	}
 	return g.source(name)
+}
+
+// parsePackage parses the files of the package in dir that go build would
+// compile on this platform, minus the test files, the files pbtgen wrote
+// and the output file.
+func parsePackage(fset *token.FileSet, dir, output string) ([]*ast.File, string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	var files []*ast.File
+	var name string
+	for _, e := range entries {
+		fn := e.Name()
+		if e.IsDir() || !strings.HasSuffix(fn, ".go") || strings.HasSuffix(fn, "_test.go") || fn == output {
+			continue
+		}
+		if ok, err := build.Default.MatchFile(dir, fn); err != nil || !ok {
+			continue
+		}
+		path := filepath.Join(dir, fn)
+		if generatedByPbtgen(path) {
+			continue
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return nil, "", err
+		}
+		if name == "" {
+			name = f.Name.Name
+		}
+		files = append(files, f)
+	}
+	if name == "" {
+		return nil, "", fmt.Errorf("no Go package in %s", dir)
+	}
+	return files, name, nil
 }
 
 func (g *generator) source(pkgName string) ([]byte, error) {
@@ -128,7 +162,7 @@ func (g *generator) emitType(tn *types.TypeName) error {
 	var err error
 	if recursive {
 		leaf, err1 := g.expr(named, tag{}, named, true, "", named)
-		node, err2 := g.expr(named, tag{}, named, false, "pbt.Lazy(Gen"+name+")", named)
+		node, err2 := g.expr(named, tag{}, named, false, "pbt.Lazy("+g.prefix+name+")", named)
 		if err1 != nil || err2 != nil {
 			return fmt.Errorf("%s: %v%v", name, err1, err2)
 		}
@@ -140,7 +174,8 @@ func (g *generator) emitType(tn *types.TypeName) error {
 		}
 		body = "return " + body
 	}
-	g.funcs = append(g.funcs, fmt.Sprintf("// Gen%s generates %s values.\nfunc Gen%s() pbt.Gen[%s] {\n\t%s\n}\n", name, name, name, name, body))
+	fn := g.prefix + name
+	g.funcs = append(g.funcs, fmt.Sprintf("// %s generates %s values.\nfunc %s() pbt.Gen[%s] {\n\t%s\n}\n", fn, name, fn, name, body))
 	return nil
 }
 
@@ -231,7 +266,7 @@ func (g *generator) expr(t types.Type, tg tag, self types.Type, leaf bool, selfE
 			if self != nil && leaf && g.reaches(t, self, map[types.Type]bool{}) {
 				return fmt.Sprintf("pbt.Just(%s{})", g.typeString(t)), nil
 			}
-			return fmt.Sprintf("pbt.Lazy(Gen%s)", u.Obj().Name()), nil
+			return fmt.Sprintf("pbt.Lazy(%s%s)", g.prefix, u.Obj().Name()), nil
 		}
 		switch under := u.Underlying().(type) {
 		case *types.Struct:
