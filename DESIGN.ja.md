@@ -168,6 +168,7 @@ func Filter[V any](g Gen[V], pred func(V) bool) Gen[V]   // ?SUCHTHAT
 func OneOf[V any](gs ...Gen[V]) Gen[V]                   // union
 type Weighted[V any] struct{ Weight int; Gen Gen[V] }
 func Frequency[V any](ws ...Weighted[V]) Gen[V]          // weighted_union。重み0は縮小でのみ到達する
+func W[V any](weight int, g Gen[V]) Weighted[V]           // 型を推論させる Weighted
 func Sized[V any](f func(size int) Gen[V]) Gen[V]        // ?SIZED
 func Resize[V any](size int, g Gen[V]) Gen[V]            // resize。サイズ0ではコレクションが空になる
 func Lazy[V any](f func() Gen[V]) Gen[V]                 // ?LAZY
@@ -224,47 +225,38 @@ type Var struct{ /* 非公開 */ }                          // {var, N}。Env �
 type Env struct{ /* 非公開 */ }
 func (e Env) Get(v Var) any
 func Resolve[T any](env Env, v Var) T
-type Command[S, Sys any] interface {
-	Precondition(state S) bool
-	Execute(sys Sys, env Env) any
-	NextState(state S, result Var) S                     // 生成時も実行時もシンボリック
-	Postcondition(state S, env Env, result any) error
+type Command struct {                                    // precondition、呼び出し、next_state、postcondition
+	Name string; Args []any                              // 関数はテストのモデルとシステムを参照するクロージャ
+	Pre  func() bool
+	Run  func(env Env) any
+	Next func(result Var)                                // 生成時も実行時もシンボリック
+	Post func(env Env, result any) error
 }
-type Cmd[S, Sys any] struct {                            // 関数フィールドで組み立てる Command
-	Name string; Args []any
-	Pre  func(state S) bool
-	Run  func(sys Sys, env Env) any
-	Next func(state S, result Var) S
-	Post func(state S, env Env, result any) error
-}
-func Commands[S, Sys any](init S, gen func(S) Gen[Command[S, Sys]]) Gen[Program[S, Sys]] // CommandsN も
-func NoCommands[S, Sys any]() Gen[Command[S, Sys]]       // 列を終える
-func (p Program[S, Sys]) RunSequential(t *T, sys Sys)
-func ParallelCommands[S, Sys any](init S, gen func(S) Gen[Command[S, Sys]]) Gen[ParallelProgram[S, Sys]] // ParallelCommandsN も
-func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys)
-func CommandName(c any) string
+func Commands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[Program]
+func NoCommands() Gen[Command]                           // 列を終える
+func Length(min, max int) StatefulOption                 // 列、または並行プログラムの前段の長さを制限する
+func Branches(n, maxLen int) StatefulOption              // 並行プログラムの形
+func ModelState(f func() any) StatefulOption             // 報告にモデルを表示する
+func (p Program) RunSequential(t *T)
+func ParallelCommands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[ParallelProgram]
+func (p ParallelProgram) RunParallel(t *T)
 ```
 
 本書11章の `proper_fsm` に相当する層は、サブパッケージ `fsm` にあります。
-状態名と状態データの組を持ち、状態ごとに列挙した遷移に重みを付けて（`weight/3`）、`Command` の仕組みの上で動かします。
-統計では各コマンドに遷移元の状態名を付けます。
+現在の状態名を追跡し、状態データはモデルと同じくテストの変数に置き、状態ごとに列挙した遷移に重みを付けて（`weight/3`）、`Command` の仕組みの上で動かします。
+プログラムと統計では各コマンドに遷移元と遷移先の状態名を付けます。
 `zip(state_names, command_names)` と同じ見え方です。
 
 ```go
 package fsm // go.ymotongpoo.com/pbt/fsm
 
-type State[N comparable, D any] struct{ Name N; Data D }
-type Transition[N comparable, D, Sys any] struct {
+type Transition struct {
 	Weight int                                            // weight/3。0 は縮小でのみ到達する
-	To     N
-	Cmd    pbt.Gen[pbt.Command[D, Sys]]                   // データに対する precondition/4、next_state_data/5、postcondition/5
+	To     string
+	Cmd    pbt.Gen[pbt.Command]                           // データに対する precondition/4、next_state_data/5、postcondition/5
 }
-type Machine[N comparable, D, Sys any] interface {
-	Initial() (N, D)                                      // initial_state、initial_state_data
-	Transitions(name N, data D) []Transition[N, D, Sys]   // 状態関数
-}
-func Commands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pbt.Program[State[N, D], Sys]]
-func ParallelCommands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pbt.ParallelProgram[State[N, D], Sys]]
+func Commands(initial string, init func(), transitions func(state string) []Transition, opts ...pbt.StatefulOption) pbt.Gen[pbt.Program]
+func ParallelCommands(initial string, init func(), transitions func(state string) []Transition, opts ...pbt.StatefulOption) pbt.Gen[pbt.ParallelProgram]
 ```
 
 実行時のオプションはフラグ `-pbt.checks`、`-pbt.seed`、`-pbt.startsize`、`-pbt.maxsize`、`-pbt.shrinktime`、`-pbt.searchsteps`、`-pbt.nosave`、`-pbt.replay`、`-pbt.v` で与え、`Check` に渡したオプションが優先されます。
@@ -274,14 +266,23 @@ func ParallelCommands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pb
 PropErでは生成時に `{var, N}` としてモデル状態から結果を参照させ、実行時に実際の値へ解決します。
 Goでも同じく、`Var` と、実行時に値を引く環境 `Env` の組で表します。
 コマンドごとに結果の型が違い、1つの生成器が何種類ものコマンドを返すので、`Var` は型パラメーターを持たず、型付きの取り出しはジェネリック関数 `Resolve[T]` が行います。
-`NextState` は生成時も実行時も `Var` を受け取るので、モデルが実際の結果に依存することはなく、縮小はコマンド列を再生成できます。
-`Postcondition` は実際の結果と `Env` を受け取ります。
-コマンドの生成器はモデル状態を受け取るので、`Frequency` の重みを状態に応じて変えられます。
+`Next` は生成時も実行時も `Var` を受け取るので、モデルが実際の結果に依存することはなく、縮小はコマンド列を再生成できます。
+`Post` は実際の結果と `Env` を受け取ります。
+コマンドの生成器はモデルを読むので、`Frequency` の重みを状態に応じて変えられます。
 PropErの `command/1` の中で `frequency` を使う書き方に対応します。
 縮小中はコマンドを削除するたびに事前条件を再評価し、満たさない列は反例の候補から外します。
 本書10章がこの性質に依存しています。事前条件が偽を返すようにして初めて縮小が成立する場面があるためです。
-失敗時には、実行したコマンドと結果、各段階のモデル状態を実行器が表示します。
+失敗時には、実行したコマンドと結果、失敗したステップの前のモデル状態を実行器が表示します。
 本書9章で `?WHENFAIL` の中に手で書いている内容と同じものです。
+
+v0.3.0以降、ステートフルテストのAPIには型パラメータがありません。
+モデルとテスト対象のシステムはテスト関数の変数に置き、コマンドはそれを参照するクロージャで、`init` がモデルを初期状態に戻します。
+pbtは `init` を呼んでから各コマンドの `Next` を再生することでモデルを巻き戻します。
+プログラムは短いのでこの再生は軽く、並行の検査では交互配置の候補ごとに1回行います。
+最初の設計ではモデルを値として `NextState` に通し、モデルとシステムの型をすべてのコマンドに引き回していました。
+そのためどのテストも `Cmd[Model, *System]`、`Weighted[Command[Model, *System]]`、`fsm.Transition[Name, Data, *System]` と書くことになり、読みやすさを保つには型の別名が要りました。
+生成器の型パラメータは残しています。
+`Draw` が型付きの値を返すことがプロパティから型アサーションをなくしており、型パラメータはほとんどの呼び出しで推論に隠れるためです。
 
 並行コマンドテストはPropErの `parallel_commands` に倣います。
 生成器が「逐次の前置き」と「最大3本の並行枝」からなるプログラムを作り、実行器が枝をゴルーチンで実行します。

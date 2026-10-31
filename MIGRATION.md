@@ -65,18 +65,20 @@ size parameter, `Frequency` weights alternatives, `ShrinkTo`,
 
 | rapid | pbt |
 | --- | --- |
-| `t.Repeat(map[string]func(*rapid.T))` with `""` as the invariant | `pbt.Commands(init, gen)` draws a `Program`; `prog.RunSequential(t, sys)` runs it |
-| `rapid.StateMachineActions(sm)` | a generator that returns `pbt.Cmd` values from the model state |
-| actions that `t.SkipNow()` when not applicable | `Precondition` (the `Pre` field of `pbt.Cmd`) |
-| checks inside the action | `Postcondition` (`Post`), which receives the real result and an `Env` |
-| the Go struct that holds both model and system | a model state that `NextState` (`Next`) returns as a new value, and the system passed to `RunSequential` |
+| `t.Repeat(map[string]func(*rapid.T))` with `""` as the invariant | `pbt.Commands(init, gen)` draws a `Program`; `prog.RunSequential(t)` runs it |
+| `rapid.StateMachineActions(sm)` | a generator that returns `pbt.Command` values for the current model state |
+| actions that `t.SkipNow()` when not applicable | the `Pre` function of `pbt.Command` |
+| checks inside the action | `Post`, which receives the real result and an `Env` |
+| the Go struct that holds both model and system | the same: variables of the test that the commands close over, with an `init` function that resets the model |
 | results the model needs before execution | `pbt.Var`, resolved with `pbt.Resolve` |
 | no equivalent | `pbt.ParallelCommands` and `RunParallel` (an interleaving check, as in PropEr), package `fsm` for named states |
 
 In rapid the actions run as they are generated; in pbt the whole sequence
 is generated first against the model, then executed. That is what lets
 shrinking remove a command and re-check the preconditions of the rest, and
-what makes parallel execution possible.
+what makes parallel execution possible. It is also why the model may only
+change in `init` and in the `Next` of a command: pbt replays a sequence by
+calling them again.
 
 ## Searching
 

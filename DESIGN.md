@@ -218,6 +218,7 @@ func Filter[V any](g Gen[V], pred func(V) bool) Gen[V]   // ?SUCHTHAT
 func OneOf[V any](gs ...Gen[V]) Gen[V]                   // union
 type Weighted[V any] struct{ Weight int; Gen Gen[V] }
 func Frequency[V any](ws ...Weighted[V]) Gen[V]          // weighted_union; weight 0 is reachable only by shrinking
+func W[V any](weight int, g Gen[V]) Weighted[V]           // a Weighted with the type inferred
 func Sized[V any](f func(size int) Gen[V]) Gen[V]        // ?SIZED
 func Resize[V any](size int, g Gen[V]) Gen[V]            // resize; size 0 gives empty collections
 func Lazy[V any](f func() Gen[V]) Gen[V]                 // ?LAZY
@@ -274,48 +275,41 @@ type Var struct{ /* unexported */ }                      // {var, N}; resolved t
 type Env struct{ /* unexported */ }
 func (e Env) Get(v Var) any
 func Resolve[T any](env Env, v Var) T
-type Command[S, Sys any] interface {
-	Precondition(state S) bool
-	Execute(sys Sys, env Env) any
-	NextState(state S, result Var) S                     // symbolic during generation and execution
-	Postcondition(state S, env Env, result any) error
+type Command struct {                                    // precondition, the call, next_state, postcondition
+	Name string; Args []any                              // the functions close over the model and the system
+	Pre  func() bool
+	Run  func(env Env) any
+	Next func(result Var)                                // symbolic during generation and execution
+	Post func(env Env, result any) error
 }
-type Cmd[S, Sys any] struct {                            // Command built from function fields
-	Name string; Args []any
-	Pre  func(state S) bool
-	Run  func(sys Sys, env Env) any
-	Next func(state S, result Var) S
-	Post func(state S, env Env, result any) error
-}
-func Commands[S, Sys any](init S, gen func(S) Gen[Command[S, Sys]]) Gen[Program[S, Sys]] // and CommandsN
-func NoCommands[S, Sys any]() Gen[Command[S, Sys]]       // ends the sequence
-func (p Program[S, Sys]) RunSequential(t *T, sys Sys)
-func ParallelCommands[S, Sys any](init S, gen func(S) Gen[Command[S, Sys]]) Gen[ParallelProgram[S, Sys]] // and ParallelCommandsN
-func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys)
-func CommandName(c any) string
+func Commands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[Program]
+func NoCommands() Gen[Command]                           // ends the sequence
+func Length(min, max int) StatefulOption                 // bounds the sequence, or the prefix of a parallel program
+func Branches(n, maxLen int) StatefulOption              // shape of a parallel program
+func ModelState(f func() any) StatefulOption             // shows the model in the report
+func (p Program) RunSequential(t *T)
+func ParallelCommands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[ParallelProgram]
+func (p ParallelProgram) RunParallel(t *T)
 ```
 
 The layer that corresponds to the book's `proper_fsm` in Chapter 11 lives in
-the subpackage `fsm`. It pairs a state name with state data and attaches
+the subpackage `fsm`. It tracks the name of the current state, while the
+state data lives in the test's variables like the model, and attaches
 weights to the transitions listed for each state (`weight/3`). It runs on top
-of the `Command` machinery. Statistics label each command with its source
-state, as `zip(state_names, command_names)` does.
+of the `Command` machinery. The program and the statistics label each
+command with its source and target state, as `zip(state_names,
+command_names)` does.
 
 ```go
 package fsm // go.ymotongpoo.com/pbt/fsm
 
-type State[N comparable, D any] struct{ Name N; Data D }
-type Transition[N comparable, D, Sys any] struct {
+type Transition struct {
 	Weight int                                            // weight/3; 0 is reachable only by shrinking
-	To     N
-	Cmd    pbt.Gen[pbt.Command[D, Sys]]                   // precondition/4, next_state_data/5, postcondition/5 on the data
+	To     string
+	Cmd    pbt.Gen[pbt.Command]                           // precondition/4, next_state_data/5, postcondition/5 on the data
 }
-type Machine[N comparable, D, Sys any] interface {
-	Initial() (N, D)                                      // initial_state, initial_state_data
-	Transitions(name N, data D) []Transition[N, D, Sys]   // the state functions
-}
-func Commands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pbt.Program[State[N, D], Sys]]
-func ParallelCommands[N comparable, D, Sys any](m Machine[N, D, Sys]) pbt.Gen[pbt.ParallelProgram[State[N, D], Sys]]
+func Commands(initial string, init func(), transitions func(state string) []Transition, opts ...pbt.StatefulOption) pbt.Gen[pbt.Program]
+func ParallelCommands(initial string, init func(), transitions func(state string) []Transition, opts ...pbt.StatefulOption) pbt.Gen[pbt.ParallelProgram]
 ```
 
 Run-time options come from the flags `-pbt.checks`, `-pbt.seed`,
@@ -331,18 +325,33 @@ lets the model state refer to results as `{var, N}` during generation and
 resolves them to real values during execution. Go does the same with a `Var` and an environment `Env` that looks values up
 at run time. Commands return results of different types and one generator
 yields commands of many kinds, so `Var` carries no type parameter; the
-generic `Resolve[T]` performs the typed lookup. `NextState` receives the Var
+generic `Resolve[T]` performs the typed lookup. `Next` receives the Var
 both during generation and during execution, so the model never depends on
-real results and shrinking can regenerate the sequence; `Postcondition`
-receives the real result and the Env.
-The command generator receives the model state, so the weights of a
+real results and shrinking can regenerate the sequence; `Post` receives the
+real result and the Env.
+The command generator reads the model, so the weights of a
 `Frequency` can depend on it. That matches the use of `frequency` inside
 PropEr's `command/1`. While shrinking, every deletion of a command
 re-evaluates the preconditions, and a sequence that violates one is not a
 counterexample candidate. The book's Chapter 10 depends on this: shrinking
 starts to work only once the preconditions return false. On failure, the
-runner prints the executed commands, their results, and the model state at
-each step. Chapter 9 writes the same by hand inside `?WHENFAIL`.
+runner prints the executed commands, their results, and the model state
+before the failing step. Chapter 9 writes the same by hand inside
+`?WHENFAIL`.
+
+The stateful API has no type parameters since v0.3.0. The model and the
+system under test live in variables of the test function, the commands are
+closures over them, and `init` puts the model in its initial state; pbt
+rewinds the model by calling `init` and replaying the `Next` of every
+command, which is cheap because programs are short, and which the parallel
+check does once per candidate interleaving. The first design passed the
+model as a value through `NextState` and threaded its type and the
+system's through every command, so every test spelled `Cmd[Model,
+*System]`, `Weighted[Command[Model, *System]]` and `fsm.Transition[Name,
+Data, *System]`, and needed type aliases to stay readable. Generators keep
+their type parameter: a `Draw` that returns a typed value is what keeps
+properties free of type assertions, and inference hides the parameter in
+nearly every call.
 
 Parallel command testing follows PropEr's `parallel_commands`. The generator
 produces a sequential prefix followed by at most three parallel branches, and

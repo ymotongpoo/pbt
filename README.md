@@ -59,48 +59,48 @@ happens to trip.
 ## A stateful property
 
 A command carries its arguments and knows how it changes the model
-(`Next`) and what the real system must answer (`Post`). `Commands` grows
-sequences from a state-dependent generator; `RunSequential` executes them and
-checks every postcondition. `ParallelCommands` and `RunParallel` do the same
-with concurrent branches, accepting the results when some interleaving of
-the branches explains them, as PropEr does.
+(`Next`) and what the real system must answer (`Post`). The model and the
+system are variables of the test, and the commands are closures over them;
+`init` puts the model back in its initial state whenever pbt replays a
+sequence. `Commands` grows sequences from a state-dependent generator;
+`RunSequential` executes them and checks every postcondition.
+`ParallelCommands` and `RunParallel` do the same with concurrent branches,
+accepting the results when some interleaving of the branches explains
+them, as PropEr does.
 
 ```go
-type model struct{ entries map[int]int }
-
-func commands(m model) pbt.Gen[pbt.Command[model, *cache]] {
-	return pbt.Frequency(
-		pbt.Weighted[pbt.Command[model, *cache]]{Weight: 3, Gen: pbt.Custom("put", func(t *pbt.T) pbt.Command[model, *cache] {
+func TestCache(t *testing.T) {
+	pbt.Check(t, func(t *pbt.T) {
+		c := newCache()        // the system under test
+		model := map[int]int{} // what the test believes it holds
+		put := pbt.Custom("put", func(t *pbt.T) pbt.Command {
 			k, v := pbt.IntRange(1, 10).Draw(t, ""), pbt.Int().Draw(t, "")
-			return pbt.Cmd[model, *cache]{Name: "put", Args: []any{k, v},
-				Run:  func(c *cache, _ pbt.Env) any { c.Put(k, v); return nil },
-				Next: func(m model, _ pbt.Var) model { return m.with(k, v) }}
-		})},
-		pbt.Weighted[pbt.Command[model, *cache]]{Weight: 1, Gen: pbt.Map(pbt.IntRange(1, 10), func(k int) pbt.Command[model, *cache] {
-			return pbt.Cmd[model, *cache]{Name: "get", Args: []any{k},
-				Run: func(c *cache, _ pbt.Env) any { v, _ := c.Get(k); return v },
-				Post: func(m model, _ pbt.Env, got any) error {
-					if want := m.entries[k]; got != want {
+			return pbt.Command{Name: "put", Args: []any{k, v},
+				Run:  func(pbt.Env) any { c.Put(k, v); return nil },
+				Next: func(pbt.Var) { model[k] = v }}
+		})
+		get := pbt.Map(pbt.IntRange(1, 10), func(k int) pbt.Command {
+			return pbt.Command{Name: "get", Args: []any{k},
+				Run: func(pbt.Env) any { v, _ := c.Get(k); return v },
+				Post: func(_ pbt.Env, got any) error {
+					if want := model[k]; got != want {
 						return fmt.Errorf("get(%d) = %v, want %v", k, got, want)
 					}
 					return nil
 				}}
-		})},
-	)
-}
-
-func TestCache(t *testing.T) {
-	pbt.Check(t, func(t *pbt.T) {
-		prog := pbt.Commands(model{}, commands).Draw(t, "cmds")
-		prog.RunSequential(t, newCache())
+		})
+		commands := func() pbt.Gen[pbt.Command] { return pbt.Frequency(pbt.W(3, put), pbt.W(1, get)) }
+		prog := pbt.Commands(func() { clear(model) }, commands).Draw(t, "cmds")
+		prog.RunSequential(t)
 	})
 }
 ```
 
-On failure the report lists the program and the history of calls, results
-and the model state. Results that only the system knows (ids, handles) are
-`pbt.Var` values in the model and are resolved with `pbt.Resolve` at
-execution time. Package `fsm` adds named states with weighted transitions.
+On failure the report lists the program and the history of calls and
+results, with the model state when `pbt.ModelState` names a function that
+shows it. Results that only the system knows (ids, handles) are `pbt.Var`
+values in the model and are resolved with `pbt.Resolve` at execution time.
+Package `fsm` adds named states with weighted transitions.
 
 ## Distributions and statistics
 
