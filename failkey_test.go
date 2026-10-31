@@ -166,3 +166,23 @@ func (c *miscounter) inc() int {
 	}
 	return c.n
 }
+
+func TestConjunctionKeepsTheFirstFailure(t *testing.T) {
+	cfg, _ := newConfig([]Option{Seed(1), NoSave()})
+	run := func(prop Property) *T {
+		r := &runner{tb: nopTB{}, prop: prop, cfg: cfg}
+		return r.run(nil, 1, nil)
+	}
+	var firstLine int
+	c := run(Conjunction(
+		Named{"a", func(t *T) { _, _, firstLine, _ = runtime.Caller(0); t.Errorf("a") }},
+		Named{"b", func(t *T) { t.Errorf("b") }},
+	))
+	if want := fmt.Sprintf(":%d", firstLine); lineOf(c.failKey) != want {
+		t.Errorf("key %q, want line %s", c.failKey, want)
+	}
+	p := run(Conjunction(Named{"a", func(t *T) { panic("sub") }}))
+	if !strings.HasPrefix(p.failKey, "panic string at ") || !strings.Contains(p.failKey, "failkey_test.go") {
+		t.Errorf("key %q", p.failKey)
+	}
+}

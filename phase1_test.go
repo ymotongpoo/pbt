@@ -73,18 +73,22 @@ func TestConjunctionNamesFailures(t *testing.T) {
 	), NoSave(), Checks(10))
 }
 
-func TestTimeout(t *testing.T) {
-	c := counterexample(t, Timeout(20*time.Millisecond, func(t *T) {
+func TestDeadline(t *testing.T) {
+	c := counterexample(t, Deadline(20*time.Millisecond, func(t *T) {
 		ms := IntRange(0, 60).Draw(t, "ms")
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	}), Checks(100))
 	if ms := drawn[int](t, c, 0); ms < 10 {
 		t.Errorf("timed out at %d ms", ms)
 	}
-	if !strings.Contains(strings.Join(c.messages, "\n"), "longer than the limit of 20ms") {
+	if !strings.Contains(strings.Join(c.messages, "\n"), "longer than the deadline of 20ms") {
 		t.Errorf("messages: %q", c.messages)
 	}
-	Check(t, Timeout(time.Second, func(t *T) { Int().Draw(t, "x") }), NoSave(), Checks(10))
+	if c.failKey != "deadline" {
+		t.Errorf("key %q", c.failKey)
+	}
+	Check(t, Deadline(time.Second, func(t *T) { Int().Draw(t, "x") }), NoSave(), Checks(10))
+	Check(t, Timeout(time.Second, func(t *T) { Int().Draw(t, "x") }), NoSave(), Checks(10)) //nolint:staticcheck // the alias must keep working
 }
 
 func TestFuncIsPureAndShrinks(t *testing.T) {

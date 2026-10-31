@@ -4,6 +4,7 @@
 package pbt
 
 import (
+	"fmt"
 	"runtime/debug"
 	"time"
 )
@@ -35,7 +36,7 @@ func Conjunction(subs ...Named) Property {
 // reports whether it passed. Discards propagate.
 func runSub(t *T, sub Named) (ok bool) {
 	t.mu.Lock()
-	before, wasFailed := len(t.messages), t.failed
+	before, wasFailed, wasKey := len(t.messages), t.failed, t.failKey
 	t.failed = false
 	t.mu.Unlock()
 	defer func() {
@@ -45,14 +46,19 @@ func runSub(t *T, sub Named) (ok bool) {
 		case discardTest:
 			panic(rec)
 		default:
-			t.Errorf("panic: %v", rec)
+			stack := debug.Stack()
+			t.failAt(panicKey(rec, stack), fmt.Sprintf("panic: %v", rec))
 			if t.stack == nil {
-				t.stack = debug.Stack()
+				t.stack = stack
 			}
 		}
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		ok = !t.failed
+		if wasFailed {
+			// The first sub-property to fail fixes the identity of the case.
+			t.failKey = wasKey
+		}
 		if !ok && len(t.messages) == before {
 			t.messages = append(t.messages, "failed")
 		}
@@ -65,19 +71,24 @@ func runSub(t *T, sub Named) (ok bool) {
 	return true
 }
 
-// Timeout fails the test case when prop takes longer than d, as PropEr's
+// Deadline fails the test case when prop takes longer than d, as PropEr's
 // ?TIMEOUT does. Go cannot stop a running function, so the check happens
 // after prop returns, the way Hypothesis's deadline setting works; a property
 // that never returns is caught by go test's own -timeout instead.
-func Timeout(d time.Duration, prop Property) Property {
+func Deadline(d time.Duration, prop Property) Property {
 	return func(t *T) {
 		start := time.Now()
 		prop(t)
 		if elapsed := time.Since(start); elapsed > d {
-			t.Fatalf("took %v, longer than the limit of %v", elapsed.Round(time.Millisecond), d)
+			t.fatalAt("deadline", fmt.Sprintf("took %v, longer than the deadline of %v", elapsed.Round(time.Millisecond), d))
 		}
 	}
 }
+
+// Timeout is the former name of Deadline.
+//
+// Deprecated: use Deadline, which behaves the same.
+func Timeout(d time.Duration, prop Property) Property { return Deadline(d, prop) }
 
 // Recover runs f and returns the value it panicked with, or nil. It lets a
 // property treat a panic as a value, for example to assert that invalid input
