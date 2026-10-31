@@ -208,14 +208,14 @@ func (p ParallelProgram[S, Sys]) RunParallel(t *T, sys Sys) {
 					t.stack = stacks[b]
 				}
 				logHistory()
-				t.Fatalf("branch %d: %s panicked: %v", b+1, describe(s.Command), panics[b][i])
+				t.fatalAt(panicKey(panics[b][i], stacks[b]), fmt.Sprintf("branch %d: %s panicked: %v", b+1, describe(s.Command), panics[b][i]))
 			}
 		}
 	}
 	if !linearizable(state, p.branches, results, make([]int, len(p.branches)), env) {
 		logHistory()
 		t.Logf("model state after the prefix: %+v", state)
-		t.Fatalf("no interleaving of the %d branches satisfies the postconditions", len(p.branches))
+		t.fatalAt("no interleaving", fmt.Sprintf("no interleaving of the %d branches satisfies the postconditions", len(p.branches)))
 	}
 }
 

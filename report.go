@@ -93,9 +93,9 @@ func userFrames(stack []byte, limit int, verbose bool) []string {
 		if len(loc) == 0 {
 			continue
 		}
-		if !verbose && (strings.HasPrefix(fn, "runtime.") || strings.HasPrefix(fn, "runtime/debug.") ||
-			strings.HasPrefix(fn, "panic(") || strings.HasPrefix(fn, "testing.") ||
-			strings.HasPrefix(fn, "go.ymotongpoo.com/pbt.")) {
+		file, _, _ := strings.Cut(loc[0], ":")
+		if !verbose && (strings.HasPrefix(fn, "panic(") || strings.HasPrefix(fn, "testing.") ||
+			internalFrame(fn, file)) {
 			continue
 		}
 		out = append(out, loc[0]+" "+fn)

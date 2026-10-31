@@ -6,7 +6,9 @@ package pbt
 import (
 	"fmt"
 	"math/rand/v2"
+	"runtime"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 )
@@ -135,7 +137,8 @@ type T struct {
 	recActive bool
 	recBudget int
 
-	mu            sync.Mutex // guards failed, messages and logs, which Timeout touches from another goroutine
+	mu            sync.Mutex // guards failed, messages and logs, which may be touched from other goroutines
+	failKey       string     // where and how the case first failed; shrinking keeps this failure
 	failed        bool
 	discarded     bool
 	discardReason string
@@ -272,7 +275,9 @@ func (t *T) execute(prop Property) {
 		switch rec := recover().(type) {
 		case nil:
 		case stopTest:
-			t.failed = true
+			t.mu.Lock()
+			t.mark("")
+			t.mu.Unlock()
 		case discardTest:
 			// A failure recorded before the discard stands: the case is
 			// reported, not thrown away.
@@ -281,13 +286,26 @@ func (t *T) execute(prop Property) {
 				t.discardReason = rec.reason
 			}
 		default:
-			t.failed = true
 			t.panicVal = rec
 			t.stack = debug.Stack()
+			t.mu.Lock()
+			t.mark(panicKey(rec, t.stack))
+			t.mu.Unlock()
 		}
 	}()
 	defer t.runCleanups()
 	prop(t)
+}
+
+// panicKey names a panic by its type and the first frame outside this
+// package, so that a panic at one site counts as the same failure whatever
+// value it carried.
+func panicKey(rec any, stack []byte) string {
+	frames := userFrames(stack, 1, false)
+	if len(frames) == 0 {
+		return fmt.Sprintf("panic %T", rec)
+	}
+	return fmt.Sprintf("panic %T at %s", rec, strings.Fields(frames[0])[0])
 }
 
 // runCleanups runs every registered callback, last first, including those
@@ -340,11 +358,59 @@ func (t *T) Error(args ...any) {
 	t.fail(fmt.Sprint(args...))
 }
 
-func (t *T) fail(msg string) {
+func (t *T) fail(msg string) { t.failAt(callerKey(), msg) }
+
+// failAt records a failure under the given identity. The first failure of a
+// case fixes its identity; later ones only add messages.
+func (t *T) failAt(key, msg string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.failed = true
+	t.mark(key)
 	t.messages = append(t.messages, msg)
+}
+
+// fatalAt records a failure under the given identity and stops the case.
+func (t *T) fatalAt(key, msg string) {
+	t.failAt(key, msg)
+	panic(stopTest{})
+}
+
+// mark sets the failed flag and, for the first failure, the identity. The
+// caller holds t.mu.
+func (t *T) mark(key string) {
+	if !t.failed {
+		t.failKey = key
+	}
+	t.failed = true
+}
+
+// callerKey names the first frame outside this package and the runtime,
+// which is where the property decided to fail. The shrinker uses it to tell
+// one failure from another.
+func callerKey() string {
+	var pcs [32]uintptr
+	n := runtime.Callers(2, pcs[:])
+	frames := runtime.CallersFrames(pcs[:n])
+	for {
+		f, more := frames.Next()
+		if f.Function != "" && !internalFrame(f.Function, f.File) {
+			return fmt.Sprintf("%s:%d", f.File, f.Line)
+		}
+		if !more {
+			return ""
+		}
+	}
+}
+
+// internalFrame reports whether a stack frame belongs to this package or to
+// the runtime rather than to the code under test. Test files of this package
+// count as code under test, so that its own tests exercise the same paths
+// as a user's.
+func internalFrame(fn, file string) bool {
+	if strings.HasPrefix(fn, "runtime.") || strings.HasPrefix(fn, "runtime/debug.") {
+		return true
+	}
+	return strings.HasPrefix(fn, "go.ymotongpoo.com/pbt.") && !strings.HasSuffix(file, "_test.go")
 }
 
 // Fatalf records a failure and stops the test case.
@@ -361,9 +427,10 @@ func (t *T) Fatal(args ...any) {
 
 // Fail marks the test case as failed and continues.
 func (t *T) Fail() {
+	key := callerKey()
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.failed = true
+	t.mark(key)
 }
 
 // FailNow marks the test case as failed and stops it. It must be called from

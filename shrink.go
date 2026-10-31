@@ -18,9 +18,11 @@ const (
 
 // shrinker minimizes a failing choice sequence. Every pass proposes
 // candidate sequences; a candidate is adopted when the property still fails
-// on it and the recorded sequence is shorter, or equally long and
-// lexicographically smaller. Passes run until none of them makes progress or
-// the time budget is spent.
+// in the same way (the same assertion site or the same panic site) and the
+// recorded sequence is shorter, or equally long and lexicographically
+// smaller. Keeping the failure identity stops shrinking from trading the
+// bug it found for an unrelated one that happens to be simpler. Passes run
+// until none of them makes progress or the time budget is spent.
 type shrinker struct {
 	r        *runner
 	cur      *T
@@ -53,7 +55,7 @@ func (s *shrinker) try(cand []uint64) bool {
 	}
 	s.steps++
 	t := s.r.run(cand, s.cur.size, nil)
-	if s.r.want(t) && !t.discarded && simpler(t.choices, s.cur.choices) {
+	if s.r.want(t) && !t.discarded && t.failKey == s.cur.failKey && simpler(t.choices, s.cur.choices) {
 		s.cur = t
 		if s.r.cfg.verbose {
 			s.r.tb.Logf("[pbt] shrink step %d: %d choices\n[pbt]   %s", s.steps, len(t.choices), strings.ReplaceAll(drawsLine(t), "\n", "\n[pbt]   "))

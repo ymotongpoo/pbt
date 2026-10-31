@@ -296,19 +296,22 @@ func (p Program[S, Sys]) RunSequential(t *T, sys Sys) {
 // (the history of an earlier phase), and fails the case.
 func runSteps[S, Sys any](t *T, steps []Step[S, Sys], state S, sys Sys, env Env, extra []string) S {
 	var history []string
-	fail := func(step int, format string, args ...any) {
+	// Each failure carries an identity (which check, on which command) so
+	// that shrinking keeps the failure it started from.
+	fail := func(step int, key, format string, args ...any) {
 		t.Logf("history:")
 		for _, h := range append(extra, history...) {
 			t.Logf("  %s", h)
 		}
 		t.Logf("model state before step %d: %+v", step, state)
-		t.Fatalf("step %d: %s", step, fmt.Sprintf(format, args...))
+		t.fatalAt(key, fmt.Sprintf("step %d: %s", step, fmt.Sprintf(format, args...)))
 	}
 	for i, s := range steps {
 		n := i + 1
-		t.Aggregate(CommandName(s.Command))
+		name := CommandName(s.Command)
+		t.Aggregate(name)
 		if !s.Command.Precondition(state) {
-			fail(n, "precondition of %s does not hold at execution time", describe(s.Command))
+			fail(n, "precondition of "+name, "precondition of %s does not hold at execution time", describe(s.Command))
 		}
 		result, panicked, stack := executeCommand(s.Command, sys, env)
 		if panicked != nil {
@@ -319,12 +322,12 @@ func runSteps[S, Sys any](t *T, steps []Step[S, Sys], state S, sys Sys, env Env,
 				t.stack = stack
 			}
 			history = append(history, fmt.Sprintf("%d. %s panicked: %v", n, describe(s.Command), panicked))
-			fail(n, "%s panicked: %v", describe(s.Command), panicked)
+			fail(n, panicKey(panicked, stack), "%s panicked: %v", describe(s.Command), panicked)
 		}
 		env.vals[s.Result] = result
 		history = append(history, historyLine(n, s, result))
 		if err := s.Command.Postcondition(state, env, result); err != nil {
-			fail(n, "postcondition of %s failed: %v", describe(s.Command), err)
+			fail(n, "postcondition of "+name, "postcondition of %s failed: %v", describe(s.Command), err)
 		}
 		state = s.Command.NextState(state, s.Result)
 	}
