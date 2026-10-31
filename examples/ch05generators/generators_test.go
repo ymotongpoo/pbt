@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ch05generators ports Chapter 5 of the PropEr Testing book: the
 // generators that make properties more precise, the statistics that show
 // what they produce, and the exercises on recursion, timestamps and

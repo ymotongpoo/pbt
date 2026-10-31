@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ch06birthday ports the birthday greetings kata of Chapter 6 of the
 // PropEr Testing book: a CSV codec, the employee records read from it, the
 // birthday filter, the mail template, and the plumbing between them.

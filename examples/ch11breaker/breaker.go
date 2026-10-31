@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ch11breaker ports Chapter 11 of the PropEr Testing book: a circuit
 // breaker tested as a finite state machine with named states. The breaker
 // mirrors the API of the Klarna library the chapter tests: calls go through

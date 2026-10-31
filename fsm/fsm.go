@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 // Package fsm tests state machines with named states, the equivalent of
 // PropEr's proper_fsm. A Machine lists, for each state, the transitions that
 // may fire with their weights; the package turns it into a stateful property

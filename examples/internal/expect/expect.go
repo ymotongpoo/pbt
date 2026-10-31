@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 // Package expect runs a property that is supposed to fail and returns its
 // report, so that the examples can show pbt catching a planted bug without
 // failing the test suite.

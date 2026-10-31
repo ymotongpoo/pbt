@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ch08shrinking ports Chapter 8 of the PropEr Testing book: how
 // generators shrink, how ShrinkTo re-centers a value, and how LetShrink
 // lets a composite shrink to one of its parts.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ch04stateless ports the code of Chapters 3 and 4 of the PropEr
 // Testing book: the running example biggest, the sort and last properties,
 // and the solutions of the exercises.

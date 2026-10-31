@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ch07checkout ports the checkout kata of Chapter 7 of the PropEr
 // Testing book: a total over scanned items with unit prices and bulk
 // specials, with the validation that the negative tests of the chapter

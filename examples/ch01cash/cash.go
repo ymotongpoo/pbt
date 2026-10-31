@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ch01cash ports the cash register of Chapter 1 of the PropEr Testing
 // book. Amounts are integer cents rather than floats, so that sums are exact.
 package ch01cash

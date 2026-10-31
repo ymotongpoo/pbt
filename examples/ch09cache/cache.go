@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ch09cache ports Chapter 9 of the PropEr Testing book: a bounded
 // cache tested as a state machine, first sequentially and then in parallel,
 // where the parallel test exposes a race in a write path that is not

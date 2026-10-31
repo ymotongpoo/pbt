@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Yoshi Yamaguchi <ymotongpoo@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ch10bookstore ports Chapter 10 of the PropEr Testing book: a
 // bookstore inventory on a SQL database, tested as a state machine. The
 // chapter runs on PostgreSQL; this port runs on the pure-Go SQLite driver so
