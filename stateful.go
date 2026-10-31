@@ -47,13 +47,17 @@ func (e Env) Has(v Var) bool {
 	return ok
 }
 
-// Resolve returns the value of v as a T.
+// Resolve returns the value of v as a T. A nil result resolves to the zero
+// value of T when T is an interface or pointer type.
 func Resolve[T any](env Env, v Var) T {
 	val := env.Get(v)
+	if val == nil {
+		var zero T
+		return zero
+	}
 	t, ok := val.(T)
 	if !ok {
-		var want T
-		panic(fmt.Sprintf("pbt: %v holds a %T, not a %T", v, val, want))
+		panic(fmt.Sprintf("pbt: %v holds a %T, not a %s", v, val, reflect.TypeFor[T]()))
 	}
 	return t
 }

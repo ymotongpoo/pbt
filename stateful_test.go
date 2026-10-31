@@ -306,3 +306,20 @@ func TestCommandPanicIsReported(t *testing.T) {
 		t.Errorf("messages: %q", c.messages)
 	}
 }
+
+func TestResolveNamesTheWantedType(t *testing.T) {
+	env := Env{vals: map[Var]any{{1}: 42, {2}: nil}}
+	if got := Resolve[int](env, Var{1}); got != 42 {
+		t.Fatalf("got %d", got)
+	}
+	if got := Resolve[error](env, Var{2}); got != nil {
+		t.Fatalf("nil resolved to %v", got)
+	}
+	defer func() {
+		msg, _ := recover().(string)
+		if !strings.Contains(msg, "holds a int, not a string") {
+			t.Errorf("message %q", msg)
+		}
+	}()
+	Resolve[string](env, Var{1})
+}
