@@ -6,7 +6,10 @@
 // its own, so that the root module stays free of dependencies; run it from
 // this directory:
 //
-//	cd site && go run . -version v0.2.0
+//	cd site && go run . -version v0.2.0 -analytics G-XXXXXXXXXX
+//
+// The -analytics flag takes a Google Analytics measurement ID; when it is
+// given, every page loads gtag.js for it. Leave it out for a local preview.
 //
 // The English chapters are the *.md files of docs/guide, the Japanese ones
 // those of docs/guide/ja; both are ordered by file name. A chapter includes
@@ -69,6 +72,7 @@ type page struct {
 	Title      string
 	GuideTitle string
 	Version    string
+	Analytics  string // Google Analytics measurement ID, empty for none
 	Canonical  string
 	OtherLang  string
 	OtherLabel string
@@ -81,14 +85,15 @@ func main() {
 	src := flag.String("src", "../docs/guide", "directory of the guide's Markdown sources")
 	out := flag.String("out", "public", "directory the pages are written to")
 	version := flag.String("version", "", "pbt version the guide describes, shown in the footer")
+	analytics := flag.String("analytics", "", "Google Analytics measurement ID to load on every page")
 	flag.Parse()
-	if err := run(*src, *out, *version); err != nil {
+	if err := run(*src, *out, *version, *analytics); err != nil {
 		fmt.Fprintln(os.Stderr, "site:", err)
 		os.Exit(1)
 	}
 }
 
-func run(src, out, version string) error {
+func run(src, out, version, analytics string) error {
 	tmpl, err := template.New("page").Parse(templateSrc)
 	if err != nil {
 		return err
@@ -123,6 +128,7 @@ func run(src, out, version string) error {
 				Title:      ch.title,
 				GuideTitle: lang.guideTitle,
 				Version:    version,
+				Analytics:  analytics,
 				Canonical:  canonicalBase + path(lang.dir, leaf),
 				OtherLang:  lang.otherDir + leaf,
 				OtherLabel: lang.otherLabel,
