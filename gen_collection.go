@@ -142,14 +142,15 @@ func drawAccepted[E any](t *T, elem Gen[E], accept func(E) bool) (E, bool) {
 }
 
 // continueProbability makes the expected length of a collection track the
-// size parameter, as PropEr's list generators do.
+// size parameter, as PropEr's list generators do. At size 0 a collection is
+// empty unless a minimum length forces elements.
 func continueProbability(t *T, maxLen int) float64 {
 	avg := float64(t.size)
 	if maxLen >= 0 && float64(maxLen) < avg {
 		avg = float64(maxLen)
 	}
-	if avg < 1 {
-		avg = 1
+	if avg <= 0 {
+		return 0
 	}
 	return avg / (avg + 1)
 }

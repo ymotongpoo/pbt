@@ -222,3 +222,65 @@ func TestAsAnyWidens(t *testing.T) {
 		t.Errorf("ints %d, strings %d", ints, strs)
 	}
 }
+
+func TestSizeZeroMeansEmptyCollections(t *testing.T) {
+	Check(t, func(t *T) {
+		if xs := Resize(0, SliceOf(Int())).Draw(t, "xs"); len(xs) != 0 {
+			t.Fatalf("slice of %d elements at size 0", len(xs))
+		}
+		if m := Resize(0, MapOf(Int(), Int())).Draw(t, "m"); len(m) != 0 {
+			t.Fatalf("map of %d entries at size 0", len(m))
+		}
+		if s := Resize(0, String()).Draw(t, "s"); s != "" {
+			t.Fatalf("string %q at size 0", s)
+		}
+		// A minimum length still forces elements.
+		if ys := Resize(0, SliceOfN(Int(), 2, 5)).Draw(t, "ys"); len(ys) != 2 {
+			t.Fatalf("slice of %d elements at size 0 with min 2", len(ys))
+		}
+	}, NoSave(), Checks(100))
+
+	// Sizes may start at 0, and the first cases are then empty.
+	tb := &fakeTB{name: "TestSizes"}
+	Check(tb, func(t *T) {
+		xs := SliceOf(Int()).Draw(t, "xs")
+		if t.Size() == 0 && len(xs) != 0 {
+			t.Fatalf("size %d gave %d elements", t.Size(), len(xs))
+		}
+	}, NoSave(), Sizes(0, 5), Checks(50))
+	if len(tb.errors) != 0 {
+		t.Fatalf("%q", tb.errors)
+	}
+	if _, err := newConfig([]Option{Sizes(-1, 5)}); err == nil {
+		t.Error("Sizes(-1, 5) was accepted")
+	}
+}
+
+func TestAnyFloat64CoversTheSpecialValues(t *testing.T) {
+	var nan, posInf, negInf, finite int
+	Check(t, func(t *T) {
+		switch f := AnyFloat64().Draw(t, "f"); {
+		case math.IsNaN(f):
+			nan++
+		case math.IsInf(f, 1):
+			posInf++
+		case math.IsInf(f, -1):
+			negInf++
+		default:
+			finite++
+		}
+	}, NoSave(), Checks(600))
+	if nan == 0 || posInf == 0 || negInf == 0 || finite < 300 {
+		t.Fatalf("nan %d, +inf %d, -inf %d, finite %d", nan, posInf, negInf, finite)
+	}
+	// Special values shrink to a finite one, which is the first alternative.
+	tb := &fakeTB{name: "TestAnyFloat64"}
+	Check(tb, func(t *T) {
+		if f := AnyFloat64().Draw(t, "f"); f != f || f < -10 {
+			t.Fatalf("f = %v", f)
+		}
+	}, NoSave(), Seed(1), Checks(600))
+	if len(tb.errors) != 1 || !strings.Contains(tb.errors[0], "f (AnyFloat64()) = ") {
+		t.Fatalf("%q", tb.errors)
+	}
+}

@@ -91,7 +91,8 @@ func Seed(seed uint64) Option {
 }
 
 // Sizes sets the size parameter of the first test case and the size the
-// cases grow up to, as PropEr's start_size and max_size do.
+// cases grow up to, as PropEr's start_size and max_size do. At size 0,
+// collections are empty and numbers are 0 or 1.
 func Sizes(start, max int) Option {
 	return func(c *config) {
 		c.startSize = start
@@ -152,8 +153,8 @@ func newConfig(opts []Option) (config, error) {
 		return c, fmt.Errorf("Checks(%d): need at least one check", c.checks)
 	case c.search < 1:
 		return c, fmt.Errorf("SearchSteps(%d): need at least one step", c.search)
-	case c.startSize < 1 || c.maxSize < c.startSize:
-		return c, fmt.Errorf("Sizes(%d, %d): need 1 <= start <= max", c.startSize, c.maxSize)
+	case c.startSize < 0 || c.maxSize < c.startSize:
+		return c, fmt.Errorf("Sizes(%d, %d): need 0 <= start <= max", c.startSize, c.maxSize)
 	}
 	if !c.hasSeed {
 		c.seed = randomSeed()

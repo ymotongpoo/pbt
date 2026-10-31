@@ -167,6 +167,17 @@ func Float64Range(lo, hi float64) Gen[float64] {
 	}}
 }
 
+// AnyFloat64 generates every float64 including NaN and the two infinities,
+// which Float64 leaves out, for code that must handle them.
+func AnyFloat64() Gen[float64] {
+	return named(Frequency(
+		Weighted[float64]{Weight: 30, Gen: Float64()},
+		Weighted[float64]{Weight: 1, Gen: Just(math.NaN())},
+		Weighted[float64]{Weight: 1, Gen: Just(math.Inf(1))},
+		Weighted[float64]{Weight: 1, Gen: Just(math.Inf(-1))},
+	), "AnyFloat64()")
+}
+
 // Float32 generates finite float32 values.
 func Float32() Gen[float32] {
 	return named(Float32Range(-math.MaxFloat32, math.MaxFloat32), "Float32()")
