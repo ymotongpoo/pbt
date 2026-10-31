@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · {{.GuideTitle}}</title>
 <link rel="canonical" href="{{.Canonical}}">
+<link rel="alternate" type="text/markdown" href="{{.Markdown}}">
+<link rel="describedby" type="text/markdown" href="{{.LlmsTxt}}">
 {{if .Analytics}}<script async src="https://www.googletagmanager.com/gtag/js?id={{.Analytics}}"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
@@ -56,6 +58,7 @@ footer { color: var(--muted); font-size: 0.8rem; margin-top: 2rem; }
 {{end}}</ol>
 <div class="lang"><a href="{{.OtherLang}}">{{.OtherLabel}}</a></div>
 <div class="lang"><a href="https://pkg.go.dev/go.ymotongpoo.com/pbt">pkg.go.dev</a> · <a href="https://github.com/ymotongpoo/pbt">GitHub</a></div>
+<div class="lang"><a href="{{.Markdown}}">Markdown</a> · <a href="{{.LlmsTxt}}">llms.txt</a></div>
 </nav>
 <main>
 {{.Content}}
