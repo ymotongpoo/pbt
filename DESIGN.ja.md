@@ -232,13 +232,14 @@ type Command struct {                                    // precondition、呼�
 	Next func(result Var)                                // 生成時も実行時もシンボリック
 	Post func(env Env, result any) error
 }
-func Commands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[Program]
-func NoCommands() Gen[Command]                           // 列を終える
+type CommandGen = Gen[Command]                           // コマンドの生成器の型
+func Commands(init func(), gen func() CommandGen, opts ...StatefulOption) Gen[Program]
+func NoCommands() CommandGen                             // 列を終える
 func Length(min, max int) StatefulOption                 // 列、または並行プログラムの前段の長さを制限する
 func Branches(n, maxLen int) StatefulOption              // 並行プログラムの形
 func ModelState(f func() any) StatefulOption             // 報告にモデルを表示する
 func (p Program) RunSequential(t *T)
-func ParallelCommands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[ParallelProgram]
+func ParallelCommands(init func(), gen func() CommandGen, opts ...StatefulOption) Gen[ParallelProgram]
 func (p ParallelProgram) RunParallel(t *T)
 ```
 
@@ -253,7 +254,7 @@ package fsm // go.ymotongpoo.com/pbt/fsm
 type Transition struct {
 	Weight int                                            // weight/3。0 は縮小でのみ到達する
 	To     string
-	Cmd    pbt.Gen[pbt.Command]                           // データに対する precondition/4、next_state_data/5、postcondition/5
+	Cmd    pbt.CommandGen                                 // データに対する precondition/4、next_state_data/5、postcondition/5
 }
 func Commands(initial string, init func(), transitions func(state string) []Transition, opts ...pbt.StatefulOption) pbt.Gen[pbt.Program]
 func ParallelCommands(initial string, init func(), transitions func(state string) []Transition, opts ...pbt.StatefulOption) pbt.Gen[pbt.ParallelProgram]
@@ -283,6 +284,10 @@ pbtは `init` を呼んでから各コマンドの `Next` を再生すること�
 そのためどのテストも `Cmd[Model, *System]`、`Weighted[Command[Model, *System]]`、`fsm.Transition[Name, Data, *System]` と書くことになり、読みやすさを保つには型の別名が要りました。
 生成器の型パラメータは残しています。
 `Draw` が型付きの値を返すことがプロパティから型アサーションをなくしており、型パラメータはほとんどの呼び出しで推論に隠れるためです。
+推論が届かないのは、コマンドの生成器を返す関数の署名です。
+`iter.Seq[V]` を返すメソッドの署名に型引数を書くのと同じです。
+そこには `Gen[Command]` の別名である `CommandGen` を書きます。
+`Map` や `Frequency` が返す生成器と同じ型です。
 
 並行コマンドテストはPropErの `parallel_commands` に倣います。
 生成器が「逐次の前置き」と「最大3本の並行枝」からなるプログラムを作り、実行器が枝をゴルーチンで実行します。

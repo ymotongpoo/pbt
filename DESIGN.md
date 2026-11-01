@@ -282,13 +282,14 @@ type Command struct {                                    // precondition, the ca
 	Next func(result Var)                                // symbolic during generation and execution
 	Post func(env Env, result any) error
 }
-func Commands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[Program]
-func NoCommands() Gen[Command]                           // ends the sequence
+type CommandGen = Gen[Command]                           // the type of a command generator
+func Commands(init func(), gen func() CommandGen, opts ...StatefulOption) Gen[Program]
+func NoCommands() CommandGen                             // ends the sequence
 func Length(min, max int) StatefulOption                 // bounds the sequence, or the prefix of a parallel program
 func Branches(n, maxLen int) StatefulOption              // shape of a parallel program
 func ModelState(f func() any) StatefulOption             // shows the model in the report
 func (p Program) RunSequential(t *T)
-func ParallelCommands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[ParallelProgram]
+func ParallelCommands(init func(), gen func() CommandGen, opts ...StatefulOption) Gen[ParallelProgram]
 func (p ParallelProgram) RunParallel(t *T)
 ```
 
@@ -306,7 +307,7 @@ package fsm // go.ymotongpoo.com/pbt/fsm
 type Transition struct {
 	Weight int                                            // weight/3; 0 is reachable only by shrinking
 	To     string
-	Cmd    pbt.Gen[pbt.Command]                           // precondition/4, next_state_data/5, postcondition/5 on the data
+	Cmd    pbt.CommandGen                                 // precondition/4, next_state_data/5, postcondition/5 on the data
 }
 func Commands(initial string, init func(), transitions func(state string) []Transition, opts ...pbt.StatefulOption) pbt.Gen[pbt.Program]
 func ParallelCommands(initial string, init func(), transitions func(state string) []Transition, opts ...pbt.StatefulOption) pbt.Gen[pbt.ParallelProgram]
@@ -351,7 +352,11 @@ system's through every command, so every test spelled `Cmd[Model,
 Data, *System]`, and needed type aliases to stay readable. Generators keep
 their type parameter: a `Draw` that returns a typed value is what keeps
 properties free of type assertions, and inference hides the parameter in
-nearly every call.
+nearly every call. Inference does not reach the signature of a function
+that returns a command generator, as it does not reach a method that
+returns an `iter.Seq[V]`; `CommandGen`, an alias of `Gen[Command]`, is
+the name to write there, and it is the same type as the generators that
+`Map` and `Frequency` return.
 
 Parallel command testing follows PropEr's `parallel_commands`. The generator
 produces a sequential prefix followed by at most three parallel branches, and

@@ -92,7 +92,7 @@ func TestCache(t *testing.T) {
 					return nil
 				}}
 		})
-		commands := func() pbt.Gen[pbt.Command] { return pbt.Frequency(pbt.W(3, put), pbt.W(1, get)) }
+		commands := func() pbt.CommandGen { return pbt.Frequency(pbt.W(3, put), pbt.W(1, get)) }
 		prog := pbt.Commands(func() { clear(model) }, commands).Draw(t, "cmds")
 		prog.RunSequential(t)
 	})

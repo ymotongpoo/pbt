@@ -5,6 +5,16 @@ The notable changes of pbt are recorded here. The format follows
 [Semantic Versioning](https://semver.org/) with a major version of 0, so a
 minor version may change the API.
 
+## Unreleased
+
+### Added
+
+- `CommandGen`, an alias of `Gen[Command]`, for the signature of a function
+  that returns a command generator: Go infers the type argument in a call
+  to `Map` or `Frequency` but not in a declaration. `Commands`,
+  `ParallelCommands`, `NoCommands` and `fsm.Transition` are written with
+  it, which changes no type.
+
 ## 0.3.0 - 2026-10-31
 
 ### Changed

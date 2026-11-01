@@ -69,7 +69,9 @@ generators or the shrinker may change which counterexample they find.
   model, and pbt rewinds the model by calling `init` and replaying `Next`.
   Keep it that way: do not add type parameters that users would have to
   write, and prefer a function that infers (such as `W`) over a generic
-  struct literal.
+  struct literal. A function that returns a command generator is
+  declared as `CommandGen`, the alias of `Gen[Command]`, since Go does not
+  infer the type argument in a declaration.
 - In stateful tests, only `init` and the `Next` functions change the model;
   `Pre`, `Post` and the command generator read it. The examples keep the
   system and the model in a `harness` struct with the commands as closures

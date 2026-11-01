@@ -66,7 +66,7 @@ size parameter, `Frequency` weights alternatives, `ShrinkTo`,
 | rapid | pbt |
 | --- | --- |
 | `t.Repeat(map[string]func(*rapid.T))` with `""` as the invariant | `pbt.Commands(init, gen)` draws a `Program`; `prog.RunSequential(t)` runs it |
-| `rapid.StateMachineActions(sm)` | a generator that returns `pbt.Command` values for the current model state |
+| `rapid.StateMachineActions(sm)` | a `pbt.CommandGen`, the generator of `pbt.Command` values for the current model state |
 | actions that `t.SkipNow()` when not applicable | the `Pre` function of `pbt.Command` |
 | checks inside the action | `Post`, which receives the real result and an `Env` |
 | the Go struct that holds both model and system | the same: variables of the test that the commands close over, with an `init` function that resets the model |
