@@ -122,6 +122,8 @@ compares the two on the same properties.
 passing run. `Cover` declares the share a class must reach; with the
 `CheckCoverage` option, `Check` runs cases until the share is decided with
 99.7% confidence and fails on a shortfall or on evidence that stays short.
+A 100% requirement is checked directly: every passing case must hit the
+label, and one miss makes the requirement unmet.
 `Maximize` and `Minimize` turn a property into a targeted search;
 `CheckExists` looks for a witness.
 

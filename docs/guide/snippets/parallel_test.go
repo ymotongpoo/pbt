@@ -12,9 +12,8 @@ import (
 )
 
 // snippet: parallel
-// Counter is safe for concurrent use. Every command returns a value the
-// postcondition can check, which is what lets the interleaving check
-// decide whether the concurrent run was explained by some sequential order.
+// Counter is safe for concurrent use. Add returns the new value, which
+// gives the interleaving check a result to explain for every call.
 type Counter struct {
 	mu sync.Mutex
 	n  int

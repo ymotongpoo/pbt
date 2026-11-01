@@ -75,10 +75,14 @@ size parameter, `Frequency` weights alternatives, `ShrinkTo`,
 
 In rapid the actions run as they are generated; in pbt the whole sequence
 is generated first against the model, then executed. That is what lets
-shrinking remove a command and re-check the preconditions of the rest, and
+shrinking remove a command and regenerate the following commands from the
+new model state, checking their preconditions during generation, and
 what makes parallel execution possible. It is also why the model may only
 change in `init` and in the `Next` of a command: pbt replays a sequence by
-calling them again.
+calling them again. A false `Pre` retries a command during generation; if
+no allowed command is found within the retry limit, the sequence ends or
+the case is discarded when its minimum length has not been reached. During
+`RunSequential`, a false `Pre` fails the case rather than skipping an action.
 
 ## Searching
 

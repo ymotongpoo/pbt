@@ -78,9 +78,12 @@ type Command struct {
 	Name string
 	Args []any
 	// Pre reports whether the command is allowed in the current state of
-	// the model. It is checked when the sequence is generated and again
-	// when the sequence runs, so a command whose precondition fails after
-	// the shrinker removed an earlier one is not a candidate.
+	// the model. Generation retries commands that fail it, including when
+	// shrinking regenerates later commands from a new state. If no allowed
+	// command is found within the retry limit, generation ends the sequence
+	// or discards the case if its minimum length has not been reached.
+	// RunSequential checks it before each call and fails the case if false.
+	// ParallelCommands uses it to keep every branch interleaving valid.
 	Pre func() bool
 	// Run performs the call against the system. Env maps every Var that
 	// has a value to the result its command returned.

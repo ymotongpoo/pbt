@@ -169,10 +169,13 @@ QuickCheck expose `frequency` and `sized` and, at the same time, give you
 user owns the distribution. If pbt hands you the distribution, it also hands
 you the tools to check it. It therefore includes an equivalent of
 QuickCheck's `cover` and `checkCoverage`. You declare that a class must make
-up at least 20% of the cases. The decision is statistical. A requirement is
-met when the 99.7% Wilson interval of the observed share lies above the
-declared share, unmet when it lies below, and undecided in between. Without
-`CheckCoverage`, `Check` logs a shortfall. With it, `Check` keeps running
+up at least 20% of the passing cases. For requirements below 100%, the
+decision is statistical: the requirement is met when the lower bound of
+the 99.7% Wilson interval reaches the declared share, unmet when the upper
+bound is below it, and undecided otherwise. A 100% requirement is met if
+every passing case hits the label and unmet if any case misses it; no
+statistical interval is used. Without `CheckCoverage`, `Check` logs a
+shortfall. With it, `Check` keeps running
 cases, up to twenty times the configured number, until every requirement is
 decided, and fails on a shortfall or on evidence that is still short. A pass
 then means that the data support the share, not that the run was short.
@@ -230,7 +233,7 @@ type Weighted[V any] struct{ Weight int; Gen Gen[V] }
 func Frequency[V any](ws ...Weighted[V]) Gen[V]          // weighted_union; weight 0 is reachable only by shrinking
 func W[V any](weight int, g Gen[V]) Weighted[V]           // a Weighted with the type inferred
 func Sized[V any](f func(size int) Gen[V]) Gen[V]        // ?SIZED
-func Resize[V any](size int, g Gen[V]) Gen[V]            // resize; size 0 gives empty collections
+func Resize[V any](size int, g Gen[V]) Gen[V]            // resize; fixes size, preserves explicit length bounds
 func Lazy[V any](f func() Gen[V]) Gen[V]                 // ?LAZY
 func ShrinkTo[V any](g Gen[V], alts ...Gen[V]) Gen[V]    // ?SHRINK
 func LetShrink[V any](parts []Gen[V], combine func([]V) V) Gen[V] // ?LETSHRINK
@@ -342,13 +345,23 @@ real results and shrinking can regenerate the sequence; `Post` receives the
 real result and the Env.
 The command generator reads the model, so the weights of a
 `Frequency` can depend on it. That matches the use of `frequency` inside
-PropEr's `command/1`. While shrinking, every deletion of a command
-re-evaluates the preconditions, and a sequence that violates one is not a
-counterexample candidate. The book's Chapter 10 depends on this: shrinking
-starts to work only once the preconditions return false. On failure, the
-runner prints the executed commands, their results, and the model state
-before the failing step. Chapter 9 writes the same by hand inside
-`?WHENFAIL`.
+PropEr's `command/1`.
+
+Chapter 10 of *PropEr Testing* explains why preconditions must reject
+invalid commands during shrinking. In pbt, deleting a command invokes the
+generator again for the following commands using the new model state.
+`Pre` filters generated candidates, including during shrinking; if the
+retry limit is reached, generation ends the sequence or discards the case
+when its minimum length has not been reached. `RunSequential` checks `Pre`
+again before each call, where a false result fails the case.
+`ParallelCommands` also uses `Pre` to drop commands from branch ends until
+every interleaving is valid. The bookstore example uses both model-aware
+choices and precondition filtering: choosing a known ISBN alone does not
+guarantee that a copy is available to borrow.
+
+On failure, the runner prints the executed commands, their results, and
+the model state before the failing step. Chapter 9 writes the same by hand
+inside `?WHENFAIL`.
 
 The stateful API has no type parameters since v0.3.0. The model and the
 system under test live in variables of the test function, the commands are
@@ -389,7 +402,7 @@ it finds before it reports it.
 | --- | --- | --- |
 | 0 | Core engine: the choice sequence with labeled spans, ChaCha8 randomness from `math/rand/v2`, the runner (count, size growth, seed), the shrinker (span deletion, zeroing, binary search on single values, redistribution between neighbors, replacement by a descendant span), panic recovery, the minimal counterexample reported as labeled draws, saving to `testdata/pbt/` and automatic replay | rapid's public tests, ported, shrink to counterexamples at least as small |
 | 1 | The full generator set (matching PropEr's `proper_types`), function generation, property combinators, statistics output and distribution checks, shrinking control (`ShrinkTo`, `ShrinkToward`, `LetShrink`, `NoShrink`, `SampleShrink`) | Every example and exercise of Chapters 1 to 8 of the book is ported |
-| 2 | Sequential stateful testing, symbolic variables, `Setup`, precondition re-evaluation while shrinking, history output, the `fsm` package | The sequential cache of Chapter 9, the bookstore of Chapter 10 and the circuit breaker of Chapter 11 are ported |
+| 2 | Sequential stateful testing, symbolic variables, `Setup`, command regeneration and precondition filtering while shrinking, history output, the `fsm` package | The sequential cache of Chapter 9, the bookstore of Chapter 10 and the circuit breaker of Chapter 11 are ported |
 | 3 | Parallel command testing (interleaving check), combined with the race detector and `testing/synctest` | The race planted in the cache of Chapter 9 is detected |
 | 4 | Targeted PBT, existential properties | The targeted PBT examples in the PropEr documentation are ported (the online edition of the book has no chapter on them) |
 | 5 | Generators derived from types (`Make[T]` through reflection, constraints in struct tags, code generation with `go/types` under `go generate`), checking functions against specs | Generators for structs with recursive types are derived automatically |
@@ -455,7 +468,7 @@ each chapter.
 | 7 | Layered `?LET` (price list, then items and the expected total), `elements(PriceList)`, `?SIZED` recursion, `collect` buckets, negative tests (a result or a specific error), generating duplicates (`vector(length+1, elements)`), the discovery that 92% of the runs had invalid input | `Bind`, statistics, `Cover` | Phase 1. Errors are Go `error` values; `Recover` turns a panic into a value |
 | 8 | Re-centering with `?SHRINK` (years to 1970, time-zone minutes to 0, 15, 30, 45), `?LETSHRINK` (tree to subtree, `A ++ B ++ C`, the meal of Q3, independent shrinking in the checkout of Q4), `sampleshrink` | Shrinking control and observation | Phase 1. `ShrinkTo`, `ShrinkToward`, `LetShrink`, `SampleShrink` |
 | 9 | The statem callbacks, the cache model, history and state in `?WHENFAIL`, `aggregate(command_names)`, an injected bug, `parallel_commands`, exposing a race with `erlang:yield()`, `+T9` | `Command`, history output, command-name statistics, parallel execution with an interleaving check | Phases 2 and 3. `runtime.Gosched()` together with `-race` |
-| 10 | The bookstore on PostgreSQL, ISBN generators, `friendly_unicode`, intent labels through a shim (`new`, `exists`, `avail`), `partial/1`, preconditions that return false so that shrinking works, `--start_size`, where to start and stop the system (Q3), the caveat of using real results in `next_state` (Q4) | Precondition re-evaluation while shrinking, `Setup`, `Var`, `-pbt.startsize` | Phase 2. The shim labels become part of the command name and show up in the statistics |
+| 10 | The bookstore on PostgreSQL, ISBN generators, `friendly_unicode`, intent labels through a shim (`new`, `exists`, `avail`), `partial/1`, preconditions that return false so that shrinking works, `--start_size`, where to start and stop the system (Q3), the caveat of using real results in `next_state` (Q4) | Command regeneration and precondition filtering while shrinking, `Setup`, `Var`, `-pbt.startsize` | Phase 2. The shim labels become part of the command name and show up in the statistics |
 | 11 | `proper_fsm`: state names, `weight/3`, `precondition/4`, `postcondition/5`, `next_state_data/5`, statistics by `state_names`, `?TRAPEXIT`, the circuit breaker (ok, tripped, blocked) and the model fixes | The `fsm` package | Phase 2 |
 
 Some Erlang-specific constructs take a different form in Go.

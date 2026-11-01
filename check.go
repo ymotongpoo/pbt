@@ -125,6 +125,8 @@ func Setup(f func(t *T) (teardown func())) Option { return func(c *config) { c.s
 // share of every label is decided with 99.7% confidence, and fails when a
 // share falls short or is still undecided at that point. Without the option
 // Check only logs a shortfall.
+// A 100% requirement is checked directly: every passing case must hit the
+// label, and one miss makes the requirement unmet.
 func CheckCoverage() Option { return func(c *config) { c.checkCover = true } }
 
 // coverCases bounds how many times the configured number of checks a run

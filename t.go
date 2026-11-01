@@ -491,9 +491,12 @@ func (t *T) OnFail(f func()) { t.onFail = append(t.onFail, f) }
 
 // Collect records v for the statistics that Check prints when the property
 // passes, as PropEr's collect/2 does. Values are grouped by their %v text.
+// Every call counts, including repeated labels within a case, so the share
+// relative to passing cases can exceed 100%.
 func (t *T) Collect(v any) { t.labels = append(t.labels, fmt.Sprint(v)) }
 
 // Classify records label when cond holds, as PropEr's classify/3 does.
+// Each true call counts, including repeated labels within a case; see Collect.
 func (t *T) Classify(cond bool, label string) {
 	if cond {
 		t.labels = append(t.labels, label)
@@ -521,6 +524,8 @@ func (t *T) Measure(name string, value float64) {
 // observed share falls short of pct with 99.7% confidence; with the
 // CheckCoverage option it keeps running cases until the share is decided
 // either way, and fails on a shortfall or when the evidence stays short.
+// A 100% requirement is checked without a statistical interval: it is met
+// only if every passing case hits the label.
 // pct must lie in (0, 100].
 func (t *T) Cover(cond bool, pct float64, label string) {
 	if !(pct > 0 && pct <= 100) {

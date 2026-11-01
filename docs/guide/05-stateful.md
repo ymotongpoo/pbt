@@ -20,7 +20,7 @@ The model and the system are variables of the property, and the commands are clo
 A command is a `pbt.Command` value, a struct of functions.
 
 - `Name` and `Args` are what the report prints. Put the arguments of the call in `Args`, with the `Var` of a result where the call uses one, so that the report reads like a program.
-- `Pre` says whether the command is allowed in the current state of the model. It is checked when the sequence is generated and again when a shrunk sequence is replayed, so a command whose precondition fails after another command was removed is not a candidate.
+- `Pre` says whether the command is allowed in the current state of the model. It is checked whenever a command is generated, and a command that fails it is drawn again. Shrinking also generates commands: removing a command regenerates the ones after it from the new state. If no allowed command is found within the retry limit, the sequence ends, or the case is discarded if its minimum length has not been reached. `RunSequential` checks `Pre` once more before each call; a false result fails the case and usually means that the model was not reset or was changed outside `init` and `Next`.
 - `Run` performs the call against the system. The `Env` maps every `Var` to the value its command returned, and `pbt.Resolve[T]` reads one with a type.
 - `Next` updates the model for the command. It receives the result as a `Var`, during generation and during execution alike, which keeps the model free of real values and lets the shrinker regenerate the sequence.
 - `Post` checks the real result against the model state before the command. It runs during execution only.
@@ -51,11 +51,11 @@ The report shows the program, the history of the run and the model state before 
 [pbt] reproduce: go test -run 'TestQueue' -pbt.seed=0x1
 ```
 
-The first failing sequence had several issues and closes. The shrinker removed commands one by one, re-checking the preconditions each time, until three remained: the shortest program that shows the leak. The failure is keyed by the check and the command, "postcondition of open", so shrinking does not trade it for a different failure.
+The first failing sequence had several issues and closes. The shrinker removed commands one by one, regenerating the following commands from the new model state and checking their preconditions, until three remained: the shortest program that shows the leak. The failure is keyed by the check and the command, "postcondition of open", so shrinking does not trade it for a different failure.
 
 ## Writing good models
 
 - Change the model only in `init` and `Next`; `Pre`, `Post` and `gen` read it. pbt replays a sequence by calling `init` and then the `Next` of every command, so a change made anywhere else is lost on the replay, and a value that `init` forgets to reset leaks from one case into the next.
 - Keep the model simpler than the system. The point is to state what the system should do in terms you can check, not to reimplement it.
-- Choose commands from the state rather than rejecting them with `Pre` alone. A precondition that fails often wastes generated commands; a generator that offers the right commands for a state wastes none. Keep `Pre` as the guard that shrinking needs.
+- Choose commands from the state rather than rejecting them with `Pre` alone. A precondition that fails often wastes generated commands; a generator that offers the right commands for a state wastes none. Still state the condition in `Pre`. If the generator produces only commands that satisfy it in the current model state, `Pre` rejects nothing during sequential generation, including shrinking. It filters candidates from generators that do not enforce the condition, and `ParallelCommands` uses it to drop commands from branch ends until every interleaving satisfies the preconditions.
 - Watch the statistics. `RunSequential` records every command name, so a passing run shows whether the mix of commands is the one you intended.

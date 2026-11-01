@@ -19,7 +19,7 @@ The check keeps the order of the calls within each branch and tries every order 
 
 Three consequences follow for how you write the commands.
 
-- Every command must return a value that a postcondition can check. A command that returns nothing gives the check nothing to explain.
+- The effect of an update must be observable: through its return value, through a later query, or through a separate check after `RunParallel`. A single command may return nothing and leave `Post` nil: that postcondition accepts the result, and pbt uses `Next` to replay the model along candidate orders. Without observations or additional checks, the interleaving check cannot detect a normally returning update that has the wrong effect.
 - A branch cannot depend on the results of another branch, since neither has run when the program is generated. Each branch resolves its own `Var` values and those of the prefix.
 - The `Run` functions of the branches execute concurrently, so they must not touch the model. `Pre`, `Post` and `Next` run afterwards on the test's goroutine, while pbt replays the model along each candidate order.
 

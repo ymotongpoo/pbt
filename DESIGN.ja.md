@@ -121,9 +121,10 @@ pbtはこの方針を採りません。
 PropErとQuickCheckが `frequency` と `sized` を公開し、同時に `collect` や `classify` で分布を観察する手段を用意しているのは、分布の責任をユーザーが持つという前提の表れです。
 分布を渡す以上、それを確かめる手段も渡します。
 QuickCheckの `cover` と `checkCoverage` に相当する機能も含めます。
-「この分類が全体の20%以上を占める」と宣言する機能です。
-判定は統計的に行います。
-観測した割合の99.7%Wilson区間が宣言した割合を上回れば充足、下回れば不足、またがっていれば未決です。
+「この分類が通過したケース全体の20%以上を占める」と宣言する機能です。
+100%未満の要求は統計的に判定します。
+観測した割合の99.7%Wilson区間の下限が宣言した割合以上なら充足、上限が宣言した割合未満なら不足、それ以外は未決です。
+100%の要求は統計的な区間を使わず、通過したすべてのケースでそのラベルに該当すれば充足、1ケースでも該当しなければ不足です。
 `CheckCoverage` を付けない場合、`Check` は不足をログに出すだけです。
 付けた場合は、すべての宣言が決まるまで、設定した回数の20倍を上限にテストケースを走らせ続け、不足のときも証拠が足りないままのときも失敗にします。
 通過したなら、実行が短かったからではなく、データがその割合を裏付けたことになります。
@@ -178,7 +179,7 @@ type Weighted[V any] struct{ Weight int; Gen Gen[V] }
 func Frequency[V any](ws ...Weighted[V]) Gen[V]          // weighted_union。重み0は縮小でのみ到達する
 func W[V any](weight int, g Gen[V]) Weighted[V]           // 型を推論させる Weighted
 func Sized[V any](f func(size int) Gen[V]) Gen[V]        // ?SIZED
-func Resize[V any](size int, g Gen[V]) Gen[V]            // resize。サイズ0ではコレクションが空になる
+func Resize[V any](size int, g Gen[V]) Gen[V]            // resize。サイズを固定し、明示した長さの制約は保つ
 func Lazy[V any](f func() Gen[V]) Gen[V]                 // ?LAZY
 func ShrinkTo[V any](g Gen[V], alts ...Gen[V]) Gen[V]    // ?SHRINK
 func LetShrink[V any](parts []Gen[V], combine func([]V) V) Gen[V] // ?LETSHRINK
@@ -279,8 +280,15 @@ Goでも同じく、`Var` と、実行時に値を引く環境 `Env` の組で�
 `Post` は実際の結果と `Env` を受け取ります。
 コマンドの生成器はモデルを読むので、`Frequency` の重みを状態に応じて変えられます。
 PropErの `command/1` の中で `frequency` を使う書き方に対応します。
-縮小中はコマンドを削除するたびに事前条件を再評価し、満たさない列は反例の候補から外します。
-本書10章がこの性質に依存しています。事前条件が偽を返すようにして初めて縮小が成立する場面があるためです。
+
+『PropEr Testing』の第10章では、縮小時に不正なコマンドを事前条件で拒否する必要性を説明しています。
+pbtでは、コマンドを削除すると、新しいモデル状態を使って後続のコマンドの生成器を呼び直します。
+`Pre` は縮小中も生成された候補を絞り込み、試行回数の上限に達すれば列を終了し、最小の長さに達していない場合はケースを破棄します。
+`RunSequential` は各呼び出しの前に `Pre` を再検査し、偽ならケースを失敗にします。
+`ParallelCommands` も `Pre` を使い、すべての交互配置が有効になるまで枝の末尾からコマンドを取り除きます。
+書店の例は、モデルに基づく選択と事前条件による絞り込みを併用しています。
+既知のISBNを選ぶだけでは、貸し出せる在庫があるとは限らないためです。
+
 失敗時には、実行したコマンドと結果、失敗したステップの前のモデル状態を実行器が表示します。
 本書9章で `?WHENFAIL` の中に手で書いている内容と同じものです。
 
@@ -314,7 +322,7 @@ PropErの標的型PBTは、値に対する近傍関数を使う焼きなまし�
 | --- | --- | --- |
 | 0 | 中核エンジン。ラベル付き区間を持つ選択列、`math/rand/v2` の ChaCha8 による乱数、実行器（回数、サイズの増加、シード）、縮小器（区間の削除、ゼロ化、個別の値の二分探索、隣接する値の再配分、子孫区間への置換）、panicの回収、ラベル付きの Draw 列としての最小反例の報告、`testdata/pbt/` への保存と自動再実行 | rapidの公開テストを移植し、同等以上に小さい反例へ縮小できる |
 | 1 | 生成器一式（PropErの `proper_types` に対応）、関数の生成、プロパティの合成、統計の出力と分布の検証、縮小の制御（`ShrinkTo`、`ShrinkToward`、`LetShrink`、`NoShrink`、`SampleShrink`） | 本書1章から8章の例題と演習がすべて移植できる |
-| 2 | ステートフルテスト（逐次）、シンボリック変数、`Setup`、縮小中の事前条件の再評価、履歴の表示、`fsm` パッケージ | 本書9章の逐次キャッシュ、10章の書店、11章のサーキットブレーカーが移植できる |
+| 2 | ステートフルテスト（逐次）、シンボリック変数、`Setup`、縮小中のコマンドの再生成と事前条件による絞り込み、履歴の表示、`fsm` パッケージ | 本書9章の逐次キャッシュ、10章の書店、11章のサーキットブレーカーが移植できる |
 | 3 | 並行コマンドテスト（交互配置の検査）。レースディテクターと `testing/synctest` との併用 | 本書9章のキャッシュに仕込んだ競合が検出される |
 | 4 | 標的型PBT、存在性プロパティ | PropErのドキュメントにある標的型PBTの例を移植できる（本書のオンライン版にこの章はない） |
 | 5 | 型からの導出（リフレクションによる `Make[T]`、構造体タグによる制約、`go/types` を使った `go generate` でのコード生成）、関数仕様の検査 | 再帰型を含む構造体の生成器が自動で得られる |
@@ -363,7 +371,7 @@ Go固有の機能で、PropErやQuickCheckにはない形で使えるものを�
 | 7 | 段階的な `?LET`（価格表から商品列と期待値へ）、`elements(PriceList)`、`?SIZED` の再帰、`collect` のバケット、負のテスト（結果か特定のエラーか）、重複の生成（`vector(length+1, elements)`）、92%の実行が無効な入力だったという発見 | `Bind`、統計、`Cover` | 第1フェーズ。エラーはGoの `error` 値で受け、panicは `Recover` で値にする |
 | 8 | `?SHRINK` による再中心化（年を1970年へ、タイムゾーンの分を0、15、30、45へ）、`?LETSHRINK`（木から部分木へ、`A ++ B ++ C`、演習Q3の meal、演習Q4の checkout の独立した縮小）、`sampleshrink` | 縮小の制御と観察 | 第1フェーズ。`ShrinkTo`、`ShrinkToward`、`LetShrink`、`SampleShrink` |
 | 9 | statem のコールバック、キャッシュのモデル、`?WHENFAIL` での履歴と状態の表示、`aggregate(command_names)`、バグの注入、`parallel_commands`、`erlang:yield()` による競合の顕在化、`+T9` | `Command`、履歴の表示、コマンド名の統計、並行実行と交互配置の検査 | 第2フェーズと第3フェーズ。`runtime.Gosched()` と `-race` を併用する |
-| 10 | PostgreSQLの書店、ISBNの生成器、`friendly_unicode`、shimによる意図のラベル（`new`、`exists`、`avail`）、`partial/1`、事前条件が偽を返して縮小が成立する場面、`--start_size`、起動と停止の配置（演習Q3）、実結果を `next_state` で使う注意（演習Q4） | 縮小中の事前条件の再評価、`Setup`、`Var`、`-pbt.startsize` | 第2フェーズ。shimのラベルはコマンド名に含めて統計に出す |
+| 10 | PostgreSQLの書店、ISBNの生成器、`friendly_unicode`、shimによる意図のラベル（`new`、`exists`、`avail`）、`partial/1`、事前条件が偽を返して縮小が成立する場面、`--start_size`、起動と停止の配置（演習Q3）、実結果を `next_state` で使う注意（演習Q4） | 縮小中のコマンドの再生成と事前条件による絞り込み、`Setup`、`Var`、`-pbt.startsize` | 第2フェーズ。shimのラベルはコマンド名に含めて統計に出す |
 | 11 | `proper_fsm` の状態名、`weight/3`、`precondition/4`、`postcondition/5`、`next_state_data/5`、`state_names` による統計、`?TRAPEXIT`、サーキットブレーカー（ok、tripped、blocked）とモデルの修正 | `fsm` パッケージ | 第2フェーズ |
 
 Erlang固有で、Goでは別の形になるものを挙げます。
