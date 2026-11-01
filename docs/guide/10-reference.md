@@ -1,5 +1,5 @@
 # Where to go next
-<!-- summary: The examples that port the PropEr Testing book, the practical examples, the migration guide for rapid users, the reference material and the flags at a glance. -->
+<!-- summary: The examples that port the PropEr Testing book, the practical examples, the examples of the book on discovering properties, the migration guide for rapid users, the reference material and the flags at a glance. -->
 
 ## The examples
 
@@ -31,6 +31,12 @@ The `examples/practical` directory tests small but realistic systems the way a p
 | `ledger` | transfers between accounts | a model next to an audit that checks only the invariants, an overdraft race caught in parallel |
 
 Run `go test -v -run Caught ./practical/...` inside `examples` to read the reports of the planted bugs. The README of the directory describes the patterns the examples share.
+
+## The examples of the discovery guide
+
+The directory [examples/discovery](https://github.com/ymotongpoo/pbt/tree/main/examples/discovery) holds the Go examples of the Japanese book 『プロパティはどう思いつくのか　プロパティベーステスト発見ガイド』 by Yoshi Yamaguchi. Where the guide explains what each function of pbt does, the book is about finding the properties to write: it derives them from a specification, chapter by chapter, from example tests and algebraic laws to state machines, concurrency and the statistics of a run. Each property is checked against planted bugs.
+
+A test whose name ends in `Mutant` runs a property against a planted bug and is supposed to fail, so it skips itself unless `PBT_MUTANTS` is set. Run `go test -race ./discovery/...` inside `examples` for the ordinary tests, and `./discovery/run_mutants.sh` to check that every planted bug is caught. The README of the directory lists the chapters.
 
 ## Coming from rapid
 

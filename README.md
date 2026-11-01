@@ -12,7 +12,9 @@ comparison with rapid, PropEr and QuickCheck, and the plan are in
 The `examples/` module ports every chapter of the book *PropEr Testing*
 by Fred Hebert, which is the acceptance test of the design, and its
 `practical` directory tests an HTTP API, a job queue, a rate limiter, a
-session store and a ledger the way a project would. The
+session store and a ledger the way a project would; its `discovery`
+directory holds the Go examples of the Japanese book on discovering
+properties, 『プロパティはどう思いつくのか』. The
 [user guide](https://go.ymotongpoo.com/pbt/guide/) explains the library
 chapter by chapter, with a [Japanese version](https://go.ymotongpoo.com/pbt/guide/ja/);
 its sources are under `docs/guide`. Coding agents start from

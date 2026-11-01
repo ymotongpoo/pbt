@@ -15,7 +15,10 @@ the Markdown version of every guide page.
   run as tests).
 - `examples/` is a separate module. `chNN*` ports the chapters of the book
   *PropEr Testing*; `practical/` tests realistic systems (an HTTP API, a job
-  queue, a rate limiter, a session store, a ledger); `internal/expect` runs
+  queue, a rate limiter, a session store, a ledger); `discovery` holds the
+  Go examples of the Japanese book 『プロパティはどう思いつくのか』, whose
+  tests named `...Mutant` must fail and skip unless `PBT_MUTANTS` is set,
+  checked by `discovery/run_mutants.sh`; `internal/expect` runs
   a property that must fail and returns its report, which is how the tests
   show a planted bug without failing the suite; `internal/clock` is a fake
   clock.
