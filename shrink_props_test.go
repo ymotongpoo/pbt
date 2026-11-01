@@ -73,7 +73,7 @@ var shrinkCases = []shrinkCase{
 	}},
 	{"commands", func(t *T) {
 		n := 0
-		Commands(func() { n = 0 }, func() Gen[Command] {
+		Commands(func() { n = 0 }, func() CommandGen {
 			return Map(IntRange(-5, 5), func(d int) Command {
 				return Command{Name: "add", Args: []any{d}, Next: func(Var) { n += d }}
 			})

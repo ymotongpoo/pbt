@@ -47,10 +47,10 @@ func ExampleCommands() {
 				return nil
 			}
 		}
-		open := func(want error) pbt.Gen[pbt.Command] {
+		open := func(want error) pbt.CommandGen {
 			return pbt.Just(pbt.Command{Name: "open", Run: func(pbt.Env) any { return d.Open() }, Post: expect(want)})
 		}
-		closeDoor := func(want error) pbt.Gen[pbt.Command] {
+		closeDoor := func(want error) pbt.CommandGen {
 			return pbt.Just(pbt.Command{Name: "close", Run: func(pbt.Env) any { return d.Close() }, Post: expect(want)})
 		}
 		transitions := func(state string) []fsm.Transition {

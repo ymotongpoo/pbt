@@ -40,7 +40,7 @@ func TestParallelBranchesResolveTheirOwnVars(t *testing.T) {
 				return ids
 			},
 			Next: func(v Var) { vars = append(vars, v) }})
-		gen := func() Gen[Command] {
+		gen := func() CommandGen {
 			if len(vars) == 0 {
 				return register
 			}
@@ -72,7 +72,7 @@ func TestParallelDiscardIsRaisedOnTheMainGoroutine(t *testing.T) {
 		Run: func(Env) any { panic(discardTest{reason: "not applicable"}) }})
 	cfg, _ := newConfig([]Option{Seed(1), Checks(5), NoSave()})
 	r := &runner{tb: t, prop: func(t *T) {
-		prog := ParallelCommands(nil, func() Gen[Command] { return skip }, Branches(2, 2)).Draw(t, "cmds")
+		prog := ParallelCommands(nil, func() CommandGen { return skip }, Branches(2, 2)).Draw(t, "cmds")
 		prog.RunParallel(t)
 	}, cfg: cfg}
 	if _, _, err := r.search(); err == nil || !strings.Contains(err.Error(), "discarded") {
@@ -195,7 +195,7 @@ func TestUninitializedCommandGeneratorIsRejected(t *testing.T) {
 			t.Errorf("got %v", rec)
 		}
 	}()
-	Commands(nil, func() Gen[Command] { return Gen[Command]{} }).Example(1)
+	Commands(nil, func() CommandGen { return CommandGen{} }).Example(1)
 }
 
 func TestAsAnyWidens(t *testing.T) {

@@ -126,7 +126,7 @@ func TestStatefulFailuresHaveTheirOwnIdentity(t *testing.T) {
 		// once two increments ran: the panic needs a shorter prefix than the
 		// postcondition failure, so a shrinker without identity would trade
 		// one for the other.
-		gen := func() Gen[Command] {
+		gen := func() CommandGen {
 			if m >= 2 {
 				return OneOf(inc, boom)
 			}

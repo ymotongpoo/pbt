@@ -46,7 +46,7 @@ func counterProgram(c **counter) Gen[ParallelProgram] {
 			}
 			return nil
 		}})
-	return ParallelCommands(func() { n = 0 }, func() Gen[Command] { return inc })
+	return ParallelCommands(func() { n = 0 }, func() CommandGen { return inc })
 }
 
 func counterProperty(racy bool) Property {
@@ -82,7 +82,7 @@ func TestParallelRaceIsCaught(t *testing.T) {
 func TestParallelBranchesStayInterleavable(t *testing.T) {
 	Check(t, func(t *T) {
 		open := false
-		gen := func() Gen[Command] {
+		gen := func() CommandGen {
 			if open {
 				return Just(Command{Name: "close",
 					Pre:  func() bool { return open },
@@ -112,7 +112,7 @@ func TestParallelBranchesStayInterleavable(t *testing.T) {
 func TestBranchesOptionShapesTheProgram(t *testing.T) {
 	step := Just(Command{Name: "step"})
 	Check(t, func(t *T) {
-		prog := ParallelCommands(nil, func() Gen[Command] { return step }, Branches(3, 2), Length(0, 1)).Draw(t, "cmds")
+		prog := ParallelCommands(nil, func() CommandGen { return step }, Branches(3, 2), Length(0, 1)).Draw(t, "cmds")
 		if len(prog.Branches()) != 3 || len(prog.Prefix()) > 1 {
 			t.Fatalf("got %d branches after a prefix of %d", len(prog.Branches()), len(prog.Prefix()))
 		}
@@ -128,7 +128,7 @@ func TestBranchesOptionShapesTheProgram(t *testing.T) {
 			t.Errorf("message %q", msg)
 		}
 	}()
-	ParallelCommands(nil, func() Gen[Command] { return step }, Branches(4, 1))
+	ParallelCommands(nil, func() CommandGen { return step }, Branches(4, 1))
 }
 
 func TestParallelProgramString(t *testing.T) {

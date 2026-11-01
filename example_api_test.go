@@ -123,7 +123,7 @@ func ExampleCommands() {
 			Run:  func(pbt.Env) any { counter = 0; return nil },
 			Next: func(pbt.Var) { model = 0 },
 		})
-		commands := func() pbt.Gen[pbt.Command] {
+		commands := func() pbt.CommandGen {
 			return pbt.Frequency(pbt.W(3, increment), pbt.W(1, reset))
 		}
 		prog := pbt.Commands(func() { model = 0 }, commands).Draw(t, "cmds")
@@ -145,7 +145,7 @@ func ExampleResolve() {
 				Next: func(v pbt.Var) { ids = append(ids, v) },
 			}
 		})
-		lookup := func() pbt.Gen[pbt.Command] {
+		lookup := func() pbt.CommandGen {
 			return pbt.Map(pbt.SampledFrom(ids), func(v pbt.Var) pbt.Command {
 				return pbt.Command{
 					Name: "lookup", Args: []any{v},
@@ -159,7 +159,7 @@ func ExampleResolve() {
 				}
 			})
 		}
-		commands := func() pbt.Gen[pbt.Command] {
+		commands := func() pbt.CommandGen {
 			if len(ids) == 0 {
 				return register
 			}
@@ -198,7 +198,7 @@ func ExampleParallelCommands() {
 				return nil
 			},
 		})
-		commands := func() pbt.Gen[pbt.Command] { return increment }
+		commands := func() pbt.CommandGen { return increment }
 		prog := pbt.ParallelCommands(func() { model = 0 }, commands).Draw(t, "cmds")
 		prog.RunParallel(t)
 	})

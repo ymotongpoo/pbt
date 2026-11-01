@@ -57,7 +57,7 @@ func cacheProperty(modelSize, realSize int) Property {
 	val := Int()
 	return func(t *T) {
 		var m, c cache
-		commands := func() Gen[Command] {
+		commands := func() CommandGen {
 			return Frequency(
 				W(1, Map(key, func(k int) Command {
 					return Command{Name: "find", Args: []any{k},
@@ -171,7 +171,7 @@ func registryProperty(buggy bool) Property {
 				Run:  func(Env) any { return r.register(name) },
 				Next: func(v Var) { known[v] = regEntry{name, true} }}
 		})
-		commands := func() Gen[Command] {
+		commands := func() CommandGen {
 			vs := vars()
 			if len(vs) == 0 {
 				return register
@@ -230,7 +230,7 @@ func TestRegistryBugIsCaughtThroughVars(t *testing.T) {
 func TestNoCommandsEndsTheSequence(t *testing.T) {
 	Check(t, func(t *T) {
 		n := 0
-		gen := func() Gen[Command] {
+		gen := func() CommandGen {
 			if n >= 2 {
 				return NoCommands()
 			}
@@ -247,7 +247,7 @@ func TestNoCommandsEndsTheSequence(t *testing.T) {
 func TestLengthBoundsTheSequence(t *testing.T) {
 	step := Just(Command{Name: "step"})
 	Check(t, func(t *T) {
-		prog := Commands(nil, func() Gen[Command] { return step }, Length(2, 4)).Draw(t, "cmds")
+		prog := Commands(nil, func() CommandGen { return step }, Length(2, 4)).Draw(t, "cmds")
 		if prog.Len() < 2 || prog.Len() > 4 {
 			t.Fatalf("%d commands", prog.Len())
 		}
@@ -256,7 +256,7 @@ func TestLengthBoundsTheSequence(t *testing.T) {
 
 func TestCommandPanicIsReported(t *testing.T) {
 	c := counterexample(t, func(t *T) {
-		prog := Commands(nil, func() Gen[Command] {
+		prog := Commands(nil, func() CommandGen {
 			return Map(IntRange(0, 10), func(n int) Command {
 				return Command{Name: "boom", Args: []any{n}, Run: func(Env) any {
 					if n > 5 {
@@ -280,7 +280,7 @@ func TestCommandPanicIsReported(t *testing.T) {
 func TestInitRunsBeforeEveryReplay(t *testing.T) {
 	Check(t, func(t *T) {
 		inits, n := 0, 0
-		gen := func() Gen[Command] { return Just(Command{Name: "step", Next: func(Var) { n++ }}) }
+		gen := func() CommandGen { return Just(Command{Name: "step", Next: func(Var) { n++ }}) }
 		prog := Commands(func() { inits++; n = 0 }, gen).Draw(t, "cmds")
 		if n != prog.Len() {
 			t.Fatalf("the model counts %d steps after generating %d", n, prog.Len())
