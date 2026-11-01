@@ -63,7 +63,7 @@ func queueProperty(newQueue func() ticketQueue) pbt.Property {
 			Run:  func(pbt.Env) any { return q.Issue() },
 			Next: func(v pbt.Var) { open = append(open, v) },
 		})
-		closeTicket := func() pbt.Gen[pbt.Command] {
+		closeTicket := func() pbt.CommandGen {
 			return pbt.Map(pbt.SampledFrom(open), func(v pbt.Var) pbt.Command {
 				return pbt.Command{
 					Name: "close", Args: []any{v},
@@ -91,7 +91,7 @@ func queueProperty(newQueue func() ticketQueue) pbt.Property {
 		})
 		// commands chooses the next command from the model: close is only
 		// offered while a ticket is open.
-		commands := func() pbt.Gen[pbt.Command] {
+		commands := func() pbt.CommandGen {
 			if len(open) == 0 {
 				return pbt.OneOf(issue, count)
 			}

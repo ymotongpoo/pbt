@@ -46,7 +46,7 @@ func accountProperty(t *pbt.T) {
 			return nil
 		}
 	}
-	command := func(name string, call func() error, want error) pbt.Gen[pbt.Command] {
+	command := func(name string, call func() error, want error) pbt.CommandGen {
 		return pbt.Just(pbt.Command{Name: name, Run: func(pbt.Env) any { return call() }, Post: expect(want)})
 	}
 	transitions := func(state string) []fsm.Transition {

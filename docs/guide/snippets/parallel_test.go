@@ -44,7 +44,7 @@ func TestCounterParallel(t *testing.T) {
 				},
 			}
 		})
-		commands := func() pbt.Gen[pbt.Command] { return add }
+		commands := func() pbt.CommandGen { return add }
 		prog := pbt.ParallelCommands(func() { n = 0 }, commands).Draw(t, "cmds")
 		prog.RunParallel(t)
 	})
