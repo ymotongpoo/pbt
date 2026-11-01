@@ -5,6 +5,17 @@ The notable changes of pbt are recorded here. The format follows
 [Semantic Versioning](https://semver.org/) with a major version of 0, so a
 minor version may change the API.
 
+## 0.3.3 - 2026-11-01
+
+### Fixed
+
+- `Float64Range` and `Float32Range` stay within their bounds when the
+  whole range lies beyond ±2^53, such as `Float64Range(1e308,
+  math.MaxFloat64)`. The bounds were converted to `int64` before they were
+  clipped, which is implementation-defined for values outside the `int64`
+  range, so on amd64 the integral form could draw values such as 0. Other
+  ranges generate the same values for an existing seed as before.
+
 ## 0.3.2 - 2026-11-01
 
 ### Fixed
