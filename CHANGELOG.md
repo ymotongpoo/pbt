@@ -5,6 +5,24 @@ The notable changes of pbt are recorded here. The format follows
 [Semantic Versioning](https://semver.org/) with a major version of 0, so a
 minor version may change the API.
 
+## 0.3.2 - 2026-11-01
+
+### Fixed
+
+- `Conjunction` preserves an earlier failure when a later sub-property
+  discards the case.
+- Cleanup callbacks cannot replace a panic from the property with a
+  discard or another panic. All callbacks still run, and a cleanup failure
+  takes precedence over a discard.
+- Wide integer generation uses value bits independent of the width
+  selector, restoring access to previously unreachable high-bit patterns.
+  This changes some generated cases for an existing seed; saved choice
+  sequences still replay as before.
+- `NoShrink` validates protected draws after replay, so deleting choices
+  cannot change a retained value. Collections can still drop protected
+  elements.
+- `Rune` includes the maximum Unicode scalar value, `U+10FFFF`.
+
 ## 0.3.1 - 2026-11-01
 
 ### Added
