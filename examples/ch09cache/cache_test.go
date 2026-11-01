@@ -60,7 +60,7 @@ var (
 	val = pbt.Int()
 )
 
-func (h *harness) commands() pbt.Gen[pbt.Command] {
+func (h *harness) commands() pbt.CommandGen {
 	return pbt.Frequency(
 		pbt.W(1, pbt.Map(key, func(k int) pbt.Command {
 			return pbt.Command{Name: "find", Args: []any{k},

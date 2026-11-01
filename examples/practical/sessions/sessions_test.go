@@ -57,7 +57,7 @@ func expectErr(name string, want error) func(pbt.Env, any) error {
 	}
 }
 
-func (h *harness) login() pbt.Gen[pbt.Command] {
+func (h *harness) login() pbt.CommandGen {
 	return pbt.Map(pbt.SampledFrom(users), func(u string) pbt.Command {
 		return pbt.Command{Name: "login", Args: []any{u},
 			Run:  func(pbt.Env) any { return h.store.Login(u) },
@@ -66,13 +66,13 @@ func (h *harness) login() pbt.Gen[pbt.Command] {
 }
 
 // useUnknown presents a token the store never issued.
-func (h *harness) useUnknown() pbt.Gen[pbt.Command] {
+func (h *harness) useUnknown() pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: "use", Args: []any{"bogus"},
 		Run:  func(pbt.Env) any { _, err := h.store.Use("bogus"); return err },
 		Post: expectErr("use", ErrUnknown)})
 }
 
-func (h *harness) use(want error) pbt.Gen[pbt.Command] {
+func (h *harness) use(want error) pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: "use", Args: []any{h.token},
 		Run: func(env pbt.Env) any {
 			user, err := h.store.Use(pbt.Resolve[Token](env, h.token))
@@ -87,7 +87,7 @@ func (h *harness) use(want error) pbt.Gen[pbt.Command] {
 		}})
 }
 
-func (h *harness) refresh(want error) pbt.Gen[pbt.Command] {
+func (h *harness) refresh(want error) pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: "refresh", Args: []any{h.token},
 		Run: func(env pbt.Env) any { return h.store.Refresh(pbt.Resolve[Token](env, h.token)) },
 		Next: func(pbt.Var) {
@@ -98,14 +98,14 @@ func (h *harness) refresh(want error) pbt.Gen[pbt.Command] {
 		Post: expectErr("refresh", want)})
 }
 
-func (h *harness) logout(want error) pbt.Gen[pbt.Command] {
+func (h *harness) logout(want error) pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: "logout", Args: []any{h.token},
 		Run:  func(env pbt.Env) any { return h.store.Logout(pbt.Resolve[Token](env, h.token)) },
 		Post: expectErr("logout", want)})
 }
 
 // wait advances the clock by a whole number of minutes between lo and hi.
-func (h *harness) wait(lo, hi time.Duration) pbt.Gen[pbt.Command] {
+func (h *harness) wait(lo, hi time.Duration) pbt.CommandGen {
 	return pbt.Map(pbt.IntRange(int(lo/time.Minute), int(hi/time.Minute)), func(mins int) pbt.Command {
 		d := time.Duration(mins) * time.Minute
 		return pbt.Command{Name: "wait", Args: []any{d.String()},

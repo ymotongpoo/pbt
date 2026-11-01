@@ -64,7 +64,7 @@ var (
 	amount = pbt.IntRange(1, opening+opening/2)
 )
 
-func (h *harness) transfer() pbt.Gen[pbt.Command] {
+func (h *harness) transfer() pbt.CommandGen {
 	return pbt.Custom("transfer", func(t *pbt.T) pbt.Command {
 		from, to := account.Draw(t, "from"), account.Draw(t, "to")
 		n := amount.Draw(t, "amount")
@@ -86,7 +86,7 @@ func (h *harness) transfer() pbt.Gen[pbt.Command] {
 	})
 }
 
-func (h *harness) query() pbt.Gen[pbt.Command] {
+func (h *harness) query() pbt.CommandGen {
 	return pbt.Map(account, func(name string) pbt.Command {
 		return pbt.Command{Name: "balance", Args: []any{name},
 			Run: func(pbt.Env) any { bal, err := h.ledger.Balance(name); return balance{bal, err} },
@@ -99,7 +99,7 @@ func (h *harness) query() pbt.Gen[pbt.Command] {
 	})
 }
 
-func (h *harness) commands() pbt.Gen[pbt.Command] {
+func (h *harness) commands() pbt.CommandGen {
 	return pbt.Frequency(pbt.W(3, h.transfer()), pbt.W(1, h.query()))
 }
 
@@ -119,7 +119,7 @@ func TestLedger(t *testing.T) {
 // money is conserved and no account is overdrawn. This is the test to
 // write when the exact outcome is hard to predict but the invariants are
 // clear.
-func (h *harness) anyTransfer() pbt.Gen[pbt.Command] {
+func (h *harness) anyTransfer() pbt.CommandGen {
 	return pbt.Custom("transfer", func(t *pbt.T) pbt.Command {
 		from, to := account.Draw(t, "from"), account.Draw(t, "to")
 		n := amount.Draw(t, "amount")
@@ -128,7 +128,7 @@ func (h *harness) anyTransfer() pbt.Gen[pbt.Command] {
 	})
 }
 
-func (h *harness) audit() pbt.Gen[pbt.Command] {
+func (h *harness) audit() pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: "audit",
 		Run: func(pbt.Env) any { return h.ledger.Balances() },
 		Post: func(_ pbt.Env, got any) error {
@@ -146,7 +146,7 @@ func (h *harness) audit() pbt.Gen[pbt.Command] {
 		}})
 }
 
-func (h *harness) invariants() pbt.Gen[pbt.Command] {
+func (h *harness) invariants() pbt.CommandGen {
 	return pbt.Frequency(pbt.W(3, h.anyTransfer()), pbt.W(1, h.audit()))
 }
 

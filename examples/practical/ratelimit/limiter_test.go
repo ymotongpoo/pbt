@@ -72,7 +72,7 @@ func (h *harness) idle() []string {
 	return idle
 }
 
-func (h *harness) allow() pbt.Gen[pbt.Command] {
+func (h *harness) allow() pbt.CommandGen {
 	return pbt.Map(pbt.SampledFrom(clients), func(client string) pbt.Command {
 		return pbt.Command{Name: "allow", Args: []any{client},
 			Run: func(pbt.Env) any { return h.limiter.Allow(client) },
@@ -91,7 +91,7 @@ func (h *harness) allow() pbt.Gen[pbt.Command] {
 	})
 }
 
-func (h *harness) advance() pbt.Gen[pbt.Command] {
+func (h *harness) advance() pbt.CommandGen {
 	return pbt.Map(pbt.SampledFrom(steps), func(d time.Duration) pbt.Command {
 		return pbt.Command{Name: "advance", Args: []any{d.String()},
 			Run:  func(pbt.Env) any { h.clock.Advance(d); return nil },
@@ -99,7 +99,7 @@ func (h *harness) advance() pbt.Gen[pbt.Command] {
 	})
 }
 
-func (h *harness) sweep() pbt.Gen[pbt.Command] {
+func (h *harness) sweep() pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: "sweep",
 		Run: func(pbt.Env) any { return h.limiter.Sweep() },
 		Next: func(pbt.Var) {
@@ -115,7 +115,7 @@ func (h *harness) sweep() pbt.Gen[pbt.Command] {
 		}})
 }
 
-func (h *harness) commands() pbt.Gen[pbt.Command] {
+func (h *harness) commands() pbt.CommandGen {
 	return pbt.Frequency(pbt.W(5, h.allow()), pbt.W(2, h.advance()), pbt.W(1, h.sweep()))
 }
 

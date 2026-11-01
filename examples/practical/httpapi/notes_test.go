@@ -105,7 +105,7 @@ func expectResponse(got any, status int, want *Note) error {
 
 var title = pbt.Map(pbt.IntRange(1, 999), func(n int) string { return fmt.Sprintf("note %d", n) })
 
-func (h *harness) create() pbt.Gen[pbt.Command] {
+func (h *harness) create() pbt.CommandGen {
 	return pbt.Map(title, func(title string) pbt.Command {
 		return pbt.Command{Name: "create", Args: []any{title},
 			Run:  func(pbt.Env) any { return call(func() (Response, error) { return h.client.Create(title) }) },
@@ -122,7 +122,7 @@ func (h *harness) create() pbt.Gen[pbt.Command] {
 	})
 }
 
-func (h *harness) get() pbt.Gen[pbt.Command] {
+func (h *harness) get() pbt.CommandGen {
 	return pbt.Map(pbt.SampledFrom(h.all()), func(v pbt.Var) pbt.Command {
 		return pbt.Command{Name: "get", Args: []any{v},
 			Pre: func() bool { return h.knows(v) },
@@ -142,7 +142,7 @@ func (h *harness) get() pbt.Gen[pbt.Command] {
 // decides from the version it sent and the model's current version
 // whether the server must accept it, so the command stays valid after the
 // shrinker removes the commands around it.
-func (h *harness) update() pbt.Gen[pbt.Command] {
+func (h *harness) update() pbt.CommandGen {
 	return pbt.Custom("update", func(t *pbt.T) pbt.Command {
 		v := pbt.SampledFrom(h.all()).Draw(t, "")
 		title := title.Draw(t, "")
@@ -174,7 +174,7 @@ func (h *harness) update() pbt.Gen[pbt.Command] {
 	})
 }
 
-func (h *harness) delete() pbt.Gen[pbt.Command] {
+func (h *harness) delete() pbt.CommandGen {
 	return pbt.Map(pbt.SampledFrom(h.all()), func(v pbt.Var) pbt.Command {
 		return pbt.Command{Name: "delete", Args: []any{v},
 			Pre: func() bool { return h.knows(v) },
@@ -193,7 +193,7 @@ func (h *harness) delete() pbt.Gen[pbt.Command] {
 	})
 }
 
-func (h *harness) list() pbt.Gen[pbt.Command] {
+func (h *harness) list() pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: "list",
 		Run: func(pbt.Env) any { return call(func() (Response, error) { return h.client.List() }) },
 		Post: func(env pbt.Env, got any) error {
@@ -214,7 +214,7 @@ func (h *harness) list() pbt.Gen[pbt.Command] {
 		}})
 }
 
-func (h *harness) commands() pbt.Gen[pbt.Command] {
+func (h *harness) commands() pbt.CommandGen {
 	alts := []pbt.Weighted[pbt.Command]{pbt.W(3, h.create()), pbt.W(1, h.list())}
 	if len(h.all()) > 0 {
 		alts = append(alts, pbt.W(3, h.get()), pbt.W(3, h.update()), pbt.W(1, h.delete()))

@@ -129,7 +129,7 @@ func (r taken) GoString() string {
 	return fmt.Sprintf("%s %q", r.lease.Token, r.lease.Payload)
 }
 
-func (h *harness) enqueue() pbt.Gen[pbt.Command] {
+func (h *harness) enqueue() pbt.CommandGen {
 	return pbt.Map(pbt.SampledFrom(payloads), func(p string) pbt.Command {
 		return pbt.Command{Name: "enqueue", Args: []any{p},
 			Run:  func(pbt.Env) any { return h.queue.Enqueue(p) },
@@ -137,7 +137,7 @@ func (h *harness) enqueue() pbt.Gen[pbt.Command] {
 	})
 }
 
-func (h *harness) lease() pbt.Gen[pbt.Command] {
+func (h *harness) lease() pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: "lease",
 		Run: func(pbt.Env) any { l, ok := h.queue.Lease(); return taken{l, ok} },
 		Next: func(v pbt.Var) {
@@ -172,7 +172,7 @@ func (h *harness) lease() pbt.Gen[pbt.Command] {
 // finish is an ack or a nack of one of the leases issued so far. The lease
 // is resolved from the result of the lease command, so the report names
 // it by its Var.
-func (h *harness) finish(name string, apply func(j *jobModel)) pbt.Gen[pbt.Command] {
+func (h *harness) finish(name string, apply func(j *jobModel)) pbt.CommandGen {
 	return pbt.Map(pbt.SampledFrom(h.leases), func(l leaseModel) pbt.Command {
 		return pbt.Command{Name: name, Args: []any{l.v},
 			Pre: func() bool { return slices.Contains(h.leases, l) },
@@ -202,11 +202,11 @@ func (h *harness) finish(name string, apply func(j *jobModel)) pbt.Gen[pbt.Comma
 	})
 }
 
-func (h *harness) ack() pbt.Gen[pbt.Command] {
+func (h *harness) ack() pbt.CommandGen {
 	return h.finish("ack", func(j *jobModel) { j.phase = done })
 }
 
-func (h *harness) nack() pbt.Gen[pbt.Command] {
+func (h *harness) nack() pbt.CommandGen {
 	return h.finish("nack", func(j *jobModel) {
 		if j.attempts >= maxAttempts {
 			j.phase = dead
@@ -216,7 +216,7 @@ func (h *harness) nack() pbt.Gen[pbt.Command] {
 	})
 }
 
-func (h *harness) advance() pbt.Gen[pbt.Command] {
+func (h *harness) advance() pbt.CommandGen {
 	return pbt.Map(pbt.SampledFrom(steps), func(d time.Duration) pbt.Command {
 		return pbt.Command{Name: "advance", Args: []any{d.String()},
 			Run:  func(pbt.Env) any { h.clock.Advance(d); return nil },
@@ -224,7 +224,7 @@ func (h *harness) advance() pbt.Gen[pbt.Command] {
 	})
 }
 
-func (h *harness) statsCommand() pbt.Gen[pbt.Command] {
+func (h *harness) statsCommand() pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: "stats",
 		Run: func(pbt.Env) any { return h.queue.Stats() },
 		Post: func(_ pbt.Env, got any) error {
@@ -235,7 +235,7 @@ func (h *harness) statsCommand() pbt.Gen[pbt.Command] {
 		}})
 }
 
-func (h *harness) commands() pbt.Gen[pbt.Command] {
+func (h *harness) commands() pbt.CommandGen {
 	alts := []pbt.Weighted[pbt.Command]{
 		pbt.W(3, h.enqueue()),
 		pbt.W(3, h.lease()),

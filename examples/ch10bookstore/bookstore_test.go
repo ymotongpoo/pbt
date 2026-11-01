@@ -99,7 +99,7 @@ func expectErr(want error) func(pbt.Env, any) error {
 // command name, so the statistics show how often each path ran, and the
 // preconditions keep every intent true even after shrinking removes
 // earlier commands.
-func (h *harness) commands() pbt.Gen[pbt.Command] {
+func (h *harness) commands() pbt.CommandGen {
 	notIn := func(isbn string) func() bool {
 		return func() bool { _, ok := h.books[isbn]; return !ok }
 	}
@@ -192,7 +192,7 @@ func (h *harness) commands() pbt.Gen[pbt.Command] {
 				Run:  func(pbt.Env) any { return result(s.FindByISBN(i)) },
 				Post: func(env pbt.Env, got any) error { return expectRows([]Book{h.books[i]})(env, got) }}
 		})),
-		pbt.W(2, pbt.Bind(known, func(i string) pbt.Gen[pbt.Command] {
+		pbt.W(2, pbt.Bind(known, func(i string) pbt.CommandGen {
 			return pbt.Map(partial(h.books[i].Author), func(term string) pbt.Command {
 				return pbt.Command{Name: "find_by_author:exists", Args: []any{term},
 					Pre:  func() bool { return h.matches(byAuthor, term) },
@@ -200,7 +200,7 @@ func (h *harness) commands() pbt.Gen[pbt.Command] {
 					Post: h.expectMatches(byAuthor, term)}
 			})
 		})),
-		pbt.W(2, pbt.Bind(known, func(i string) pbt.Gen[pbt.Command] {
+		pbt.W(2, pbt.Bind(known, func(i string) pbt.CommandGen {
 			return pbt.Map(partial(h.books[i].Title), func(term string) pbt.Command {
 				return pbt.Command{Name: "find_by_title:exists", Args: []any{term},
 					Pre:  func() bool { return h.matches(byTitle, term) },

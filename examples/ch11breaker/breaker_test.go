@@ -44,7 +44,7 @@ func expectErr(want error) func(pbt.Env, any) error {
 // The commands, as the shim module of the chapter exposes them: a
 // successful call, a failing call with a given error, a timeout, and the
 // manual operations.
-func (h *harness) success(want error) pbt.Gen[pbt.Command] {
+func (h *harness) success(want error) pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: "success",
 		Run:  func(pbt.Env) any { return h.breaker.Call(func() error { return nil }) },
 		Next: func(pbt.Var) { h.errors, h.timeouts = max(h.errors-1, 0), max(h.timeouts-1, 0) },
@@ -54,7 +54,7 @@ func (h *harness) success(want error) pbt.Gen[pbt.Command] {
 // failure is a call that raises the named error. A nil want means the
 // call returns its own error, which is also what the call that trips the
 // breaker returns; only the calls after it see ErrTripped.
-func (h *harness) failure(name string, pre func() bool, next func(), want error) pbt.Gen[pbt.Command] {
+func (h *harness) failure(name string, pre func() bool, next func(), want error) pbt.CommandGen {
 	return pbt.Map(pbt.SampledFrom(validErrors), func(e string) pbt.Command {
 		err := errors.New(e)
 		return pbt.Command{Name: name, Args: []any{e},
@@ -71,7 +71,7 @@ func (h *harness) failure(name string, pre func() bool, next func(), want error)
 	})
 }
 
-func (h *harness) timeout(name string, pre func() bool, next func(), want error) pbt.Gen[pbt.Command] {
+func (h *harness) timeout(name string, pre func() bool, next func(), want error) pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: name,
 		Pre:  pre,
 		Run:  func(pbt.Env) any { return h.breaker.Call(func() error { return ErrTimeout }) },
@@ -79,7 +79,7 @@ func (h *harness) timeout(name string, pre func() bool, next func(), want error)
 		Post: expectErr(want)})
 }
 
-func (h *harness) manual(name string, op func(*Breaker), next func()) pbt.Gen[pbt.Command] {
+func (h *harness) manual(name string, op func(*Breaker), next func()) pbt.CommandGen {
 	return pbt.Just(pbt.Command{Name: name,
 		Run:  func(pbt.Env) any { op(h.breaker); return nil },
 		Next: func(pbt.Var) { apply(next) }})
