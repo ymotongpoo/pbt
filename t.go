@@ -272,30 +272,35 @@ func (t *T) closeSpans() {
 // Skip into state and recording any other panic as a failure.
 func (t *T) execute(prop Property) {
 	defer t.closeSpans()
-	defer func() {
-		switch rec := recover().(type) {
-		case nil:
-		case stopTest:
-			t.mu.Lock()
-			t.mark("")
-			t.mu.Unlock()
-		case discardTest:
-			// A failure recorded before the discard stands: the case is
-			// reported, not thrown away.
-			if !t.failed {
-				t.discarded = true
-				t.discardReason = rec.reason
-			}
-		default:
-			t.panicVal = rec
-			t.stack = debug.Stack()
-			t.mu.Lock()
-			t.mark(panicKey(rec, t.stack))
-			t.mu.Unlock()
-		}
-	}()
 	defer t.runCleanups()
+	defer t.recoverPanic()
 	prop(t)
+}
+
+// recoverPanic must be deferred directly. Capture the body's outcome before
+// cleanup starts, and each cleanup's outcome before the next callback runs.
+// A discard cannot hide a failure, and the first failure keeps its identity.
+func (t *T) recoverPanic() {
+	rec := recover()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	switch rec := rec.(type) {
+	case nil:
+	case stopTest:
+		t.mark("")
+	case discardTest:
+		if !t.failed {
+			t.discarded = true
+			t.discardReason = rec.reason
+		}
+	default:
+		stack := debug.Stack()
+		if t.panicVal == nil {
+			t.panicVal = rec
+			t.stack = stack
+		}
+		t.mark(panicKey(rec, stack))
+	}
 }
 
 // panicKey names a panic by its type and the first frame outside this
@@ -311,25 +316,16 @@ func panicKey(rec any, stack []byte) string {
 
 // runCleanups runs every registered callback, last first, including those
 // registered while cleaning up. A callback that panics does not stop the
-// others; the first panic is raised again once all have run, so that it is
-// reported as a failure of the case.
+// others; each outcome is recorded without replacing an earlier failure.
 func (t *T) runCleanups() {
-	var first any
 	for len(t.cleanups) > 0 {
 		n := len(t.cleanups)
 		f := t.cleanups[n-1]
 		t.cleanups = t.cleanups[:n-1]
 		func() {
-			defer func() {
-				if rec := recover(); rec != nil && first == nil {
-					first = rec
-				}
-			}()
+			defer t.recoverPanic()
 			f()
 		}()
-	}
-	if first != nil {
-		panic(first)
 	}
 }
 
@@ -383,6 +379,8 @@ func (t *T) mark(key string) {
 		t.failKey = key
 	}
 	t.failed = true
+	t.discarded = false
+	t.discardReason = ""
 }
 
 // callerKey names the first frame outside this package and the runtime,

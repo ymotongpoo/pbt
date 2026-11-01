@@ -40,18 +40,6 @@ func runSub(t *T, sub Named) (ok bool) {
 	t.failed = false
 	t.mu.Unlock()
 	defer func() {
-		switch rec := recover().(type) {
-		case nil:
-		case stopTest:
-		case discardTest:
-			panic(rec)
-		default:
-			stack := debug.Stack()
-			t.failAt(panicKey(rec, stack), fmt.Sprintf("panic: %v", rec))
-			if t.stack == nil {
-				t.stack = stack
-			}
-		}
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		ok = !t.failed
@@ -66,6 +54,20 @@ func runSub(t *T, sub Named) (ok bool) {
 			t.messages[i] = sub.Name + ": " + t.messages[i]
 		}
 		t.failed = wasFailed || !ok
+	}()
+	defer func() {
+		switch rec := recover().(type) {
+		case nil:
+		case stopTest:
+		case discardTest:
+			panic(rec)
+		default:
+			stack := debug.Stack()
+			t.failAt(panicKey(rec, stack), fmt.Sprintf("panic: %v", rec))
+			if t.stack == nil {
+				t.stack = stack
+			}
+		}
 	}()
 	sub.Prop(t)
 	return true

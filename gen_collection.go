@@ -173,7 +173,7 @@ var (
 
 // runeTableMax is the largest rune choice: the two tables followed by every
 // code point from 0x80 up, with the surrogate range skipped.
-const runeTableMax = uint64(len(asciiShrinkOrder)+33) + (0x10FFFF - 0x80 - (0xE000 - 0xD800)) - 1
+const runeTableMax = uint64(len(asciiShrinkOrder)+33) + (0x10FFFF - 0x80 - (0xE000 - 0xD800))
 
 func controls() []rune {
 	var rs []rune

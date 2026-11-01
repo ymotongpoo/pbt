@@ -98,15 +98,14 @@ func (g Gen[V]) Example(seed ...uint64) V {
 // registered, so that a generator that opens resources releases them; the
 // sample must therefore not depend on those resources staying open.
 func tryDraw[V any](t *T, g Gen[V]) (v V, ok bool) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			if _, discarded := rec.(discardTest); !discarded {
-				panic(rec)
-			}
+	t.execute(func(t *T) { v = g.drawSpan(t) })
+	if t.failed {
+		if t.panicVal != nil {
+			panic(t.panicVal)
 		}
-	}()
-	defer t.runCleanups()
-	return g.drawSpan(t), true
+		panic(stopTest{})
+	}
+	return v, !t.discarded
 }
 
 func named[V any](g Gen[V], name string) Gen[V] {

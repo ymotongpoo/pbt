@@ -61,8 +61,9 @@ func uniform64(r *rand.Rand, max uint64) uint64 {
 
 // biased64 draws from [0, max] favouring small values and the edges. The
 // usable bit width grows with the size parameter, so early test cases use
-// small values and the full range is reached at the maximum size. One
-// random word supplies the edge decision, the width and the value.
+// small values and the full range is reached at the maximum size. The low
+// 52 bits of the random word are independent of the edge and width choices;
+// wider values need a fresh word so those choices cannot restrict the domain.
 func biased64(r *rand.Rand, max uint64, size, maxSize int) uint64 {
 	word := r.Uint64()
 	switch word >> 59 { // 5 bits
@@ -79,6 +80,9 @@ func biased64(r *rand.Rand, max uint64, size, maxSize int) uint64 {
 	}
 	if width > 1 {
 		width = 1 + int((word>>52)&0x7f)%width // 7 bits pick the width
+	}
+	if width > 52 {
+		word = r.Uint64()
 	}
 	v := word & (uint64(1)<<width - 1)
 	if width >= 64 {

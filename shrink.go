@@ -55,7 +55,7 @@ func (s *shrinker) try(cand []uint64) bool {
 	}
 	s.steps++
 	t := s.r.run(cand, s.cur.size, nil)
-	if s.r.want(t) && !t.discarded && t.failKey == s.cur.failKey && simpler(t.choices, s.cur.choices) {
+	if s.r.want(t) && !t.discarded && t.failKey == s.cur.failKey && simpler(t.choices, s.cur.choices) && preservesNoShrink(s.cur, t) {
 		s.cur = t
 		if s.r.cfg.verbose {
 			s.r.tb.Logf("[pbt] shrink step %d: %d choices\n[pbt]   %s", s.steps, len(t.choices), strings.ReplaceAll(drawsLine(t), "\n", "\n[pbt]   "))
@@ -66,6 +66,34 @@ func (s *shrinker) try(cand []uint64) bool {
 		return true
 	}
 	return false
+}
+
+// preservesNoShrink requires the protected draws in the candidate to be an
+// unchanged subsequence of those in the previous case. Deleting a containing
+// collection element is allowed; deleting its choices and regenerating the
+// same draw from shifted choices or trailing zeros is not. Check after replay
+// because even an edit outside a protected span can change what it consumes.
+func preservesNoShrink(before, after *T) bool {
+	next := 0
+	for _, sp := range after.spans {
+		if !sp.noshrink {
+			continue
+		}
+		found := false
+		for next < len(before.spans) {
+			old := before.spans[next]
+			next++
+			if old.noshrink && old.label == sp.label &&
+				slices.Equal(before.choices[old.start:old.end], after.choices[sp.start:sp.end]) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // drawsLine formats the draws of a case on as few lines as possible.
