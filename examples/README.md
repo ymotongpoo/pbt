@@ -30,4 +30,12 @@ a ledger, each tested through its public API against a model, with a
 planted bug whose report the tests check. See
 [practical/README.md](practical/README.md).
 
+## The discovery guide
+
+The `discovery` directory holds the Go examples of the Japanese book
+『プロパティはどう思いつくのか　プロパティベーステスト発見ガイド』, which
+derives properties from specifications and checks them against planted
+bugs. Its mutant tests skip themselves unless `PBT_MUTANTS` is set; see
+[discovery/README.md](discovery/README.md).
+
 Run everything with `go test ./...` from this directory.

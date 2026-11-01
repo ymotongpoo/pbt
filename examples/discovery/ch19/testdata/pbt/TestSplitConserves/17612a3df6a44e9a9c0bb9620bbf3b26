@@ -1,0 +1,6 @@
+go.ymotongpoo.com/pbt v1
+size 1
+# total (IntRange(-10000, 10000)) = 1
+# n (IntRange(1, 20)) = 2
+choices
+1 1
