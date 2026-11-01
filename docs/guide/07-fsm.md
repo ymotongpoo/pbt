@@ -13,7 +13,7 @@ A machine is a function from a state name to the transitions available in that s
 
 <!-- snippet: fsm_test.go#machine -->
 
-Each `Transition` has a `Weight`, a target state `To`, and a `Cmd`, a generator of commands. The command's `Pre`, `Next` and `Post` see the state data; the package moves the name. A transition that stays in the same state, like a second `verify` in `verified`, is how a machine tests the operations that must be rejected.
+Each `Transition` has a `Weight`, a target state `To`, and a `Cmd`, the generator of the command, of type `pbt.CommandGen`. The command's `Pre`, `Next` and `Post` see the state data; the package moves the name. A transition that stays in the same state, like a second `verify` in `verified`, is how a machine tests the operations that must be rejected.
 
 The program runs with `RunSequential` as in chapter 5, and `fsm.ParallelCommands` gives the parallel form of chapter 6. The report shows the state name before the failing step, next to whatever `pbt.ModelState` adds.
 
