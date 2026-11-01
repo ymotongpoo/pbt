@@ -1,0 +1,21 @@
+fixes_test.go
+  s_f93623dae2c128::t_69bdbdfd849e7d 30-49
+gen_int.go
+  s_f93623dae2c128::t_7b3d1d2a3ff86a 204-209,211,214,219,223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "66b5bb439e6a265c98ec03a77b4a15f0bfbf50f8",
+  "prompts": {},
+  "sessions": {
+    "s_f93623dae2c128": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e6f9889-8260-402c-9ff1-63e6b282e4b5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Yoshi Yamaguchi <ymotongpoo@gmail.com>"
+    }
+  }
+}
