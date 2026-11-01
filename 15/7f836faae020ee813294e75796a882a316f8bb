@@ -1,0 +1,25 @@
+AGENTS.md
+  s_c8f7da6c5b5728::t_cb59e580720b38 18-21
+README.md
+  s_c8f7da6c5b5728::t_10d6d0d50d923c 15-17
+docs/guide/10-reference.md
+  s_c8f7da6c5b5728::t_32a41fe9006de7 2,35-40
+docs/guide/ja/10-reference.md
+  s_c8f7da6c5b5728::t_c5f91e7e946f76 2,44-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "157f836faae020ee813294e75796a882a316f8bb",
+  "prompts": {},
+  "sessions": {
+    "s_c8f7da6c5b5728": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4deb562-634f-4986-94f8-a902be61674d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Yoshi Yamaguchi <ymotongpoo@gmail.com>"
+    }
+  }
+}
