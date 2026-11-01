@@ -1,0 +1,19 @@
+CHANGELOG.md
+  s_f93623dae2c128::t_7197eba1fa2742 8-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6aa7bfe690fb000282e13406cdb7fcba7cb9825f",
+  "prompts": {},
+  "sessions": {
+    "s_f93623dae2c128": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e6f9889-8260-402c-9ff1-63e6b282e4b5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Yoshi Yamaguchi <ymotongpoo@gmail.com>"
+    }
+  }
+}
