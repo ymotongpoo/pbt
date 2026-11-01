@@ -6,9 +6,13 @@ explanations.
 
 **Question 1.** The functions that show the distribution of the generated
 data are `t.Collect` and `t.Aggregate` (PropEr's `collect/2` and
-`aggregate/2`), joined by `t.Classify` and `t.Measure`. pbt prints their
-shares when the property passes, in the test log; run `go test -v` to see
-them.
+`aggregate/2`), joined by `t.Classify` and `t.Measure`. `Collect` and
+`Classify` count each recorded label and divide by the number of passing
+cases; repeated labels within one case can produce shares above 100%.
+`Aggregate` reports shares of all samples, and `Measure` reports a numeric
+minimum, average and maximum. pbt prints these statistics in the test log
+when the property passes; run `go test -v` to see them. `Cover`, unlike
+`Collect` and `Classify`, counts each case once per label.
 
 **Question 2.** The macro that modifies a generator's output with ordinary
 code is `?LET`, which is `pbt.Bind` when the next generator depends on the

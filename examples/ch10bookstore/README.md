@@ -7,18 +7,22 @@ Questions 1, 2, 4 and 5 ask for explanations; question 3 is answered by
 `Cleanup`.
 
 **Question 1.** During the abstract phase, when the command sequence is
-generated and when it is shrunk, pbt calls the generator, `Precondition`
-and `NextState`. During the real execution it calls `Precondition` again,
-`Execute`, `Postcondition` and `NextState`. `NextState` receives the
+generated and when it is shrunk, pbt calls the generator, `Pre`
+and `Next`. During the real execution it calls `Pre` again,
+`Run`, `Post` and `Next`. `Next` receives the
 result only as a `pbt.Var` in both phases, so the model never depends on
 real results.
 
-**Question 2.** Pattern matching in the generator is not enough because
-the generator runs once, with the state at generation time. When shrinking
-removes an earlier command, the commands after it are regenerated from a
-different state, and the parallel test executes branches in orders the
-generator never saw. The precondition is checked in every one of those
-situations, so it must state what the command needs on its own.
+**Question 2.** The PropEr chapter explains why preconditions must reject
+invalid commands during shrinking. In pbt, removing a command regenerates
+the following commands from the new model state. A generator that only
+produces commands satisfying `Pre` has no candidates rejected by `Pre`
+during sequential generation, even while shrinking. This example also
+uses `Pre` to filter candidates: a known ISBN may have no available copies,
+and a generated ISBN for an invalid call may already exist. Keep those
+conditions in `Pre`; parallel generation also needs them when it drops
+commands from branch ends until every interleaving is valid. A false `Pre`
+at sequential execution time fails the case.
 
 **Question 3.** The three placements of start and stop: inside the
 property, around `RunSequential`, start and stop the system once per
@@ -27,7 +31,7 @@ function shares state between cases, so a failure in one case corrupts
 the next. Starting it inside a command makes the model responsible for
 the system's lifetime, which a shrunk sequence can break.
 
-**Question 4.** Using the real result in `NextState` makes the model
+**Question 4.** Using the real result in `Next` makes the model
 depend on values that exist only during execution, so the state at
 generation time and at execution time diverge, and shrinking, which
 regenerates the sequence, can no longer reproduce it. pbt therefore

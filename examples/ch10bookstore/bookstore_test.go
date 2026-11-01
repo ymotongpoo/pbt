@@ -96,9 +96,9 @@ func expectErr(want error) func(pbt.Env, any) error {
 
 // commands follows the precise version of the chapter: the shim's intent
 // (new, exists, invalid, avail, unavail, taken, full) is part of the
-// command name, so the statistics show how often each path ran, and the
-// preconditions keep every intent true even after shrinking removes
-// earlier commands.
+// command name, so the statistics show how often each path ran. Pre filters
+// candidates against the current model, including when shrinking regenerates
+// commands after a deletion; a known ISBN alone does not ensure availability.
 func (h *harness) commands() pbt.CommandGen {
 	notIn := func(isbn string) func() bool {
 		return func() bool { _, ok := h.books[isbn]; return !ok }
