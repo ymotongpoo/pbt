@@ -27,6 +27,26 @@ func TestFloatRangesStayWithinBounds(t *testing.T) {
 	}
 }
 
+// Ranges that lie wholly beyond ±2^53 hold no integer that the integral
+// forms can use. The form choice once compared bounds converted to int64
+// without clipping them first, so a lower bound such as 1e308 became
+// math.MinInt64 and the integral form drew 0 from [1e308, MaxFloat64].
+func TestFloatRangesBeyondExactIntegersStayWithinBounds(t *testing.T) {
+	ranges := [][2]float64{
+		{1e308, math.MaxFloat64}, {-math.MaxFloat64, -1e308},
+		{1 << 60, 1 << 61}, {-(1 << 61), -(1 << 60)},
+		{1e19, 1e20}, {-1e20, -1e19},
+	}
+	for _, r := range ranges {
+		g := Float64Range(r[0], r[1])
+		Check(t, func(t *T) {
+			if v := g.Draw(t, "v"); v < r[0] || v > r[1] || math.IsNaN(v) {
+				t.Fatalf("%v is outside [%v, %v]", v, r[0], r[1])
+			}
+		}, NoSave(), Seed(0x518ee9f7924bc6fe), Checks(1000))
+	}
+}
+
 func TestParallelBranchesResolveTheirOwnVars(t *testing.T) {
 	Check(t, func(t *T) {
 		var mu sync.Mutex

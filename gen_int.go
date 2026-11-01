@@ -201,22 +201,26 @@ func drawFloat(t *T, lo, hi float64) float64 {
 	const limit = 1 << 53
 	// The integral forms work on the integers of [lo, hi] that float64
 	// represents exactly; when the range holds none of them, those forms
-	// are skipped and the raw form, which clamps, is used instead.
-	ilo, ihi := math.Ceil(lo), math.Floor(hi)
-	ia, ib := int64(max(ilo, -limit)), int64(min(ihi, limit))
-	fa, fb := int64(max(math.Floor(lo), -limit)), int64(min(math.Ceil(hi), limit))
+	// are skipped and the raw form, which clamps, is used instead. The
+	// bounds are clipped to [-limit, limit] before they are compared and
+	// converted, because converting a float64 outside the int64 range is
+	// implementation-defined (on amd64 it gives math.MinInt64).
+	ilo, ihi := max(math.Ceil(lo), -limit), min(math.Floor(hi), limit)
+	flo, fhi := max(math.Floor(lo), -limit), min(math.Ceil(hi), limit)
 	form := t.draw(2, flagMeta, modeBiased)
-	if form == 0 && (ilo > ihi || ia > ib) {
+	if form == 0 && ilo > ihi {
 		form = 1
 	}
-	if form == 1 && (fa > fb || math.Floor(lo) > limit || math.Ceil(hi) < -limit) {
+	if form == 1 && flo > fhi {
 		form = 2
 	}
 	switch form {
 	case 0:
+		ia, ib := int64(ilo), int64(ihi)
 		c := min(max(ia, 0), ib)
 		return float64(zigzagDecode(t.draw(uint64(ib)-uint64(ia), zigzagMeta(c, ia, ib), modeBiased), c, ia, ib))
 	case 1:
+		fa, fb := int64(flo), int64(fhi)
 		c := min(max(fa, 0), fb)
 		ipart := float64(zigzagDecode(t.draw(uint64(fb)-uint64(fa), zigzagMeta(c, fa, fb), modeBiased), c, fa, fb))
 		bits := 1 + t.draw(51, plainMeta, modeBiased)
