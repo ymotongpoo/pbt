@@ -14,7 +14,7 @@ chapter 6 does).
 **Question 2.** The call that returns a sample of a generator's data is
 `gen.Example()` in pbt, the equivalent of `proper_gen:pick/1`. It takes an
 optional seed, so the same call returns the same value when the seed
-repeats.
+repeats, provided the generator code and pbt version are unchanged.
 
 Chapter 2 of the book is about tooling and has no code. Its commands map
 to Go as follows: `rebar3 proper` is `go test`, `rebar3 proper -n 10000` is

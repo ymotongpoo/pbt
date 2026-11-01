@@ -6,7 +6,7 @@
 // its own, so that the root module stays free of dependencies; run it from
 // this directory:
 //
-//	cd site && go run . -version v0.3.0 -analytics G-XXXXXXXXXX
+//	cd site && go run . -version v0.3.2 -analytics G-XXXXXXXXXX
 //
 // The -analytics flag takes a Google Analytics measurement ID; when it is
 // given, every page loads gtag.js for it. Leave it out for a local preview.

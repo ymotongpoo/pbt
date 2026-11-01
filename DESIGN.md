@@ -139,6 +139,16 @@ an unrelated assertion that a smaller input trips, and the report hides the
 bug the search found. Hypothesis calls the same idea the interesting origin
 of a failure.
 
+`NoShrink` protects the choices of a draw. After replay, the shrinker checks
+that the protected draws form an unchanged subsequence of those in the
+previous case. This allows a collection to drop protected elements without
+letting deleted or shifted choices regenerate a retained element differently.
+
+The runner records the property's outcome before running cleanup callbacks
+and records each callback's outcome separately. Failures take precedence over
+discards, including across the sub-properties of a `Conjunction`; cleanup
+panics cannot replace a panic already recorded from the property.
+
 ## Design principle: users control the distribution
 
 Hypothesis has no way to weight the alternatives of `one_of`. In July 2022 I

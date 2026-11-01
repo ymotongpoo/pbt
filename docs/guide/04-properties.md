@@ -29,7 +29,7 @@ Every setting has a flag for the whole `go test` run and an option for one `Chec
 
 ## Discarding cases
 
-`t.Assume(cond)` discards the current case when the condition is false, as PropEr's `?IMPLIES` does. A discarded case counts neither as a pass nor as a failure, and `Check` draws another. `Skip`, `Skipf` and `SkipNow` do the same.
+`t.Assume(cond)` discards the current case when the condition is false, as PropEr's `?IMPLIES` does. A discarded case counts neither as a pass nor as a failure, and `Check` draws another. `Skip`, `Skipf` and `SkipNow` do the same. A failure already recorded in the case takes precedence over a later discard.
 
 <!-- snippet: properties_test.go#assume -->
 
@@ -39,11 +39,13 @@ Discards are a budget. When they exceed ten times the number of checks, the run 
 
 The `Setup` option runs a function before every case. It may return a teardown function, which runs after the case. `t.Cleanup` registers a function from inside the property for the same purpose, and the cleanups run in reverse order after the case, failed or not.
 
+Every cleanup runs even if another cleanup panics or discards. A cleanup failure fails the case even if the property discarded it; a cleanup discard cannot erase a failure or panic from the property. If both the property and a cleanup panic, the report keeps the property's panic.
+
 <!-- snippet: properties_test.go#setup -->
 
 ## Combining properties
 
-`Conjunction` runs several named properties on the same case and names the ones that fail. `Deadline` fails a case that takes longer than a duration.
+`Conjunction` runs several named properties on the same case and names the ones that fail. A later sub-property that discards the case does not erase an earlier sub-property's failure. `Deadline` fails a case that takes longer than a duration.
 
 <!-- snippet: properties_test.go#combinators -->
 
@@ -72,6 +74,6 @@ A panic inside a property fails the case. The report shows the panic value and t
 
 ## Seeds, saved cases and replay
 
-Every report ends with a `reproduce:` line that carries the seed of the run. Passing that seed with `-pbt.seed` repeats the same sequence of cases, including the failing one, on the same version of the code.
+Every report ends with a `reproduce:` line that carries the seed of the run. Passing that seed with `-pbt.seed` repeats the same sequence of cases, including the failing one, on the same version of both the property code and pbt. Updating pbt can change the generated cases for a seed. In v0.3.2 the integer generation fix changes some seeded runs; existing saved choice sequences still replay as before.
 
 The failing case is also saved under `testdata/pbt/<TestName>/<hash>` as a text file with the size, the drawn values as comments, and the choices. Every later `Check` of the same test replays the saved cases before generating new ones and fails if one still fails, so the regression case follows the code into version control. Delete the file to drop the case. Three options adjust this behavior: `NoSave` keeps a run from writing, `NoReplay` skips the saved cases, and `ReplayFile` or `-pbt.replay=FILE` replays one saved file in any test, which is how you hand a case from one test to another or reproduce a failure from a CI log.

@@ -130,7 +130,7 @@ passing run. `Cover` declares the share a class must reach; with the
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `-pbt.checks` | 100 | test cases per property |
-| `-pbt.seed` | random | seed of the run; printed on failure |
+| `-pbt.seed` | random | seed of the run; printed on failure; reproducible with the same property code and pbt version |
 | `-pbt.startsize` | 1 | size parameter of the first case |
 | `-pbt.maxsize` | 42 | size the cases grow up to, one per passing case |
 | `-pbt.shrinktime` | 30s | time budget for shrinking |
