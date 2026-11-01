@@ -24,7 +24,7 @@ import (
 type Transition struct {
 	Weight int
 	To     string
-	Cmd    pbt.Gen[pbt.Command]
+	Cmd    pbt.CommandGen
 }
 
 // Commands generates command sequences that follow a machine. initial is
@@ -74,7 +74,7 @@ func (m *machine) options(opts []pbt.StatefulOption) []pbt.StatefulOption {
 
 // gen returns the generator of the next command in the current state: a
 // weighted choice among the transitions, each adapted to move the state.
-func (m *machine) gen() pbt.Gen[pbt.Command] {
+func (m *machine) gen() pbt.CommandGen {
 	trs := m.transitions(m.state)
 	alts := make([]pbt.Weighted[pbt.Command], 0, len(trs))
 	total := 0

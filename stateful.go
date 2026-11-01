@@ -245,9 +245,15 @@ func (p Program) GoString() string { return p.String() }
 // another name is a mistake and panics when drawn.
 const noCommandsName = "NoCommands"
 
+// CommandGen is the type of a generator of commands, an alias of
+// Gen[Command]. The generators that Map, Custom and Frequency return are
+// CommandGen values as they are; the name is for the signature of a
+// function that returns one, where Go does not infer the type argument.
+type CommandGen = Gen[Command]
+
 // NoCommands is what a command generator returns in a model state in which
 // no command applies, which ends the sequence.
-func NoCommands() Gen[Command] { return Gen[Command]{name: noCommandsName} }
+func NoCommands() CommandGen { return CommandGen{name: noCommandsName} }
 
 // Commands generates command sequences for a stateful test. init puts the
 // model in its initial state, and gen returns the generator of the next
@@ -264,7 +270,7 @@ func NoCommands() Gen[Command] { return Gen[Command]{name: noCommandsName} }
 // it from the new state and re-checks their preconditions. Generators that
 // pick from the model must iterate it in a fixed order; a map iterated
 // directly makes the sequence nondeterministic.
-func Commands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[Program] {
+func Commands(init func(), gen func() CommandGen, opts ...StatefulOption) Gen[Program] {
 	cfg := statefulConfig(opts)
 	checkLengths(cfg.minLen, cfg.maxLen)
 	return Gen[Program]{name: "Commands", draw: func(t *T) Program {
@@ -278,7 +284,7 @@ func Commands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[
 // drawSteps generates a command sequence from the current state of the
 // model, numbering the result Vars from firstID, and leaves the model in
 // the state the sequence leads to.
-func drawSteps(t *T, gen func() Gen[Command], firstID, minLen, maxLen int) []Step {
+func drawSteps(t *T, gen func() CommandGen, firstID, minLen, maxLen int) []Step {
 	var steps []Step
 	p := continueProbability(t, maxLen)
 	for {
@@ -313,7 +319,7 @@ func drawSteps(t *T, gen func() Gen[Command], firstID, minLen, maxLen int) []Ste
 
 // drawCommand draws commands until one satisfies its precondition. Each
 // attempt sits in its own span, so the shrinker can delete rejected ones.
-func drawCommand(t *T, g Gen[Command]) (Command, bool) {
+func drawCommand(t *T, g CommandGen) (Command, bool) {
 	if g.draw == nil {
 		if g.name != noCommandsName {
 			panic("pbt: the command generator returned an uninitialized Gen; return NoCommands() to end the sequence")

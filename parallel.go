@@ -61,7 +61,7 @@ func (p ParallelProgram) GoString() string { return p.String() }
 // interleaving of the branches satisfies all preconditions, so that
 // whatever order the branches execute in is a valid test. init and gen are
 // those of Commands.
-func ParallelCommands(init func(), gen func() Gen[Command], opts ...StatefulOption) Gen[ParallelProgram] {
+func ParallelCommands(init func(), gen func() CommandGen, opts ...StatefulOption) Gen[ParallelProgram] {
 	cfg := statefulConfig(opts)
 	checkLengths(cfg.minLen, cfg.maxLen)
 	if cfg.branches < 1 || cfg.branches > maxParallelBranches || cfg.maxBranchLen < 1 || cfg.branches*cfg.maxBranchLen > maxParallelCommands {
