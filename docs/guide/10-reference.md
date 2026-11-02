@@ -34,7 +34,7 @@ Run `go test -v -run Caught ./practical/...` inside `examples` to read the repor
 
 ## The examples of the discovery guide
 
-The directory [examples/discovery](https://github.com/ymotongpoo/pbt/tree/main/examples/discovery) holds the Go examples of the Japanese book 『プロパティはどう思いつくのか　プロパティベーステスト発見ガイド』 by Yoshi Yamaguchi. Where the guide explains what each function of pbt does, the book is about finding the properties to write: it derives them from a specification, chapter by chapter, from example tests and algebraic laws to state machines, concurrency and the statistics of a run. Each property is checked against planted bugs.
+The directory [examples/discovery](https://github.com/ymotongpoo/pbt/tree/main/examples/discovery) holds a Go port of the examples of the Japanese book 『プロパティはどう思いつくのか　プロパティベーステスト発見ガイド』 (work in progress) by Yoshi Yamaguchi, whose own listings use fast-check. Where the guide explains what each function of pbt does, the book is about finding the properties to write: it derives them from a specification, chapter by chapter, from example tests and algebraic laws to state machines, concurrency and the statistics of a run. Each property is checked against planted bugs.
 
 A test whose name ends in `Mutant` runs a property against a planted bug and is supposed to fail, so it skips itself unless `PBT_MUTANTS` is set. Run `go test -race ./discovery/...` inside `examples` for the ordinary tests, and `./discovery/run_mutants.sh` to check that every planted bug is caught. The README of the directory lists the chapters.
 

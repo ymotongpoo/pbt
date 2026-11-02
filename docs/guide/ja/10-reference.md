@@ -43,7 +43,8 @@
 
 ## 発見ガイドの例題
 
-[examples/discovery](https://github.com/ymotongpoo/pbt/tree/main/examples/discovery) には、山口能迪『プロパティはどう思いつくのか　プロパティベーステスト発見ガイド』の例題をGoで書いたものがあります。
+[examples/discovery](https://github.com/ymotongpoo/pbt/tree/main/examples/discovery) には、山口能迪『プロパティはどう思いつくのか　プロパティベーステスト発見ガイド』（現在執筆中）の例題をGoに移植したものがあります。
+本の例題はfast-checkで書いたものが正式です。
 このガイドがpbtの各関数の働きを説明するのに対し、この本は書くべきプロパティの見つけ方を扱います。
 例示テストや代数的性質から、状態機械、並行実行、実行の統計まで、章ごとに仕様からプロパティを導きます。
 どのプロパティも、仕込んだバグに対して確かめてあります。
