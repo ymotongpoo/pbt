@@ -1,0 +1,23 @@
+examples/README.md
+  s_c8f7da6c5b5728::t_c32594ce565636 36-37
+examples/discovery/README.ja.md
+  s_c8f7da6c5b5728::t_3d9b46015bc88a 1,3-4,62-93
+examples/discovery/README.md
+  s_c8f7da6c5b5728::t_1b1c99a71dd15b 1,3-11,70-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7df53250b944ce6042ab95f088ba896e8a412cfa",
+  "prompts": {},
+  "sessions": {
+    "s_c8f7da6c5b5728": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4deb562-634f-4986-94f8-a902be61674d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Yoshi Yamaguchi <ymotongpoo@gmail.com>"
+    }
+  }
+}
