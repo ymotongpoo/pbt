@@ -33,7 +33,8 @@ planted bug whose report the tests check. See
 ## The discovery guide
 
 The `discovery` directory holds the Go examples of the Japanese book
-『プロパティはどう思いつくのか　プロパティベーステスト発見ガイド』, which
+『プロパティはどう思いつくのか　プロパティベーステスト発見ガイド』 (work in
+progress), which
 derives properties from specifications and checks them against planted
 bugs. Its mutant tests skip themselves unless `PBT_MUTANTS` is set; see
 [discovery/README.md](discovery/README.md).
