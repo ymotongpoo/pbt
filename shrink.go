@@ -4,6 +4,7 @@
 package pbt
 
 import (
+	"cmp"
 	"math"
 	"slices"
 	"strings"
@@ -359,6 +360,10 @@ restart:
 	for !s.exhausted() {
 		spans := s.cur.spans
 		children := make(map[int]map[spanGroup][]span)
+		// order keeps the groups of each parent in the order of their first
+		// span, so that the shrinker tries them in the same order on every
+		// run; ranging over the map would follow Go's random map order.
+		order := make(map[int][]spanGroup)
 		for _, sp := range spans {
 			if sp.end <= sp.start {
 				continue
@@ -367,10 +372,14 @@ restart:
 			if children[int(sp.parent)] == nil {
 				children[int(sp.parent)] = make(map[spanGroup][]span)
 			}
+			if _, seen := children[int(sp.parent)][g]; !seen {
+				order[int(sp.parent)] = append(order[int(sp.parent)], g)
+			}
 			children[int(sp.parent)][g] = append(children[int(sp.parent)][g], sp)
 		}
 		for parent := -1; parent < len(spans); parent++ {
-			for _, group := range children[parent] {
+			for _, g := range order[parent] {
+				group := children[parent][g]
 				if len(group) < 2 || s.frozenRange(int(group[0].start), int(group[len(group)-1].end)) {
 					continue
 				}
@@ -419,14 +428,26 @@ func (s *shrinker) minimizeDuplicates() bool {
 			keys = append(keys, g)
 		}
 	}
+	// The order must be total: keys come from a map, so a tie would leave
+	// the order of the tied groups to Go's random map order.
 	slices.SortFunc(keys, func(a, b choiceGroup) int {
-		if a.value != b.value {
-			if a.value < b.value {
-				return -1
-			}
+		if c := cmp.Compare(a.value, b.value); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.meta.kind, b.meta.kind); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.meta.zz, b.meta.zz); c != 0 {
+			return c
+		}
+		switch {
+		case a.meta.tailPos == b.meta.tailPos:
+			return 0
+		case !a.meta.tailPos:
+			return -1
+		default:
 			return 1
 		}
-		return int(a.meta.kind) - int(b.meta.kind)
 	})
 	for _, g := range keys {
 		if s.exhausted() {
