@@ -1,0 +1,23 @@
+shrink_determinism_test.go
+  s_fb5b245a7dedb4::t_1691707e08547b 1-78
+shrink.go
+  s_fb5b245a7dedb4::t_900f49e8ea15f9 431-432,434-448
+  s_fb5b245a7dedb4::t_cbb149958a4d60 363-366,375-377,381-382
+  s_fb5b245a7dedb4::t_0f4351341eecff 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ef30059247e7e3848fde76c5fe91898fde01b5fb",
+  "prompts": {},
+  "sessions": {
+    "s_fb5b245a7dedb4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bda171e7-8bc2-4d80-8327-bc258b2eae6a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Yoshi Yamaguchi <ymotongpoo@gmail.com>"
+    }
+  }
+}
