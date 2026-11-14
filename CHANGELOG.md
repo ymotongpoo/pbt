@@ -5,6 +5,21 @@ The notable changes of pbt are recorded here. The format follows
 [Semantic Versioning](https://semver.org/) with a major version of 0, so a
 minor version may change the API.
 
+## 0.3.4 - 2026-11-14
+
+### Fixed
+
+- The shrinker tries the same candidates in the same order for the same
+  seed. Two passes ranged over a map: the pass that sorts sibling spans
+  took the groups of a parent in Go's random map order, and the pass that
+  lowers duplicate choices sorted its groups with ties left in map order.
+  When a counterexample had more than one sortable group, two runs with
+  the same seed could shrink along different paths and stop at different
+  counterexamples. Both passes now use a fixed order: groups in the order
+  of their first span, and duplicate groups by value, kind and the rest of
+  their metadata. Generation is unchanged, so the first failure for a seed
+  is the same as before; the shrink path can differ from v0.3.3.
+
 ## 0.3.3 - 2026-11-01
 
 ### Fixed
