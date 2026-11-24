@@ -13,7 +13,7 @@ import (
 // the result with the file checked in next to it, which the fixture's own
 // tests compile and run.
 func TestGeneratedFixtureIsCurrent(t *testing.T) {
-	src, err := Generate("internal/fixture", []string{"Order", "Customer", "Tree", "Celsius"}, "pbt_gen.go", "Gen")
+	src, err := Generate("internal/fixture", []string{"Order", "Customer", "Tree", "Celsius", "Standard"}, "pbt_gen.go", "Gen")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,5 +83,33 @@ func TestGenerateHonorsBuildConstraints(t *testing.T) {
 	}
 	if _, err := Generate("internal/fixture", []string{"Order"}, "pbt_gen.go", "Gen"); err != nil {
 		t.Errorf("a file excluded by its build constraint broke the generation: %v", err)
+	}
+}
+
+func TestGenerateRejectsTimeBounds(t *testing.T) {
+	for _, tag := range []string{"min=", "max=", "min=bad", "max=bad", "min=2021-01-01T00:00:00Z,max=2020-01-01T00:00:00Z"} {
+		t.Run(tag, func(t *testing.T) {
+			dir := t.TempDir()
+			src := "package example\nimport \"time\"\ntype Event struct { At time.Time `pbt:\"" + tag + "\"` }\n"
+			if err := os.WriteFile(dir+"/types.go", []byte(src), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Generate(dir, []string{"Event"}, "pbt_gen.go", "Gen")
+			if err == nil || !strings.Contains(err.Error(), "field At:") {
+				t.Fatalf("missing field-specific error: %v", err)
+			}
+		})
+	}
+}
+
+func TestGenerateStandardExpressions(t *testing.T) {
+	src, err := Generate("internal/fixture", []string{"Standard"}, "pbt_gen.go", "Gen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"pbt.Time()", "pbt.FixedZone()", "pbt.Addr()", "pbt.Prefix()", "pbt.AddrPort()", "pbt.HardwareAddr()", "pbt.TimeRange(time.Date(2020, 1, 1, 1, 0, 0, 0, time.FixedZone(\"\", 3600))", "time.Date(2021, 1, 1, 0, 0, 0, 123000000, time.UTC)", "pbt.Make[time.Duration]()", "standardTimeGen.Draw"} {
+		if !strings.Contains(string(src), want) {
+			t.Errorf("missing %s", want)
+		}
 	}
 }

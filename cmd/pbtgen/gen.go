@@ -228,7 +228,7 @@ func parseTag(s string) (tag, error) {
 			continue
 		}
 		k, v, ok := strings.Cut(part, "=")
-		if !ok {
+		if !ok || v == "" {
 			return tg, fmt.Errorf("invalid pbt tag %q", part)
 		}
 		switch k {
@@ -253,6 +253,9 @@ func parseTag(s string) (tag, error) {
 func (g *generator) expr(t types.Type, tg tag, self types.Type, leaf bool, selfExpr string, expand types.Type) (string, error) {
 	if tg.gen != "" {
 		return tg.gen, nil
+	}
+	if expr, err := g.standardExpr(t, tg); expr != "" || err != nil {
+		return expr, err
 	}
 	if self != nil && t == self && !leaf && selfExpr != "" && t != expand {
 		return selfExpr, nil

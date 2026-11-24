@@ -5,9 +5,13 @@
 // generators for.
 package fixture
 
-import "time"
+import (
+	"net"
+	"net/netip"
+	"time"
+)
 
-//go:generate go run go.ymotongpoo.com/pbt/cmd/pbtgen -type Order,Customer,Tree,Celsius
+//go:generate go run go.ymotongpoo.com/pbt/cmd/pbtgen -type Order,Customer,Tree,Celsius,Standard
 
 // Celsius is a named basic type.
 type Celsius float64
@@ -54,4 +58,20 @@ type Dept struct {
 type Employee struct {
 	Dept  *Dept
 	Peers []Employee
+}
+
+// Standard exercises generation of standard-library types with private state.
+type Standard struct {
+	Time     time.Time
+	Zone     *time.Location
+	Addr     netip.Addr
+	Prefix   netip.Prefix
+	Port     netip.AddrPort
+	IP       net.IP
+	MAC      net.HardwareAddr
+	Bounded  time.Time `pbt:"min=2020-01-01T01:00:00+01:00,max=2021-01-01T00:00:00.123Z"`
+	MinOnly  time.Time `pbt:"min=2020-01-01T00:00:00Z"`
+	MaxOnly  time.Time `pbt:"max=2021-01-01T00:00:00Z"`
+	Duration time.Duration
+	Override time.Time `pbt:"gen=standardTimeGen"`
 }

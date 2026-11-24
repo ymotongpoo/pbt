@@ -3,7 +3,10 @@
 
 package fixture
 
-import "go.ymotongpoo.com/pbt"
+import (
+	"go.ymotongpoo.com/pbt"
+	"time"
+)
 
 // emailGen is the generator the Email field names in its tag.
 var emailGen = pbt.Map(pbt.StringN(1, 8), func(s string) string { return s + "@example.com" })
@@ -16,3 +19,5 @@ type Temperature float64
 func GenTemperature() pbt.Gen[Temperature] {
 	return pbt.Map(pbt.Float64Range(-273.15, 1000), func(f float64) Temperature { return Temperature(f) })
 }
+
+var standardTimeGen = pbt.Just(time.Unix(123, 0))

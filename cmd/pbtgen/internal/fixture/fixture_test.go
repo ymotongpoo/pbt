@@ -85,3 +85,27 @@ func TestMutualRecursionIsBounded(t *testing.T) {
 		t.Collect(internalDepts(d))
 	}, pbt.NoSave())
 }
+
+func TestGeneratedStandardTypes(t *testing.T) {
+	seen4, seenMapped, seen6, nonzero := false, false, false, false
+	pbt.Check(t, func(pt *pbt.T) {
+		v := GenStandard().Draw(pt, "v")
+		if v.Zone == nil || !v.Addr.IsValid() || !v.Prefix.IsValid() || !v.Port.IsValid() || v.IP.To16() == nil || (len(v.MAC) != 6 && len(v.MAC) != 8) {
+			pt.Fatalf("invalid standard value: %+v", v)
+		}
+		lo, hi := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2021, 1, 1, 0, 0, 0, 123000000, time.UTC)
+		if v.Bounded.Before(lo) || v.Bounded.After(hi) || v.MinOnly.Before(lo) || v.MaxOnly.After(hi) {
+			pt.Fatalf("time bounds: %+v", v)
+		}
+		if !v.Override.Equal(time.Unix(123, 0)) {
+			pt.Fatal("gen override ignored")
+		}
+		seen4 = seen4 || len(v.IP) == 4
+		seenMapped = seenMapped || (len(v.IP) == 16 && v.IP.To4() != nil)
+		seen6 = seen6 || v.IP.To4() == nil
+		nonzero = nonzero || !v.Time.IsZero()
+	}, pbt.Seed(1), pbt.Checks(500), pbt.NoSave())
+	if !seen4 || !seenMapped || !seen6 || !nonzero {
+		t.Fatalf("missing forms: %v %v %v %v", seen4, seenMapped, seen6, nonzero)
+	}
+}

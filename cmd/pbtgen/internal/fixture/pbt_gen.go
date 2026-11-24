@@ -6,6 +6,8 @@ package fixture
 import (
 	"go.ymotongpoo.com/pbt"
 	"math"
+	"net"
+	"time"
 )
 
 // GenOrder generates Order values.
@@ -71,4 +73,31 @@ func GenTree() pbt.Gen[Tree] {
 // GenCelsius generates Celsius values.
 func GenCelsius() pbt.Gen[Celsius] {
 	return pbt.Map(pbt.Float64(), func(x float64) Celsius { return Celsius(x) })
+}
+
+// GenStandard generates Standard values.
+func GenStandard() pbt.Gen[Standard] {
+	return pbt.Custom("Standard", func(t *pbt.T) Standard {
+		var v Standard
+		v.Time = pbt.Time().Draw(t, "")
+		v.Zone = pbt.FixedZone().Draw(t, "")
+		v.Addr = pbt.Addr().Draw(t, "")
+		v.Prefix = pbt.Prefix().Draw(t, "")
+		v.Port = pbt.AddrPort().Draw(t, "")
+		v.IP = pbt.Custom("net.IP", func(t *pbt.T) net.IP {
+			a := pbt.Addr().Draw(t, "")
+			if a.Is4() && pbt.Bool().Draw(t, "") {
+				return net.IP(a.AsSlice())
+			}
+			b := a.As16()
+			return net.IP(b[:])
+		}).Draw(t, "")
+		v.MAC = pbt.HardwareAddr().Draw(t, "")
+		v.Bounded = pbt.TimeRange(time.Date(2020, 1, 1, 1, 0, 0, 0, time.FixedZone("", 3600)), time.Date(2021, 1, 1, 0, 0, 0, 123000000, time.UTC)).Draw(t, "")
+		v.MinOnly = pbt.TimeRange(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC)).Draw(t, "")
+		v.MaxOnly = pbt.TimeRange(time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)).Draw(t, "")
+		v.Duration = pbt.Make[time.Duration]().Draw(t, "")
+		v.Override = standardTimeGen.Draw(t, "")
+		return v
+	})
 }
