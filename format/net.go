@@ -224,7 +224,7 @@ func Hostname() pbt.Gen[string] {
 // hyphens between, one to 63 characters, and the name has at most 253
 // characters. Values shrink toward "a".
 func RFC1035Domain() pbt.Gen[string] {
-	return pbt.Custom("RFC1035Domain()", func(t *pbt.T) string { return hostname(t, lower+upper, 253) })
+	return pbt.Custom("RFC1035Domain()", func(t *pbt.T) string { return hostname(t, alpha, 253) })
 }
 
 // hostname draws a name whose labels start with a character of first, the
@@ -233,21 +233,20 @@ func RFC1035Domain() pbt.Gen[string] {
 func hostname(t *pbt.T, first string, budget int) string {
 	long := hostMode.Draw(t, "") == 1
 	n := labelCount.Draw(t, "")
-	var lens []int
+	var labels []string
 	if long {
-		lens = []int{63, 63, 63, 61}
+		for i, l := range []int{63, 63, 63, 61} {
+			set := first
+			if i == 3 {
+				set = alpha
+			}
+			labels = append(labels, ldhLabel(t, set, l))
+		}
 	} else {
-		for range n + 1 {
-			lens = append(lens, labelLen.Draw(t, ""))
+		for range n {
+			labels = append(labels, labelOf(first).Draw(t, ""))
 		}
-	}
-	labels := make([]string, len(lens))
-	for i, l := range lens {
-		set := first
-		if i == len(lens)-1 {
-			set = lower + upper
-		}
-		labels[i] = ldhLabel(t, set, l)
+		labels = append(labels, labelOf(alpha).Draw(t, ""))
 	}
 	// Drop leading labels, then shorten the last one, to fit the budget.
 	for len(labels) > 1 && len(strings.Join(labels, ".")) > budget {

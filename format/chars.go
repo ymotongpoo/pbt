@@ -68,6 +68,22 @@ func ldhLabel(t *pbt.T, first string, n int) string {
 	return b.String()
 }
 
+// labelGens caches the generators of labelOf.
+var labelGens sync.Map // string -> pbt.Gen[string]
+
+// labelOf generates labels like ldhLabel with a length drawn by labelLen,
+// from 1 to 63, in a span of their own whose first choice is the length,
+// so that the shrinker can shorten a label and keep what follows it.
+func labelOf(first string) pbt.Gen[string] {
+	if g, ok := labelGens.Load(first); ok {
+		return g.(pbt.Gen[string])
+	}
+	g, _ := labelGens.LoadOrStore(first, pbt.Custom("label", func(t *pbt.T) string {
+		return ldhLabel(t, first, labelLen.Draw(t, ""))
+	}))
+	return g.(pbt.Gen[string])
+}
+
 // hexDigit writes the nibble v as a hex digit, in upper case when up is set.
 func hexDigit(v byte, up bool) byte {
 	c := hexLower[v&0xf]
