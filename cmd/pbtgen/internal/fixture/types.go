@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-//go:generate go run go.ymotongpoo.com/pbt/cmd/pbtgen -type Order,Customer,Tree,Celsius,Standard
+//go:generate go run go.ymotongpoo.com/pbt/cmd/pbtgen -type Order,Customer,Tree,Celsius,Standard,Comparable,Chain
 
 // Celsius is a named basic type.
 type Celsius float64
@@ -74,4 +74,25 @@ type Standard struct {
 	MaxOnly  time.Time `pbt:"max=2021-01-01T00:00:00Z"`
 	Duration time.Duration
 	Override time.Time `pbt:"gen=standardTimeGen"`
+}
+
+// Comparable uses only tags understood by both Make and pbtgen.
+type Comparable struct {
+	Values [][]string
+	Counts map[string][]uint8
+	Fixed  [3]int16
+	Ptr    *int
+	Time   time.Time
+	Addr   netip.Addr
+	Zone   *time.Location
+	Prefix netip.Prefix
+	Port   netip.AddrPort
+	IP     net.IP
+	MAC    net.HardwareAddr
+}
+
+// Chain needs an explicit termination exception to its positive minimum.
+type Chain struct {
+	N    int
+	Next []Chain `pbt:"min=1,max=1"`
 }

@@ -12,7 +12,7 @@ import (
 
 // GenOrder generates Order values.
 func GenOrder() pbt.Gen[Order] {
-	return pbt.Custom("Order", func(t *pbt.T) Order {
+	return pbt.BoundedGrowth(pbt.Custom("Order", func(t *pbt.T) Order {
 		var v Order
 		v.Customer = pbt.Lazy(GenCustomer).Draw(t, "")
 		v.Lines = pbt.SliceOf(pbt.Custom("struct", func(t *pbt.T) struct {
@@ -38,30 +38,24 @@ func GenOrder() pbt.Gen[Order] {
 		v.Rush = pbt.Ptr(pbt.Bool(), true).Draw(t, "")
 		v.Weight = pbt.Float32Range(0, 100).Draw(t, "")
 		return v
-	})
+	}))
 }
 
 // GenCustomer generates Customer values.
 func GenCustomer() pbt.Gen[Customer] {
-	return pbt.Custom("Customer", func(t *pbt.T) Customer {
+	return pbt.BoundedGrowth(pbt.Custom("Customer", func(t *pbt.T) Customer {
 		var v Customer
 		v.ID = pbt.IntegerRange[int](1, math.MaxInt).Draw(t, "")
 		v.Name = pbt.String().Draw(t, "")
-		v.Email = emailGen.Draw(t, "")
+		v.Email = pbt.UnboundedGrowth(emailGen).Draw(t, "")
 		v.vip = pbt.Bool().Draw(t, "")
 		return v
-	})
+	}))
 }
 
 // GenTree generates Tree values.
 func GenTree() pbt.Gen[Tree] {
-	return pbt.Bounded(pbt.Custom("Tree", func(t *pbt.T) Tree {
-		var v Tree
-		v.Label = pbt.String().Draw(t, "")
-		v.Children = pbt.Just[[]Tree](nil).Draw(t, "")
-		v.Parent = pbt.Just[*Tree](nil).Draw(t, "")
-		return v
-	}), pbt.Custom("Tree", func(t *pbt.T) Tree {
+	return pbt.BoundedGrowth(pbt.Custom("Tree", func(t *pbt.T) Tree {
 		var v Tree
 		v.Label = pbt.String().Draw(t, "")
 		v.Children = pbt.SliceOf(pbt.Lazy(GenTree)).Draw(t, "")
@@ -72,32 +66,74 @@ func GenTree() pbt.Gen[Tree] {
 
 // GenCelsius generates Celsius values.
 func GenCelsius() pbt.Gen[Celsius] {
-	return pbt.Map(pbt.Float64(), func(x float64) Celsius { return Celsius(x) })
+	return pbt.BoundedGrowth(pbt.Map(pbt.Float64(), func(x float64) Celsius { return Celsius(x) }))
 }
 
 // GenStandard generates Standard values.
 func GenStandard() pbt.Gen[Standard] {
-	return pbt.Custom("Standard", func(t *pbt.T) Standard {
+	return pbt.BoundedGrowth(pbt.Custom("Standard", func(t *pbt.T) Standard {
 		var v Standard
-		v.Time = pbt.Time().Draw(t, "")
-		v.Zone = pbt.FixedZone().Draw(t, "")
-		v.Addr = pbt.Addr().Draw(t, "")
-		v.Prefix = pbt.Prefix().Draw(t, "")
-		v.Port = pbt.AddrPort().Draw(t, "")
-		v.IP = pbt.Custom("net.IP", func(t *pbt.T) net.IP {
+		v.Time = pbt.UnboundedGrowth(pbt.Time()).Draw(t, "")
+		v.Zone = pbt.UnboundedGrowth(pbt.FixedZone()).Draw(t, "")
+		v.Addr = pbt.UnboundedGrowth(pbt.Addr()).Draw(t, "")
+		v.Prefix = pbt.UnboundedGrowth(pbt.Prefix()).Draw(t, "")
+		v.Port = pbt.UnboundedGrowth(pbt.AddrPort()).Draw(t, "")
+		v.IP = pbt.UnboundedGrowth(pbt.Custom("net.IP", func(t *pbt.T) net.IP {
 			a := pbt.Addr().Draw(t, "")
 			if a.Is4() && pbt.Bool().Draw(t, "") {
 				return net.IP(a.AsSlice())
 			}
 			b := a.As16()
 			return net.IP(b[:])
-		}).Draw(t, "")
-		v.MAC = pbt.HardwareAddr().Draw(t, "")
-		v.Bounded = pbt.TimeRange(time.Date(2020, 1, 1, 1, 0, 0, 0, time.FixedZone("", 3600)), time.Date(2021, 1, 1, 0, 0, 0, 123000000, time.UTC)).Draw(t, "")
-		v.MinOnly = pbt.TimeRange(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC)).Draw(t, "")
-		v.MaxOnly = pbt.TimeRange(time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)).Draw(t, "")
+		})).Draw(t, "")
+		v.MAC = pbt.UnboundedGrowth(pbt.HardwareAddr()).Draw(t, "")
+		v.Bounded = pbt.UnboundedGrowth(pbt.TimeRange(time.Date(2020, 1, 1, 1, 0, 0, 0, time.FixedZone("", 3600)), time.Date(2021, 1, 1, 0, 0, 0, 123000000, time.UTC))).Draw(t, "")
+		v.MinOnly = pbt.UnboundedGrowth(pbt.TimeRange(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC))).Draw(t, "")
+		v.MaxOnly = pbt.UnboundedGrowth(pbt.TimeRange(time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC))).Draw(t, "")
 		v.Duration = pbt.Make[time.Duration]().Draw(t, "")
-		v.Override = standardTimeGen.Draw(t, "")
+		v.Override = pbt.UnboundedGrowth(standardTimeGen).Draw(t, "")
 		return v
-	})
+	}))
+}
+
+// GenComparable generates Comparable values.
+func GenComparable() pbt.Gen[Comparable] {
+	return pbt.BoundedGrowth(pbt.Custom("Comparable", func(t *pbt.T) Comparable {
+		var v Comparable
+		v.Values = pbt.SliceOf(pbt.SliceOf(pbt.String())).Draw(t, "")
+		v.Counts = pbt.MapOf(pbt.String(), pbt.SliceOf(pbt.Integer[uint8]())).Draw(t, "")
+		v.Fixed = pbt.Custom("[3]int16", func(t *pbt.T) [3]int16 {
+			var v [3]int16
+			for i := range v {
+				v[i] = pbt.Integer[int16]().Draw(t, "")
+			}
+			return v
+		}).Draw(t, "")
+		v.Ptr = pbt.Ptr(pbt.Integer[int](), true).Draw(t, "")
+		v.Time = pbt.UnboundedGrowth(pbt.Time()).Draw(t, "")
+		v.Addr = pbt.UnboundedGrowth(pbt.Addr()).Draw(t, "")
+		v.Zone = pbt.UnboundedGrowth(pbt.FixedZone()).Draw(t, "")
+		v.Prefix = pbt.UnboundedGrowth(pbt.Prefix()).Draw(t, "")
+		v.Port = pbt.UnboundedGrowth(pbt.AddrPort()).Draw(t, "")
+		v.IP = pbt.UnboundedGrowth(pbt.Custom("net.IP", func(t *pbt.T) net.IP {
+			a := pbt.Addr().Draw(t, "")
+			if a.Is4() && pbt.Bool().Draw(t, "") {
+				return net.IP(a.AsSlice())
+			}
+			b := a.As16()
+			return net.IP(b[:])
+		})).Draw(t, "")
+		v.MAC = pbt.UnboundedGrowth(pbt.HardwareAddr()).Draw(t, "")
+		return v
+	}))
+}
+
+// GenChain generates Chain values.
+func GenChain() pbt.Gen[Chain] {
+	return pbt.BoundedGrowth(pbt.Custom("Chain", func(t *pbt.T) Chain {
+		var v Chain
+		v.N = pbt.Integer[int]().Draw(t, "")
+		v.Next = pbt.SliceOfN(pbt.Lazy(GenChain), 1, 1).Draw(t, "")
+		return v
+	}))
 }

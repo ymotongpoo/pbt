@@ -9,12 +9,7 @@ import (
 
 // GenDept generates Dept values.
 func GenDept() pbt.Gen[Dept] {
-	return pbt.Bounded(pbt.Custom("Dept", func(t *pbt.T) Dept {
-		var v Dept
-		v.Name = pbt.String().Draw(t, "")
-		v.Staff = pbt.Just[[]Employee](nil).Draw(t, "")
-		return v
-	}), pbt.Custom("Dept", func(t *pbt.T) Dept {
+	return pbt.BoundedGrowth(pbt.Custom("Dept", func(t *pbt.T) Dept {
 		var v Dept
 		v.Name = pbt.String().Draw(t, "")
 		v.Staff = pbt.SliceOf(pbt.Lazy(GenEmployee)).Draw(t, "")
@@ -24,12 +19,7 @@ func GenDept() pbt.Gen[Dept] {
 
 // GenEmployee generates Employee values.
 func GenEmployee() pbt.Gen[Employee] {
-	return pbt.Bounded(pbt.Custom("Employee", func(t *pbt.T) Employee {
-		var v Employee
-		v.Dept = pbt.Just[*Dept](nil).Draw(t, "")
-		v.Peers = pbt.Just[[]Employee](nil).Draw(t, "")
-		return v
-	}), pbt.Custom("Employee", func(t *pbt.T) Employee {
+	return pbt.BoundedGrowth(pbt.Custom("Employee", func(t *pbt.T) Employee {
 		var v Employee
 		v.Dept = pbt.Ptr(pbt.Lazy(GenDept), true).Draw(t, "")
 		v.Peers = pbt.SliceOf(pbt.Lazy(GenEmployee)).Draw(t, "")

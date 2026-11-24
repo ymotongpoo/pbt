@@ -18,9 +18,10 @@
 // Fields may carry a pbt struct tag: "-" leaves the field zero, "min=A,max=B"
 // bounds a number or the length of a string, slice or map, and "gen=EXPR"
 // uses the Go expression EXPR as the field's generator. Types from other
-// packages fall back to pbt.Make. Recursive types, including mutually
-// recursive ones, are generated through pbt.Bounded, with the recursive
-// fields zero in the leaves, so that one value holds about size nodes.
+// packages fall back to pbt.Make. Every generated value uses pbt.BoundedGrowth
+// to share Make's growth budget across pointers, collections and strings,
+// including mutually recursive types. Explicit gen tags and standard-library
+// generators use pbt.UnboundedGrowth to retain their own generation contracts.
 package main
 
 import (
@@ -158,22 +159,16 @@ func (g *generator) emitType(tn *types.TypeName) error {
 	}
 	name := tn.Name()
 	recursive := g.reaches(named.Underlying(), named, map[types.Type]bool{})
-	var body string
-	var err error
+	var self types.Type
+	var selfExpr string
 	if recursive {
-		leaf, err1 := g.expr(named, tag{}, named, true, "", named)
-		node, err2 := g.expr(named, tag{}, named, false, "pbt.Lazy("+g.prefix+name+")", named)
-		if err1 != nil || err2 != nil {
-			return fmt.Errorf("%s: %v%v", name, err1, err2)
-		}
-		body = fmt.Sprintf("return pbt.Bounded(%s, %s)", leaf, node)
-	} else {
-		body, err = g.expr(named, tag{}, nil, false, "", named)
-		if err != nil {
-			return fmt.Errorf("%s: %v", name, err)
-		}
-		body = "return " + body
+		self, selfExpr = named, "pbt.Lazy("+g.prefix+name+")"
 	}
+	body, err := g.expr(named, tag{}, self, selfExpr, named)
+	if err != nil {
+		return fmt.Errorf("%s: %v", name, err)
+	}
+	body = "return pbt.BoundedGrowth(" + body + ")"
 	fn := g.prefix + name
 	g.funcs = append(g.funcs, fmt.Sprintf("// %s generates %s values.\nfunc %s() pbt.Gen[%s] {\n\t%s\n}\n", fn, name, fn, name, body))
 	return nil
@@ -248,16 +243,19 @@ func parseTag(s string) (tag, error) {
 // expr returns the Go expression of a generator for t. expand is the named
 // type whose function is being written: its body is expanded instead of
 // calling the function, and only at the top. When self is set, references
-// to self inside t use selfExpr, or the zero value when leaf is set, which
-// is how recursive types are built.
-func (g *generator) expr(t types.Type, tg tag, self types.Type, leaf bool, selfExpr string, expand types.Type) (string, error) {
+// to self inside t use selfExpr. Growth stops at the pointer and collection
+// boundaries under BoundedGrowth, rather than by generating placeholder leaves.
+func (g *generator) expr(t types.Type, tg tag, self types.Type, selfExpr string, expand types.Type) (string, error) {
 	if tg.gen != "" {
-		return tg.gen, nil
+		return "pbt.UnboundedGrowth(" + tg.gen + ")", nil
 	}
 	if expr, err := g.standardExpr(t, tg); expr != "" || err != nil {
-		return expr, err
+		if err != nil {
+			return "", err
+		}
+		return "pbt.UnboundedGrowth(" + expr + ")", nil
 	}
-	if self != nil && t == self && !leaf && selfExpr != "" && t != expand {
+	if self != nil && t == self && selfExpr != "" && t != expand {
 		return selfExpr, nil
 	}
 	switch u := t.(type) {
@@ -266,16 +264,13 @@ func (g *generator) expr(t types.Type, tg tag, self types.Type, leaf bool, selfE
 			return fmt.Sprintf("pbt.Make[%s]()", g.typeString(t)), nil
 		}
 		if g.requested[u.Obj().Name()] && t != expand {
-			if self != nil && leaf && g.reaches(t, self, map[types.Type]bool{}) {
-				return fmt.Sprintf("pbt.Just(%s{})", g.typeString(t)), nil
-			}
 			return fmt.Sprintf("pbt.Lazy(%s%s)", g.prefix, u.Obj().Name()), nil
 		}
 		switch under := u.Underlying().(type) {
 		case *types.Struct:
-			return g.structExpr(under, g.typeString(t), self, leaf, selfExpr)
+			return g.structExpr(under, g.typeString(t), self, selfExpr)
 		default:
-			inner, err := g.expr(under, tg, self, leaf, selfExpr, nil)
+			inner, err := g.expr(under, tg, self, selfExpr, nil)
 			if err != nil {
 				return "", err
 			}
@@ -284,19 +279,13 @@ func (g *generator) expr(t types.Type, tg tag, self types.Type, leaf bool, selfE
 	case *types.Basic:
 		return g.basicExpr(u, tg)
 	case *types.Pointer:
-		if self != nil && leaf && (u.Elem() == self || g.reaches(u.Elem(), self, map[types.Type]bool{})) {
-			return fmt.Sprintf("pbt.Just[%s](nil)", g.typeString(t)), nil
-		}
-		elem, err := g.expr(u.Elem(), tag{}, self, leaf, selfExpr, nil)
+		elem, err := g.expr(u.Elem(), tag{}, self, selfExpr, nil)
 		if err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("pbt.Ptr(%s, true)", elem), nil
 	case *types.Slice:
-		if self != nil && leaf && g.reaches(u, self, map[types.Type]bool{}) {
-			return fmt.Sprintf("pbt.Just[%s](nil)", g.typeString(t)), nil
-		}
-		elem, err := g.expr(u.Elem(), tag{}, self, leaf, selfExpr, nil)
+		elem, err := g.expr(u.Elem(), tag{}, self, selfExpr, nil)
 		if err != nil {
 			return "", err
 		}
@@ -305,21 +294,18 @@ func (g *generator) expr(t types.Type, tg tag, self types.Type, leaf bool, selfE
 		}
 		return fmt.Sprintf("pbt.SliceOf(%s)", elem), nil
 	case *types.Array:
-		elem, err := g.expr(u.Elem(), tag{}, self, leaf, selfExpr, nil)
+		elem, err := g.expr(u.Elem(), tag{}, self, selfExpr, nil)
 		if err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("pbt.Custom(%q, func(t *pbt.T) %s {\n\tvar v %s\n\tfor i := range v {\n\t\tv[i] = %s.Draw(t, \"\")\n\t}\n\treturn v\n})",
 			g.typeString(t), g.typeString(t), g.typeString(t), elem), nil
 	case *types.Map:
-		if self != nil && leaf && g.reaches(u, self, map[types.Type]bool{}) {
-			return fmt.Sprintf("pbt.Just[%s](nil)", g.typeString(t)), nil
-		}
-		key, err := g.expr(u.Key(), tag{}, self, leaf, selfExpr, nil)
+		key, err := g.expr(u.Key(), tag{}, self, selfExpr, nil)
 		if err != nil {
 			return "", err
 		}
-		val, err := g.expr(u.Elem(), tag{}, self, leaf, selfExpr, nil)
+		val, err := g.expr(u.Elem(), tag{}, self, selfExpr, nil)
 		if err != nil {
 			return "", err
 		}
@@ -328,7 +314,7 @@ func (g *generator) expr(t types.Type, tg tag, self types.Type, leaf bool, selfE
 		}
 		return fmt.Sprintf("pbt.MapOf(%s, %s)", key, val), nil
 	case *types.Struct:
-		return g.structExpr(u, g.typeString(t), self, leaf, selfExpr)
+		return g.structExpr(u, g.typeString(t), self, selfExpr)
 	}
 	return "", fmt.Errorf("cannot generate %s; add a pbt:\"gen=...\" tag", g.typeString(t))
 }
@@ -405,7 +391,7 @@ func maxConst(b *types.Basic) string {
 
 // structExpr returns a Custom generator that draws every field that is not
 // skipped, including unexported ones.
-func (g *generator) structExpr(st *types.Struct, typeName string, self types.Type, leaf bool, selfExpr string) (string, error) {
+func (g *generator) structExpr(st *types.Struct, typeName string, self types.Type, selfExpr string) (string, error) {
 	label := typeName
 	if strings.HasPrefix(label, "struct") {
 		label = "struct"
@@ -421,7 +407,7 @@ func (g *generator) structExpr(st *types.Struct, typeName string, self types.Typ
 		if tg.skip {
 			continue
 		}
-		e, err := g.expr(f.Type(), tg, self, leaf, selfExpr, nil)
+		e, err := g.expr(f.Type(), tg, self, selfExpr, nil)
 		if err != nil {
 			return "", fmt.Errorf("field %s: %v", f.Name(), err)
 		}

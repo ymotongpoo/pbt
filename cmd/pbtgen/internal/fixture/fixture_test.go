@@ -4,6 +4,7 @@
 package fixture
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -47,42 +48,36 @@ func TestGeneratedGenerators(t *testing.T) {
 	}, pbt.NoSave())
 }
 
-// internalDepts and internalEmployees count the nodes that have children;
-// leaves are not bounded by the budget, their parents are.
-func internalDepts(d Dept) int {
-	n := 0
-	if len(d.Staff) > 0 {
-		n++
-	}
+// Count every node, including leaves: exhausted budgets must not allocate
+// placeholder children that an internal-node count would miss.
+func deptNodes(d Dept) int {
+	n := 1
 	for _, e := range d.Staff {
-		n += internalEmployees(e)
+		n += employeeNodes(e)
 	}
 	return n
 }
 
-func internalEmployees(e Employee) int {
-	n := 0
-	if e.Dept != nil || len(e.Peers) > 0 {
-		n++
-	}
+func employeeNodes(e Employee) int {
+	n := 1
 	if e.Dept != nil {
-		n += internalDepts(*e.Dept)
+		n += deptNodes(*e.Dept)
 	}
 	for _, p := range e.Peers {
-		n += internalEmployees(p)
+		n += employeeNodes(p)
 	}
 	return n
 }
 
-// Mutually recursive types share one budget, so the internal nodes of the
-// whole value stay within the size parameter.
+// Mutually recursive types share one budget, so all nodes of the
+// whole value stay within eight times the size parameter.
 func TestMutualRecursionIsBounded(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
 		d := GenDept().Draw(t, "dept")
-		if n := internalDepts(d); n > t.Size()+1 {
-			t.Fatalf("%d internal nodes at size %d", n, t.Size())
+		if n := deptNodes(d); n > 8*max(t.Size(), 1)+1 {
+			t.Fatalf("%d nodes at size %d", n, t.Size())
 		}
-		t.Collect(internalDepts(d))
+		t.Collect(deptNodes(d))
 	}, pbt.NoSave())
 }
 
@@ -108,4 +103,31 @@ func TestGeneratedStandardTypes(t *testing.T) {
 	if !seen4 || !seenMapped || !seen6 || !nonzero {
 		t.Fatalf("missing forms: %v %v %v %v", seen4, seenMapped, seen6, nonzero)
 	}
+}
+
+// The generated implementations use the same growth decisions as reflection,
+// for both recursive and nonrecursive values, including standard-library types.
+func compareMake[V any](t *testing.T, generated pbt.Gen[V], opts ...pbt.MakeOption) {
+	t.Helper()
+	reflected := pbt.Make[V](opts...)
+	for _, size := range []int{0, 1, 10, 100, 1000} {
+		var want []V
+		pbt.Check(t, func(pt *pbt.T) { want = append(want, reflected.Draw(pt, "")) }, pbt.Seed(1), pbt.Sizes(size, size), pbt.Checks(20), pbt.NoSave(), pbt.NoReplay())
+		i := 0
+		pbt.Check(t, func(pt *pbt.T) {
+			got := generated.Draw(pt, "")
+			if !reflect.DeepEqual(got, want[i]) {
+				pt.Fatalf("size=%d case=%d: generated %#v != Make %#v", size, i, got, want[i])
+			}
+			i++
+		}, pbt.Seed(1), pbt.Sizes(size, size), pbt.Checks(20), pbt.NoSave(), pbt.NoReplay())
+	}
+}
+func TestGeneratedMatchesMake(t *testing.T) {
+	compareMake(t, GenTree())
+	compareMake(t, GenDept())
+	compareMake(t, GenEmployee())
+	compareMake(t, GenCelsius())
+	compareMake(t, GenComparable())
+	compareMake(t, GenChain())
 }

@@ -13,7 +13,7 @@ import (
 // the result with the file checked in next to it, which the fixture's own
 // tests compile and run.
 func TestGeneratedFixtureIsCurrent(t *testing.T) {
-	src, err := Generate("internal/fixture", []string{"Order", "Customer", "Tree", "Celsius", "Standard"}, "pbt_gen.go", "Gen")
+	src, err := Generate("internal/fixture", []string{"Order", "Customer", "Tree", "Celsius", "Standard", "Comparable", "Chain"}, "pbt_gen.go", "Gen")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestGenerateStandardExpressions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"pbt.Time()", "pbt.FixedZone()", "pbt.Addr()", "pbt.Prefix()", "pbt.AddrPort()", "pbt.HardwareAddr()", "pbt.TimeRange(time.Date(2020, 1, 1, 1, 0, 0, 0, time.FixedZone(\"\", 3600))", "time.Date(2021, 1, 1, 0, 0, 0, 123000000, time.UTC)", "pbt.Make[time.Duration]()", "standardTimeGen.Draw"} {
+	for _, want := range []string{"pbt.Time()", "pbt.FixedZone()", "pbt.Addr()", "pbt.Prefix()", "pbt.AddrPort()", "pbt.HardwareAddr()", "pbt.TimeRange(time.Date(2020, 1, 1, 1, 0, 0, 0, time.FixedZone(\"\", 3600))", "time.Date(2021, 1, 1, 0, 0, 0, 123000000, time.UTC)", "pbt.Make[time.Duration]()", "pbt.UnboundedGrowth(standardTimeGen).Draw"} {
 		if !strings.Contains(string(src), want) {
 			t.Errorf("missing %s", want)
 		}
