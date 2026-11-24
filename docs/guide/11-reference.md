@@ -46,7 +46,7 @@ A test whose name ends in `Mutant` runs a property against a planted bug and is 
 
 - The [package documentation](https://pkg.go.dev/go.ymotongpoo.com/pbt) on pkg.go.dev describes every function and option, with runnable examples.
 - The documentation of [package format](https://pkg.go.dev/go.ymotongpoo.com/pbt/format) describes every format, the parts of its standard that it covers, and its shrink targets.
-- [DESIGN.md](https://github.com/ymotongpoo/pbt/blob/main/DESIGN.md) records the design decisions and the comparison with PropEr, QuickCheck, Hypothesis and rapid, with a Japanese version in DESIGN.ja.md.
+- [DESIGN.md](https://github.com/ymotongpoo/pbt/blob/main/DESIGN.md) records the design decisions and the comparison with PropEr, QuickCheck, Hypothesis, rapid and Hegel, with a Japanese version in DESIGN.ja.md.
 - [CHANGELOG.md](https://github.com/ymotongpoo/pbt/blob/main/CHANGELOG.md) lists the changes of each release. The API may still change before v1.0.
 - Issues and questions go to the [GitHub repository](https://github.com/ymotongpoo/pbt).
 

@@ -10,7 +10,10 @@ the Markdown version of every guide page.
 ## Layout
 
 - The root module `go.ymotongpoo.com/pbt` is the library: package `pbt`,
-  `fsm/` (state machines), `cmd/pbtgen` (writes generators for types as
+  `fsm/` (state machines), `format/` (strings in the formats that standards
+  define, built on the public API of `pbt`; `format/doc.go` states its
+  naming rule and `format/chars.go` the rules that keep its generators
+  shrinkable), `cmd/pbtgen` (writes generators for types as
   source) and `docs/guide/snippets` (the listings of the guide, compiled and
   run as tests).
 - `examples/` is a separate module. `chNN*` ports the chapters of the book
@@ -31,7 +34,7 @@ the Markdown version of every guide page.
   vanity import paths and publishes the documentation of every module
   under go.ymotongpoo.com.
 - `DESIGN.md` records the design decisions, the API listing, the comparison
-  with PropEr, QuickCheck, Hypothesis and rapid, and the deferred items;
+  with PropEr, QuickCheck, Hypothesis, rapid and Hegel, and the deferred items;
   `DESIGN.ja.md` is its Japanese translation. `MIGRATION.md` maps rapid's
   API onto pbt. `CHANGELOG.md` follows Keep a Changelog. `BENCHMARK.md`
   reports the comparison with rapid.

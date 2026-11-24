@@ -213,7 +213,7 @@ func llmsTxt(byLang map[string][]chapter, version string) string {
 	b.WriteString("- [README](https://raw.githubusercontent.com/ymotongpoo/pbt/main/README.md): what pbt is, a first property and a stateful property\n")
 	b.WriteString("- [CHANGELOG](https://raw.githubusercontent.com/ymotongpoo/pbt/main/CHANGELOG.md): the changes of each release and how to upgrade\n")
 	b.WriteString("- [MIGRATION](https://raw.githubusercontent.com/ymotongpoo/pbt/main/MIGRATION.md): rapid's API mapped onto pbt, table by table\n")
-	b.WriteString("- [DESIGN](https://raw.githubusercontent.com/ymotongpoo/pbt/main/DESIGN.md): the design decisions, the API listing and the comparison with PropEr, QuickCheck, Hypothesis and rapid\n")
+	b.WriteString("- [DESIGN](https://raw.githubusercontent.com/ymotongpoo/pbt/main/DESIGN.md): the design decisions, the API listing and the comparison with PropEr, QuickCheck, Hypothesis, rapid and Hegel\n")
 	b.WriteString("- [Examples](https://github.com/ymotongpoo/pbt/tree/main/examples): the PropEr Testing book ported to Go, and practical stateful tests of an HTTP API, a job queue, a rate limiter, a session store and a ledger\n")
 	b.WriteString("- [AGENTS.md](https://raw.githubusercontent.com/ymotongpoo/pbt/main/AGENTS.md): instructions for coding agents that work on the repository itself\n")
 	if ja := byLang["ja"]; len(ja) > 0 {
