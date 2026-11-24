@@ -37,14 +37,14 @@ var (
 	uriRe      = regexp.MustCompile(`^` + reScheme + `:` + reHier + reTail + `$`)
 	relativeRe = regexp.MustCompile(`^` + reRelPart + reTail + `$`)
 	literalRe  = regexp.MustCompile(`\[([^\]]*)\]`)
-	futureRe   = regexp.MustCompile(`^v[0-9A-Fa-f]+\.(?:` + reUnres + `|` + reSub + `|:)+$`)
+	futureRe   = regexp.MustCompile(`^[vV][0-9A-Fa-f]+\.(?:` + reUnres + `|` + reSub + `|:)+$`)
 )
 
 // checkLiterals checks the IP literals of a URI, which the regular
 // expressions leave open.
 func checkLiterals(s string) string {
 	for _, m := range literalRe.FindAllStringSubmatch(s, -1) {
-		if !futureRe.MatchString(m[1]) && checkRFC4291(m[1], 1) != "" {
+		if !futureRe.MatchString(m[1]) && checkRFC4291(m[1], 1, false) != "" {
 			return "bad IP literal [" + m[1] + "]"
 		}
 	}
@@ -68,22 +68,25 @@ func TestRFC3986URI(t *testing.T) {
 		pt.Cover(strings.Contains(s, "?"), 20, "query")
 		pt.Cover(strings.Contains(s, "#"), 20, "fragment")
 		pt.Cover(!strings.Contains(s, "/"), 5, "no slash")
+		pt.Cover(strings.Contains(s, "[V"), 1, "IPvFuture with an upper-case V")
+		pt.Cover(regexp.MustCompile(`:\d{6,}`).MatchString(s), 1, "port of six digits or more")
+		pt.Cover(regexp.MustCompile(`%(?:[0-9][a-f]|[a-f][0-9A-F]|[A-F][a-f])`).MatchString(s), 2, "percent-encoding in mixed or lower case")
 	}, pbt.Seed(1), pbt.Checks(2000), pbt.NoSave(), pbt.CheckCoverage())
-	for form, want := range map[string]string{"//": "http://a", ":/": "http:/", "": "http:"} {
-		got := minimalOf(t, RFC3986URI(), func(s string) bool {
-			rest := strings.TrimPrefix(s, s[:strings.IndexByte(s, ':')])
-			switch form {
-			case "//":
-				return strings.HasPrefix(rest, "://")
-			case ":/":
-				return strings.HasPrefix(rest, ":/") && !strings.HasPrefix(rest, "://")
-			}
-			return rest == ":" || strings.HasPrefix(rest, ":?") || strings.HasPrefix(rest, ":#")
-		})
-		if got != want {
-			t.Errorf("form %q shrinks to %q, want %q", form, got, want)
+	shrinksTo(t, RFC3986URI(), always, uriTargets("http")...)
+	shrinksTo(t, RFC3986URI(), func(s string) bool { return strings.HasPrefix(s, "http://") },
+		"http://a", "http://", "http://0.0.0.0", "http://[::]", "http://[v0.a]")
+}
+
+// uriTargets lists the shrink targets the godoc of RFC3986URI names, for
+// the given schemes.
+func uriTargets(schemes ...string) []string {
+	var ts []string
+	for _, sc := range append(schemes, "a") {
+		for _, h := range []string{"//a", "/", "a", "", "//", "//0.0.0.0", "//[::]", "//[v0.a]"} {
+			ts = append(ts, sc+":"+h)
 		}
 	}
+	return ts
 }
 
 func TestRFC3986Reference(t *testing.T) {
@@ -98,12 +101,7 @@ func TestRFC3986Reference(t *testing.T) {
 		pt.Cover(!uriRe.MatchString(s), 30, "relative")
 		pt.Cover(strings.HasPrefix(s, "//"), 5, "network-path reference")
 	}, pbt.Seed(1), pbt.Checks(2000), pbt.NoSave(), pbt.CheckCoverage())
-	if got := minimalOf(t, RFC3986Reference(), func(s string) bool { return uriRe.MatchString(s) }); got != "http://a" {
-		t.Errorf("URI shrinks to %q", got)
-	}
-	if got := minimalOf(t, RFC3986Reference(), func(s string) bool { return strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "//") }); got != "/" {
-		t.Errorf("absolute-path reference shrinks to %q", got)
-	}
+	shrinksTo(t, RFC3986Reference(), always, append(uriTargets("http"), "//a", "/", "a", "", "//", "//0.0.0.0", "//[::]", "//[v0.a]")...)
 }
 
 func TestURL(t *testing.T) {
@@ -128,9 +126,7 @@ func TestURL(t *testing.T) {
 		pt.Cover(strings.Contains(u.Host, "["), 5, "IPv6 host")
 		pt.Cover(strings.Contains(s, "%"), 10, "percent-encoded")
 	}, pbt.Seed(1), pbt.Checks(2000), pbt.NoSave(), pbt.CheckCoverage())
-	if got := minimalOf(t, URL(), always); got != "http://a" {
-		t.Errorf("shrinks to %q", got)
-	}
+	shrinksTo(t, URL(), always, "http://a", "http://0.0.0.0", "http://[::]")
 }
 
 // TestGoURLDivergences pins what RFC3986URI's godoc says about

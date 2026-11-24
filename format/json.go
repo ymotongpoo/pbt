@@ -16,27 +16,18 @@ import (
 const maxJSONDepth = 4
 
 var (
-	jsonWS      = choice(6, 3, 1) // nothing, a space, white space of the four kinds RFC 8259 allows
-	jsonWSText  = stringIn(" \t\n\r", 1, 4)
-	jsonSign    = choice(4, 1)    // none, a minus sign
-	jsonInt     = choice(1, 3)    // zero, digits that do not start with zero
-	jsonFrac    = choice(3, 1)    // none, a fraction
-	jsonExp     = choice(4, 1)    // none, an exponent
-	jsonExpSign = choice(2, 1, 1) // none, "+", "-"
-	jsonDigits  = stringIn(digits, 0, 24)
-	jsonDigits1 = stringIn(digits, 1, 24)
-	expDigits   = stringIn(digits, 1, 4)
+	// ws generates the white space of RFC 8259 §2 between tokens:
+	// nothing, a space, or a run of spaces, tabs, line feeds and
+	// carriage returns.
+	wsGen       = pbt.Frequency(pbt.W(6, pbt.Just("")), pbt.W(3, pbt.Just(" ")), pbt.W(1, stringIn(" \t\n\r", 1, 4)))
 	jsonEscape  = choice(8, 1, 1) // literal, a short escape when there is one, \u
 	jsonHexCase = choice(3, 1)
-	jsonItem    = choice(30, 1) // a character, an unpaired surrogate escape
 	jsonRunes   = pbt.Rune()
 	jsonLonely  = pbt.IntRange(0xD800, 0xDFFF)
-	jsonKeyPool = choice(3, 1) // any name, one of a few short names
 	jsonArray   = pbt.IntRange(0, 6)
-	ijsonNumber = choice(2, 1) // a safe integer, a binary64 value
 	safeInts    = pbt.Int64Range(-(1<<53 - 1), 1<<53-1)
 	floats      = pbt.Float64()
-	ijsonTop    = choice(1, 1) // an array, an object
+	floatForm   = pbt.SampledFrom([]byte{'g', 'e', 'f'})
 )
 
 // JSON generates JSON texts in the syntax of RFC 8259: a value of any
@@ -61,39 +52,31 @@ func JSON() pbt.Gen[string] {
 // IJSON generates texts of the Internet JSON profile of RFC 7493: an
 // object or an array at the top level, as §4.1 recommends; member names
 // that are unique within their object after unescaping (§2.3); numbers
-// that IEEE 754 binary64 represents exactly, integers within ±(2^53-1) and
-// values written by strconv.FormatFloat, with an exponent when they would
-// otherwise read as an integer beyond that range (§2.2); and strings of Unicode
+// that read back as finite binary64 values, integers within ±(2^53-1) and
+// the shortest decimals strconv.FormatFloat writes for binary64 values,
+// with an exponent when they would otherwise read as an integer beyond
+// that range (§2.2); and strings of Unicode
 // scalar values without noncharacters, with surrogates only as escaped
 // pairs (§2.1). Values shrink toward "[]".
 func IJSON() pbt.Gen[string] {
 	values := jsonValues(true)
+	inner := values[maxJSONDepth-1]
+	top := pbt.Frequency(
+		pbt.W(1, pbt.Custom("array", func(t *pbt.T) string { return jsonArrayOf(t, inner) })),
+		pbt.W(1, pbt.Custom("object", func(t *pbt.T) string { return ijsonObject(t, inner) })),
+	)
 	return pbt.Custom("IJSON()", func(t *pbt.T) string {
-		top := ijsonTop.Draw(t, "")
-		var v string
-		if top == 0 {
-			v = jsonArrayOf(t, values[maxJSONDepth-1])
-		} else {
-			v = ijsonObject(t, values[maxJSONDepth-1])
-		}
-		return ws(t) + v + ws(t)
+		return ws(t) + top.Draw(t, "") + ws(t)
 	})
 }
 
-func ws(t *pbt.T) string {
-	switch jsonWS.Draw(t, "") {
-	case 1:
-		return " "
-	case 2:
-		return jsonWSText.Draw(t, "")
-	}
-	return ""
-}
+func ws(t *pbt.T) string { return wsGen.Draw(t, "") }
 
 // jsonValues returns the generators of values nested up to each depth.
 func jsonValues(ijson bool) []pbt.Gen[string] {
 	gens := make([]pbt.Gen[string], maxJSONDepth+1)
 	str := jsonString(ijson)
+	names := jsonNames(str)
 	num := jsonNumber
 	if ijson {
 		num = ijsonNumberGen
@@ -114,7 +97,7 @@ func jsonValues(ijson bool) []pbt.Gen[string] {
 					if ijson {
 						return ijsonObject(t, inner)
 					}
-					return jsonObject(t, inner, str)
+					return jsonObject(t, inner, names)
 				})),
 			)
 		}
@@ -137,8 +120,13 @@ func jsonArrayOf(t *pbt.T, elems pbt.Gen[string]) string {
 	return b.String()
 }
 
-// jsonObject writes members whose names may repeat: a quarter of the
-// names come from a pool of two.
+// jsonNames generates member names for JSON: a quarter of them come from a
+// pool of two, so names repeat.
+func jsonNames(names pbt.Gen[string]) pbt.Gen[string] {
+	return pbt.Frequency(pbt.W(3, names), pbt.W(1, pbt.SampledFrom([]string{`"a"`, `"b"`})))
+}
+
+// jsonObject writes members whose names may repeat.
 func jsonObject(t *pbt.T, values, names pbt.Gen[string]) string {
 	n := jsonArray.Draw(t, "")
 	var b strings.Builder
@@ -147,16 +135,7 @@ func jsonObject(t *pbt.T, values, names pbt.Gen[string]) string {
 		if i > 0 {
 			b.WriteString(ws(t) + "," + ws(t))
 		}
-		name := `"a"`
-		switch jsonKeyPool.Draw(t, "") {
-		case 0:
-			name = names.Draw(t, "")
-		default:
-			if pbt.Bool().Draw(t, "") {
-				name = `"b"`
-			}
-		}
-		b.WriteString(name + ws(t) + ":" + ws(t) + values.Draw(t, ""))
+		b.WriteString(names.Draw(t, "") + ws(t) + ":" + ws(t) + values.Draw(t, ""))
 	}
 	b.WriteString(ws(t) + "}")
 	return b.String()
@@ -200,13 +179,13 @@ func jsonString(ijson bool) pbt.Gen[string] {
 		raw := pbt.StringOfN(scalar(), 0, 16)
 		return pbt.Custom("string", func(t *pbt.T) string { return encodeJSON(t, raw.Draw(t, "")) })
 	}
-	item := pbt.Custom("char", func(t *pbt.T) string {
-		if jsonItem.Draw(t, "") == 1 {
+	item := pbt.Frequency(
+		pbt.W(30, pbt.Custom("char", func(t *pbt.T) string { return encodeRune(t, jsonRunes.Draw(t, "")) })),
+		pbt.W(1, pbt.Custom("unpaired surrogate", func(t *pbt.T) string {
 			up := jsonHexCase.Draw(t, "") == 1
 			return uEscape(rune(jsonLonely.Draw(t, "")), up)
-		}
-		return encodeRune(t, jsonRunes.Draw(t, ""))
-	})
+		})),
+	)
 	items := pbt.SliceOfN(item, 0, 16)
 	return pbt.Custom("string", func(t *pbt.T) string {
 		return `"` + strings.Join(items.Draw(t, ""), "") + `"`
@@ -261,40 +240,34 @@ func uEscape(r rune, up bool) string {
 	return s
 }
 
-// jsonNumber generates numbers in the grammar of RFC 8259 §6.
-var jsonNumber = pbt.Custom("number", func(t *pbt.T) string {
-	var b strings.Builder
-	if jsonSign.Draw(t, "") == 1 {
-		b.WriteByte('-')
-	}
-	if jsonInt.Draw(t, "") == 0 {
-		b.WriteByte('0')
-	} else {
-		b.WriteByte(byte('1' + pbt.IntRange(0, 8).Draw(t, "")))
-		b.WriteString(jsonDigits.Draw(t, ""))
-	}
-	if jsonFrac.Draw(t, "") == 1 {
-		b.WriteString("." + jsonDigits1.Draw(t, ""))
-	}
-	if jsonExp.Draw(t, "") == 1 {
-		b.WriteString([...]string{"e", "E"}[pbt.IntRange(0, 1).Draw(t, "")])
-		b.WriteString([...]string{"", "+", "-"}[jsonExpSign.Draw(t, "")])
-		b.WriteString(expDigits.Draw(t, ""))
-	}
-	return b.String()
-})
+var (
+	digits1to9 = pbt.Map(pbt.IntRange(1, 9), func(d int) string { return string(byte('0' + d)) })
 
-// ijsonNumberGen generates numbers that binary64 represents exactly.
-var ijsonNumberGen = pbt.Custom("number", func(t *pbt.T) string {
-	if ijsonNumber.Draw(t, "") == 0 {
-		return strconv.FormatInt(safeInts.Draw(t, ""), 10)
-	}
-	f := floats.Draw(t, "")
-	format := [...]byte{'g', 'e', 'f'}[pbt.IntRange(0, 2).Draw(t, "")]
-	if format == 'f' && math.Abs(f) > 1<<53-1 {
-		// Written without an exponent, such a value reads as an integer
-		// outside the range §2.2 lets a receiver treat as exact.
-		format = 'e'
-	}
-	return strconv.FormatFloat(f, format, -1, 64)
-})
+	// jsonNumber generates numbers in the grammar of RFC 8259 §6: an
+	// optional minus, zero or digits that do not start with zero, an
+	// optional fraction, and an optional exponent of either case with an
+	// optional sign.
+	jsonNumber = concat(
+		optional(4, 1, pbt.Just("-")),
+		pbt.Frequency(pbt.W(1, pbt.Just("0")), pbt.W(3, concat(digits1to9, stringIn(digits, 0, 24)))),
+		optional(3, 1, concat(pbt.Just("."), stringIn(digits, 1, 24))),
+		optional(4, 1, concat(pbt.SampledFrom([]string{"e", "E"}), pbt.SampledFrom([]string{"", "+", "-"}), stringIn(digits, 1, 4))),
+	)
+
+	// ijsonNumberGen generates numbers that read back as finite binary64
+	// values: safe integers and the shortest decimals of binary64 values.
+	ijsonNumberGen = pbt.Frequency(
+		pbt.W(2, pbt.Map(safeInts, func(i int64) string { return strconv.FormatInt(i, 10) })),
+		pbt.W(1, pbt.Custom("binary64", func(t *pbt.T) string {
+			f := floats.Draw(t, "")
+			format := floatForm.Draw(t, "")
+			if format == 'f' && math.Abs(f) > 1<<53-1 {
+				// Written without an exponent, such a value reads as an
+				// integer outside the range §2.2 lets a receiver treat as
+				// exact.
+				format = 'e'
+			}
+			return strconv.FormatFloat(f, format, -1, 64)
+		})),
+	)
+)

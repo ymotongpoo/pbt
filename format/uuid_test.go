@@ -42,12 +42,8 @@ func TestUUID(t *testing.T) {
 		pt.Cover(s == "00000000-0000-0000-0000-000000000000", 2, "Nil")
 		pt.Cover(s == "ffffffff-ffff-ffff-ffff-ffffffffffff", 2, "Max")
 	}, pbt.Seed(1), pbt.Checks(2000), pbt.NoSave(), pbt.CheckCoverage())
-	if got := minimalOf(t, UUID(), always); got != "00000000-0000-0000-0000-000000000000" {
-		t.Errorf("shrinks to %q", got)
-	}
-	if got := minimalOf(t, UUID(7, 4), always); got != "00000000-0000-7000-8000-000000000000" {
-		t.Errorf("UUID(7, 4) shrinks to %q", got)
-	}
+	shrinksTo(t, UUID(), always, "00000000-0000-0000-0000-000000000000")
+	shrinksTo(t, UUID(7, 4), always, "00000000-0000-7000-8000-000000000000")
 	if UUID(7, 4).String() != "UUID(7, 4)" {
 		t.Errorf("name %q", UUID(7, 4))
 	}

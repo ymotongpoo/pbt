@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -26,16 +27,38 @@ func TestIPv4AndRFC5952IPv6AreCanonical(t *testing.T) {
 		}
 		return ""
 	})
-	if got := minimalOf(t, RFC5952IPv6(), always); got != "::" {
-		t.Errorf("RFC5952IPv6 shrinks to %q", got)
-	}
+	shrinksTo(t, RFC5952IPv6(), always, "::")
 }
 
-var ipv6GroupRe = regexp.MustCompile(`^[0-9A-Fa-f]{1,4}$`)
+var (
+	ipv6GroupRe = regexp.MustCompile(`^[0-9A-Fa-f]{1,4}$`)
+	snumRe      = regexp.MustCompile(`^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$`)
+)
+
+// checkSnum checks four decimal octets of one to three digits, with
+// leading zeros when leadingZeros is set, and returns them without the
+// leading zeros.
+func checkSnum(s string, leadingZeros bool) (string, bool) {
+	m := snumRe.FindStringSubmatch(s)
+	if m == nil {
+		return "", false
+	}
+	var parts []string
+	for _, o := range m[1:] {
+		v, _ := strconv.Atoi(o)
+		if v > 255 || (!leadingZeros && len(o) > 1 && o[0] == '0') {
+			return "", false
+		}
+		parts = append(parts, strconv.Itoa(v))
+	}
+	return strings.Join(parts, "."), true
+}
 
 // checkRFC4291 checks the text forms of RFC 4291 §2.2 without relying on
-// netip, then that netip reads the same address.
-func checkRFC4291(s string, minRun int) string {
+// netip, in which "::" stands for at least minRun groups and, when snum is
+// set, an embedded IPv4 address may have leading zeros as in RFC 5321;
+// then that netip reads an address from it.
+func checkRFC4291(s string, minRun int, snum bool) string {
 	head, tail, compressed := strings.Cut(s, "::")
 	if strings.Contains(tail, "::") {
 		return "more than one ::"
@@ -49,11 +72,14 @@ func checkRFC4291(s string, minRun int) string {
 	split(head)
 	split(tail)
 	n := 0
+	normal := s
 	for i, g := range groups {
 		if i == len(groups)-1 && strings.Contains(g, ".") {
-			if a, err := netip.ParseAddr(g); err != nil || !a.Is4() {
+			plain, ok := checkSnum(g, snum)
+			if !ok {
 				return "bad embedded IPv4 " + g
 			}
+			normal = strings.TrimSuffix(s, g) + plain
 			n += 2
 			continue
 		}
@@ -68,14 +94,14 @@ func checkRFC4291(s string, minRun int) string {
 	case compressed && 8-n < minRun:
 		return ":: stands for too few groups"
 	}
-	if a, err := netip.ParseAddr(s); err != nil || !a.Is6() {
+	if a, err := netip.ParseAddr(normal); err != nil || !a.Is6() {
 		return "netip.ParseAddr rejects it"
 	}
 	return ""
 }
 
 func TestRFC4291IPv6(t *testing.T) {
-	checkValid(t, RFC4291IPv6(), func(s string) string { return checkRFC4291(s, 1) })
+	checkValid(t, RFC4291IPv6(), func(s string) string { return checkRFC4291(s, 1, false) })
 	pbt.Check(t, func(pt *pbt.T) {
 		s := RFC4291IPv6().Draw(pt, "s")
 		a, _ := netip.ParseAddr(s)
@@ -86,9 +112,7 @@ func TestRFC4291IPv6(t *testing.T) {
 		pt.Cover(strings.Contains(s, "."), 10, "embedded IPv4")
 		pt.Cover(regexp.MustCompile(`(^|:)0[0-9a-fA-F]`).MatchString(s), 10, "leading zero")
 	}, pbt.Seed(1), pbt.Checks(2000), pbt.NoSave(), pbt.CheckCoverage())
-	if got := minimalOf(t, RFC4291IPv6(), always); got != "::" {
-		t.Errorf("shrinks to %q", got)
-	}
+	shrinksTo(t, RFC4291IPv6(), always, "::")
 }
 
 func TestCIDR(t *testing.T) {
@@ -98,9 +122,7 @@ func TestCIDR(t *testing.T) {
 		}
 		return ""
 	})
-	if got := minimalOf(t, CIDR(), always); got != "0.0.0.0/0" {
-		t.Errorf("shrinks to %q", got)
-	}
+	shrinksTo(t, CIDR(), always, "0.0.0.0/0")
 }
 
 func TestMAC(t *testing.T) {
@@ -116,9 +138,7 @@ func TestMAC(t *testing.T) {
 		pt.Cover(strings.Contains(s, "."), 5, "dots")
 		pt.Cover(strings.ContainsAny(s, "ABCDEF"), 5, "upper case")
 	}, pbt.Seed(1), pbt.Checks(1000), pbt.NoSave(), pbt.CheckCoverage())
-	if got := minimalOf(t, MAC(), always); got != "00:00:00:00:00:00" {
-		t.Errorf("shrinks to %q", got)
-	}
+	shrinksTo(t, MAC(), always, "00:00:00:00:00:00")
 }
 
 var (
@@ -146,16 +166,15 @@ func TestHostname(t *testing.T) {
 		}
 		pt.Cover(long, 3, "label of 63 characters")
 	}, pbt.Seed(1), pbt.Checks(2000), pbt.NoSave(), pbt.CheckCoverage())
-	if got := minimalOf(t, Hostname(), always); got != "a" {
-		t.Errorf("shrinks to %q", got)
-	}
+	shrinksTo(t, Hostname(), always, "a")
 	checkValid(t, RFC1035Domain(), func(s string) string {
 		if !domainRe.MatchString(s) || len(s) > 253 {
 			return "not an RFC 1035 domain name"
 		}
 		return ""
 	})
-	if got := minimalOf(t, RFC1035Domain(), always); got != "a" {
-		t.Errorf("RFC1035Domain shrinks to %q", got)
-	}
+	pbt.Check(t, func(pt *pbt.T) {
+		pt.Cover(strings.Count(RFC1035Domain().Draw(pt, "s"), ".") >= 5, 3, "six labels or more")
+	}, pbt.Seed(1), pbt.Checks(2000), pbt.NoSave(), pbt.CheckCoverage())
+	shrinksTo(t, RFC1035Domain(), always, "a")
 }

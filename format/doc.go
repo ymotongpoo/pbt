@@ -10,19 +10,25 @@
 //
 // Every generator follows one production of its standard, and the name
 // says which. A function named after a standard, such as RFC3339 or
-// RFC5322AddrSpec, generates everything the production allows, which is
-// what a parser of that standard must accept. A function with a plain
-// name, such as Email or HTTPDate, generates the common or canonical form,
-// which is what a program should write. Time takes the layout constants of
-// package time, so format.Time(time.RFC1123) generates what
-// time.Time.Format writes for that layout.
+// RFC5322AddrSpec, generates the alternatives of the production, which is
+// what a parser of that standard must accept; the only parts left out are
+// those the standard itself forbids generators to produce, such as the
+// obsolete syntax of RFC 5322 §4, and each function's documentation names
+// them, along with the bounds it puts on lengths the grammar leaves open.
+// A function with a plain name, such as Email or HTTPDate, generates the
+// common or canonical form, which is what a program should write. Time
+// takes the layout constants of package time, so format.Time(time.RFC1123)
+// generates what time.Time.Format writes for that layout.
 //
 // The strings are built from their grammar rather than filtered, so every
 // value is valid, including the values the shrinker tries, and values
-// shrink toward the shortest valid string, such as "a@a" for an e-mail
-// address. Where a parser of the standard library does not accept all of a
-// production, the generator's documentation says how they differ; those
-// differences are what property tests of a parser are for.
+// shrink toward a short valid string, such as "a@a" for an e-mail address.
+// The shrinker keeps the form of each part it starts from, so a quoted
+// local part shrinks toward the empty quoted string rather than toward an
+// atom; each function's documentation lists the targets. Where a parser of
+// the standard library does not accept all of a production, the
+// generator's documentation says how they differ; those differences are
+// what property tests of a parser are for.
 //
 // The package is built on the generators of package pbt and has no other
 // dependencies.

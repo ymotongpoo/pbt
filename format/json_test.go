@@ -33,30 +33,43 @@ func TestJSON(t *testing.T) {
 		pt.Cover(bigInt.MatchString(s), 1, "integer beyond 64 bits")
 		pt.Cover(strings.ContainsAny(s, "\n\t\r"), 5, "white space other than spaces")
 	}, pbt.Seed(1), pbt.Checks(2000), pbt.NoSave(), pbt.CheckCoverage())
-	if got := minimalOf(t, JSON(), always); got != "null" {
-		t.Errorf("shrinks to %q", got)
-	}
+	shrinksTo(t, JSON(), always, "null")
 }
 
-// loneSurrogate finds a \u escape of a surrogate that is not part of a
-// high-low pair.
-var surrogateRe = regexp.MustCompile(`\\u[dD][89a-fA-F][0-9a-fA-F]{2}`)
-
+// lonelySurrogate lexes the strings of a JSON text, escapes included, and
+// reports whether a \u escape of a surrogate is not part of a high-low
+// pair. An escaped backslash followed by "u" is not an escape.
 func lonelySurrogate(s string) bool {
-	locs := surrogateRe.FindAllStringIndex(s, -1)
-	for i := 0; i < len(locs); i++ {
-		hi, _ := strconv.ParseUint(s[locs[i][0]+2:locs[i][1]], 16, 16)
-		if hi >= 0xDC00 {
+	var units []uint16 // the code units of \u escapes; 0 marks anything else
+	inString := false
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case !inString:
+			inString = c == '"'
+		case c == '"':
+			inString = false
+			units = append(units, 0)
+		case c == '\\' && s[i+1] == 'u':
+			u, _ := strconv.ParseUint(s[i+2:i+6], 16, 16)
+			units = append(units, uint16(u))
+			i += 5
+		case c == '\\':
+			units = append(units, 0)
+			i++
+		default:
+			units = append(units, 0)
+		}
+	}
+	for i := 0; i < len(units); i++ {
+		switch u := units[i]; {
+		case u >= 0xD800 && u < 0xDC00:
+			if i+1 == len(units) || units[i+1] < 0xDC00 || units[i+1] > 0xDFFF {
+				return true
+			}
+			i++
+		case u >= 0xDC00 && u <= 0xDFFF:
 			return true
 		}
-		if i+1 == len(locs) || locs[i+1][0] != locs[i][1] {
-			return true
-		}
-		lo, _ := strconv.ParseUint(s[locs[i+1][0]+2:locs[i+1][1]], 16, 16)
-		if lo < 0xDC00 {
-			return true
-		}
-		i++
 	}
 	return false
 }
@@ -103,8 +116,8 @@ func checkIJSON(s string) string {
 			continue
 		case string:
 			for _, r := range v {
-				if isNoncharacter(r) || r == 0xFFFD && !strings.Contains(s, "�") {
-					return "noncharacter or replaced surrogate"
+				if isNoncharacter(r) {
+					return "noncharacter"
 				}
 			}
 			if top != nil && top.object && top.key {
@@ -137,15 +150,18 @@ func TestIJSON(t *testing.T) {
 		s := IJSON().Draw(pt, "s")
 		pt.Cover(strings.HasPrefix(strings.TrimSpace(s), "{"), 30, "object")
 		pt.Cover(strings.Contains(s, `\u`), 10, `\u escape`)
-		pt.Cover(surrogateRe.MatchString(s), 1, "escaped surrogate pair")
+		pt.Cover(regexp.MustCompile(`\\u[dD][89abAB]`).MatchString(s), 1, "escaped surrogate pair")
 		pt.Cover(regexp.MustCompile(`[0-9][eE]`).MatchString(s), 5, "exponent")
 	}, pbt.Seed(1), pbt.Checks(2000), pbt.NoSave(), pbt.CheckCoverage())
-	if got := minimalOf(t, IJSON(), always); got != "[]" {
-		t.Errorf("shrinks to %q", got)
-	}
-	for _, s := range []string{`{"a":1,"a":2}`, `["\ud800"]`, `1`, `[9007199254740993]`} {
+	shrinksTo(t, IJSON(), always, "[]", "{}")
+	for _, s := range []string{`{"a":1,"a":2}`, `["\ud800"]`, `["\udc00\ud800"]`, `1`, `[9007199254740993]`, `["\ufdd0"]`} {
 		if checkIJSON(s) == "" {
 			t.Errorf("checkIJSON accepts %s", s)
+		}
+	}
+	for _, s := range []string{`["\ufffd"]`, `["\\ud800"]`, `["\ud83d\ude00"]`, "[\"\uFFFD\"]"} {
+		if msg := checkIJSON(s); msg != "" {
+			t.Errorf("checkIJSON rejects %s: %s", s, msg)
 		}
 	}
 }

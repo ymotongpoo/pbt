@@ -4,11 +4,15 @@
 package format
 
 import (
-	"net/netip"
 	"strconv"
 	"strings"
 
 	"go.ymotongpoo.com/pbt"
+)
+
+var (
+	ipv4Addrs = pbt.IPv4()
+	ipv6Addrs = pbt.IPv6()
 )
 
 // IPv4 generates IPv4 addresses in dotted-decimal form, four decimal
@@ -16,8 +20,7 @@ import (
 // addresses of pbt.IPv4, special-purpose blocks included. Values shrink
 // toward "0.0.0.0".
 func IPv4() pbt.Gen[string] {
-	addrs := pbt.IPv4()
-	return pbt.Custom("IPv4()", func(t *pbt.T) string { return addrs.Draw(t, "").String() })
+	return pbt.Custom("IPv4()", func(t *pbt.T) string { return ipv4Addrs.Draw(t, "").String() })
 }
 
 // RFC5952IPv6 generates IPv6 addresses in the canonical text form of RFC
@@ -27,8 +30,7 @@ func IPv4() pbt.Gen[string] {
 // "::ffff:192.0.2.1". That is what netip.Addr.String writes. The addresses
 // are those of pbt.IPv6. Values shrink toward "::".
 func RFC5952IPv6() pbt.Gen[string] {
-	addrs := pbt.IPv6()
-	return pbt.Custom("RFC5952IPv6()", func(t *pbt.T) string { return addrs.Draw(t, "").String() })
+	return pbt.Custom("RFC5952IPv6()", func(t *pbt.T) string { return ipv6Addrs.Draw(t, "").String() })
 }
 
 // RFC4291IPv6 generates IPv6 addresses in every text form of RFC 4291
@@ -37,11 +39,11 @@ func RFC5952IPv6() pbt.Gen[string] {
 // "::" in place of any one run of zero groups, the longest or another, of
 // any length down to a single group, or no "::" at all; and the last 32
 // bits written as a dotted-decimal IPv4 address, which §2.2 allows for any
-// address. The addresses are those of pbt.IPv6, and netip.ParseAddr
-// returns the address for every form. Values shrink toward "::".
+// address, with octets without leading zeros. The addresses are those of
+// pbt.IPv6, and netip.ParseAddr returns the address for every form. Values
+// shrink toward "::".
 func RFC4291IPv6() pbt.Gen[string] {
-	addrs := pbt.IPv6()
-	return pbt.Custom("RFC4291IPv6()", func(t *pbt.T) string { return ipv6Text(t, addrs, 1) })
+	return ipv6Text("RFC4291IPv6()", 1, false)
 }
 
 var (
@@ -50,25 +52,38 @@ var (
 	ipv6Compress = pbt.IntRange(0, 9)
 	ipv6Sub      = pbt.IntRange(0, 7)
 	ipv6Pad      = pbt.IntRange(0, 3)
+	octetPad     = pbt.IntRange(0, 2)
 	mixedCase    = pbt.Uint32()
 )
 
-// ipv6Text writes an address of addrs in a text form of RFC 4291 §2.2 in
-// which "::" stands for at least minRun groups. The form is drawn before
-// the address and always takes the same number of choices, so that the
-// shrinker can simplify the address without changing the form.
-func ipv6Text(t *pbt.T, addrs pbt.Gen[netip.Addr], minRun int) string {
-	embed := ipv6Embed.Draw(t, "") == 1
-	letters := ipv6Case.Draw(t, "")
-	sel := ipv6Compress.Draw(t, "")
-	subStart, subLen := ipv6Sub.Draw(t, ""), ipv6Sub.Draw(t, "")
-	var pad [8]int
-	for i := range pad {
-		pad[i] = ipv6Pad.Draw(t, "")
-	}
-	mixed := mixedCase.Draw(t, "")
-	b := addrs.Draw(t, "").As16()
+// ipv6Text returns a generator of the addresses of pbt.IPv6 in a text form
+// of RFC 4291 §2.2 in which "::" stands for at least minRun groups and,
+// when padOctets is set, the octets of an embedded IPv4 address may have
+// leading zeros, as the Snum of RFC 5321 allows. The form is drawn before
+// the address and always takes the same number of choices.
+func ipv6Text(name string, minRun int, padOctets bool) pbt.Gen[string] {
+	return pbt.Custom(name, func(t *pbt.T) string {
+		embed := ipv6Embed.Draw(t, "") == 1
+		letters := ipv6Case.Draw(t, "")
+		sel := ipv6Compress.Draw(t, "")
+		subStart, subLen := ipv6Sub.Draw(t, ""), ipv6Sub.Draw(t, "")
+		var pad [8]int
+		for i := range pad {
+			pad[i] = ipv6Pad.Draw(t, "")
+		}
+		var opad [4]int
+		if padOctets {
+			for i := range opad {
+				opad[i] = octetPad.Draw(t, "")
+			}
+		}
+		mixed := mixedCase.Draw(t, "")
+		b := ipv6Addrs.Draw(t, "").As16()
+		return writeIPv6(b, embed, letters, sel, subStart, subLen, pad, opad, mixed, minRun)
+	})
+}
 
+func writeIPv6(b [16]byte, embed bool, letters, sel, subStart, subLen int, pad [8]int, opad [4]int, mixed uint32, minRun int) string {
 	nhex := 8
 	if embed {
 		nhex = 6
@@ -77,8 +92,7 @@ func ipv6Text(t *pbt.T, addrs pbt.Gen[netip.Addr], minRun int) string {
 	for i := range g {
 		g[i] = uint16(b[2*i])<<8 | uint16(b[2*i+1])
 	}
-	// The runs of zero groups among the hexadecimal groups.
-	var runs [][2]int // start, length
+	var runs [][2]int // start, length of each run of zero groups
 	for i := 0; i < nhex; {
 		if g[i] != 0 {
 			i++
@@ -118,7 +132,6 @@ func ipv6Text(t *pbt.T, addrs pbt.Gen[netip.Addr], minRun int) string {
 			cut, cutEnd = r[0]+off, r[0]+off+n
 		}
 	}
-
 	var out strings.Builder
 	pos := 0 // index of the next hexadecimal digit, for mixed case
 	group := func(i int) {
@@ -151,9 +164,24 @@ func ipv6Text(t *pbt.T, addrs pbt.Gen[netip.Addr], minRun int) string {
 		if cutEnd != nhex {
 			out.WriteByte(':')
 		}
-		out.WriteString(netip.AddrFrom4([4]byte(b[12:])).String())
+		for i, o := range b[12:] {
+			if i > 0 {
+				out.WriteByte('.')
+			}
+			out.WriteString(snum(o, opad[i]))
+		}
 	}
 	return out.String()
+}
+
+// snum writes an octet in decimal with up to pad leading zeros, at most
+// three digits in all.
+func snum(o byte, pad int) string {
+	s := strconv.Itoa(int(o))
+	if n := min(3, len(s)+pad); n > len(s) {
+		s = strings.Repeat("0", n-len(s)) + s
+	}
+	return s
 }
 
 // CIDR generates IP prefixes in the notation of RFC 4632 §3.1 for IPv4,
@@ -166,7 +194,10 @@ func CIDR() pbt.Gen[string] {
 	return pbt.Custom("CIDR()", func(t *pbt.T) string { return prefixes.Draw(t, "").Masked().String() })
 }
 
-var macSep = choice(4, 2, 1) // colons, hyphens, dots
+var (
+	macs   = pbt.HardwareAddr()
+	macSep = choice(4, 2, 1) // colons, hyphens, dots
+)
 
 // MAC generates MAC addresses in the text forms net.ParseMAC reads:
 // EUI-48 and EUI-64 addresses of pbt.HardwareAddr written as groups of two
@@ -175,7 +206,6 @@ var macSep = choice(4, 2, 1) // colons, hyphens, dots
 // separated by dots ("0123.4567.89ab"), in lower, upper or mixed case.
 // Values shrink toward "00:00:00:00:00:00".
 func MAC() pbt.Gen[string] {
-	macs := pbt.HardwareAddr()
 	return pbt.Custom("MAC()", func(t *pbt.T) string {
 		sep := macSep.Draw(t, "")
 		letters := ipv6Case.Draw(t, "")
@@ -199,10 +229,47 @@ func MAC() pbt.Gen[string] {
 	})
 }
 
+// hostLabels generates the labels of a host name: in most cases up to
+// extra labels that start with a character of first followed by a last
+// label that starts with a character of last, and in one case in sixteen
+// labels of 63, 63, 63 and 61 characters, 253 in all, the longest name DNS
+// carries without a final dot (RFC 1035 §2.3.4). Labels are in spans of
+// their own, so the shrinker deletes and shortens them one by one.
+func hostLabels(first, last string, extra int) pbt.Gen[[]string] {
+	others := pbt.SliceOfN(labelOf(first), 0, extra)
+	return pbt.Frequency(
+		pbt.W(15, pbt.Custom("labels", func(t *pbt.T) []string {
+			return append(others.Draw(t, ""), labelOf(last).Draw(t, ""))
+		})),
+		pbt.W(1, pbt.Custom("long labels", func(t *pbt.T) []string {
+			var ls []string
+			for i, n := range []int{63, 63, 63, 61} {
+				set := first
+				if i == 3 {
+					set = last
+				}
+				ls = append(ls, ldhLabel(t, set, n))
+			}
+			return ls
+		})),
+	)
+}
+
+// fitLabels joins labels into a name of at most budget characters, which
+// must be at least 1, dropping leading labels and then shortening the last.
+func fitLabels(labels []string, budget int) string {
+	for len(labels) > 1 && len(strings.Join(labels, ".")) > budget {
+		labels = labels[1:]
+	}
+	if last := labels[len(labels)-1]; len(last) > budget {
+		labels[len(labels)-1] = strings.TrimRight(last[:budget], "-")
+	}
+	return strings.Join(labels, ".")
+}
+
 var (
-	hostMode   = choice(15, 1) // labels as drawn, labels of 63 characters up to 253 in total
-	labelCount = pbt.IntRange(0, 4)
-	labelLen   = pbt.IntRange(1, 63)
+	hostnameLabels = hostLabels(alnum, alpha, 4)
+	domainLabels   = hostLabels(alpha, alpha, 9)
 )
 
 // Hostname generates host names in the syntax of RFC 1123 §2.1: labels of
@@ -211,49 +278,19 @@ var (
 // carries without a final dot (RFC 1035 §2.3.4). Labels may start with a
 // digit, which RFC 1123 allows and RFC 1035 does not, but the last label
 // starts with a letter, so that a name never looks like an IPv4 address.
-// Letters are in both cases. Labels of 63 characters are common, and about
-// one name in sixteen is exactly 253 characters long. There is no final
-// dot. Values shrink toward "a".
+// Names have one to five labels, letters are in both cases, labels of 63
+// characters are common, and one name in sixteen is exactly 253
+// characters long. There is no final dot. Values shrink toward "a".
 func Hostname() pbt.Gen[string] {
-	return pbt.Custom("Hostname()", func(t *pbt.T) string { return hostname(t, alnum, 253) })
+	return pbt.Custom("Hostname()", func(t *pbt.T) string { return fitLabels(hostnameLabels.Draw(t, ""), 253) })
 }
 
 // RFC1035Domain generates domain names in the preferred name syntax of RFC
 // 1035 §2.3.1, which is stricter than Hostname: every label starts with a
 // letter and ends with a letter or a digit, with letters, digits and
 // hyphens between, one to 63 characters, and the name has at most 253
-// characters. Values shrink toward "a".
+// characters (§2.3.4). Names have one to ten labels, or four of 63, 63, 63
+// and 61 characters in one case in sixteen. Values shrink toward "a".
 func RFC1035Domain() pbt.Gen[string] {
-	return pbt.Custom("RFC1035Domain()", func(t *pbt.T) string { return hostname(t, alpha, 253) })
-}
-
-// hostname draws a name whose labels start with a character of first, the
-// last one with a letter, in at most budget characters, which must be at
-// least 1.
-func hostname(t *pbt.T, first string, budget int) string {
-	long := hostMode.Draw(t, "") == 1
-	n := labelCount.Draw(t, "")
-	var labels []string
-	if long {
-		for i, l := range []int{63, 63, 63, 61} {
-			set := first
-			if i == 3 {
-				set = alpha
-			}
-			labels = append(labels, ldhLabel(t, set, l))
-		}
-	} else {
-		for range n {
-			labels = append(labels, labelOf(first).Draw(t, ""))
-		}
-		labels = append(labels, labelOf(alpha).Draw(t, ""))
-	}
-	// Drop leading labels, then shorten the last one, to fit the budget.
-	for len(labels) > 1 && len(strings.Join(labels, ".")) > budget {
-		labels = labels[1:]
-	}
-	if last := labels[len(labels)-1]; len(last) > budget {
-		labels[len(labels)-1] = strings.TrimRight(last[:budget], "-")
-	}
-	return strings.Join(labels, ".")
+	return pbt.Custom("RFC1035Domain()", func(t *pbt.T) string { return fitLabels(domainLabels.Draw(t, ""), 253) })
 }

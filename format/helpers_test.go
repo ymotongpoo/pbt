@@ -6,6 +6,7 @@ package format
 import (
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"testing"
 
 	"go.ymotongpoo.com/pbt"
@@ -51,6 +52,11 @@ func checkValid[V any](t *testing.T, g pbt.Gen[V], check func(V) string) {
 // fails when fails holds.
 func minimalOf[V any](t *testing.T, g pbt.Gen[V], fails func(V) bool) V {
 	t.Helper()
+	return minimalWithSeed(t, g, fails, 20261031)
+}
+
+func minimalWithSeed[V any](t *testing.T, g pbt.Gen[V], fails func(V) bool, seed uint64) V {
+	t.Helper()
 	var got V
 	found := false
 	pbt.Check(quietTB{t.Name()}, func(pt *pbt.T) {
@@ -59,11 +65,24 @@ func minimalOf[V any](t *testing.T, g pbt.Gen[V], fails func(V) bool) V {
 		if fails(v) {
 			pt.Fail()
 		}
-	}, pbt.Seed(20261031), pbt.Checks(2000), pbt.NoSave())
+	}, pbt.Seed(seed), pbt.Checks(2000), pbt.NoSave())
 	if !found {
-		t.Fatalf("%s: no counterexample", g)
+		t.Fatalf("%s: no counterexample with seed %d", g, seed)
 	}
 	return got
+}
+
+// shrinksTo checks that, from ten seeds, the counterexample of a property
+// that fails when fails holds is always one of want: the shrink targets
+// the godoc names, one per form the shrinker keeps.
+func shrinksTo(t *testing.T, g pbt.Gen[string], fails func(string) bool, want ...string) {
+	t.Helper()
+	for seed := uint64(1); seed <= 10; seed++ {
+		got := minimalWithSeed(t, g, fails, seed)
+		if !slices.Contains(want, got) {
+			t.Errorf("%s with seed %d shrinks to %q, want one of %q", g, seed, got, want)
+		}
+	}
 }
 
 // always is a predicate for minimalOf that holds for every value.

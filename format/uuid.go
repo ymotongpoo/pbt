@@ -15,8 +15,8 @@ import (
 var uuidKinds = choice(1, 1, 1, 1, 6, 1, 1, 4, 1, 1)
 
 // UUID generates UUIDs in the text form of RFC 9562 §4, such as
-// "f81d4fae-7dec-11d0-a765-00a0c91e6bf6": 32 hexadecimal digits in lower
-// case, as §4 says they are written, grouped 8-4-4-4-12. The variant bits
+// "f81d4fae-7dec-11d0-a765-00a0c91e6bf6": 32 hexadecimal digits grouped
+// 8-4-4-4-12, here always in lower case. The variant bits
 // are those of RFC 9562 (10 in binary), the version is in the thirteenth
 // digit, and the other bits are drawn, so every value is valid for its
 // version: the fields that versions 1, 6 and 7 fill with a timestamp take

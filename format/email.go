@@ -27,90 +27,31 @@ const (
 	dtext = alnum + "!\"#$%&'()*+,-./:;<=>?@^_`{|}~"
 )
 
-var (
-	localMode = choice(15, 1) // atoms as drawn, a local part of exactly 64 characters
-	atomCount = pbt.IntRange(0, 3)
-	atomLen   = pbt.IntRange(1, 20)
-	tldLen    = pbt.IntRange(2, 10)
-	domainN   = pbt.IntRange(1, 3)
-)
-
-// Email generates e-mail addresses in the form most validators accept,
-// which is also valid under RFC 5321, RFC 5322 and the HTML standard: a
-// local part of atoms of letters, digits, "_", "+" and "-" joined by
-// single dots, at most 64 characters (RFC 5321 §4.5.3.1.1), and a domain
-// of one to three labels of letters, digits and hyphens followed by a
-// top-level label of two to ten letters, at most 254 characters in all.
-// Letters are in both cases. Values shrink toward "a@a.aa".
-//
-// For the whole syntax a mail system must accept, use RFC5321Mailbox or
-// RFC5322AddrSpec.
-func Email() pbt.Gen[string] {
-	return pbt.Custom("Email()", func(t *pbt.T) string {
-		local := dotAtom(t, commonAtext, 64)
-		budget := 254 - len(local) - 1
-		n := domainN.Draw(t, "")
-		labels := make([]string, 0, n+1)
-		for range n {
-			labels = append(labels, labelOf(alnum).Draw(t, ""))
-		}
-		tld := tldGen.Draw(t, "")
-		for len(labels) > 1 && len(strings.Join(labels, "."))+1+len(tld) > budget {
-			labels = labels[1:]
-		}
-		return local + "@" + strings.Join(append(labels, tld), ".")
-	})
-}
-
-// tldGen generates the top-level label of Email: two to ten letters.
-var tldGen = pbt.Custom("tld", func(t *pbt.T) string {
-	b := make([]byte, tldLen.Draw(t, ""))
-	for i := range b {
-		b[i] = charIn(alpha).Draw(t, "")
-	}
-	return string(b)
-})
-
 // atomGens caches the generators of atomOf.
-var atomGens sync.Map // string -> pbt.Gen[string]
+var atomGens sync.Map // [2]any{set, maxLen} -> pbt.Gen[string]
 
-// atomOf generates atoms of 1 to 20 characters of set, each in a span of
-// its own whose first choice is the length.
-func atomOf(set string) pbt.Gen[string] {
-	if g, ok := atomGens.Load(set); ok {
+// atomOf generates atoms of 1 to maxLen characters of set, with a length
+// drawn like an integer so that maxLen is common, each in a span of its own
+// whose first choice is the length.
+func atomOf(set string, maxLen int) pbt.Gen[string] {
+	key := [2]any{set, maxLen}
+	if g, ok := atomGens.Load(key); ok {
 		return g.(pbt.Gen[string])
 	}
-	g, _ := atomGens.LoadOrStore(set, pbt.Custom("atom", func(t *pbt.T) string {
-		b := make([]byte, atomLen.Draw(t, ""))
-		for i := range b {
-			b[i] = charIn(set).Draw(t, "")
-		}
-		return string(b)
+	lens := pbt.IntRange(1, maxLen)
+	g, _ := atomGens.LoadOrStore(key, pbt.Custom("atom", func(t *pbt.T) string {
+		return drawChars(t, set, lens.Draw(t, ""))
 	}))
 	return g.(pbt.Gen[string])
 }
 
-// dotAtom draws atoms of set joined by single dots, at most maxLen
-// characters, and in a share of the cases exactly maxLen.
-func dotAtom(t *pbt.T, set string, maxLen int) string {
-	var atoms []string
-	if localMode.Draw(t, "") == 1 {
-		for _, n := range []int{maxLen/2 - 1, maxLen - maxLen/2} {
-			b := make([]byte, n)
-			for i := range b {
-				b[i] = charIn(set).Draw(t, "")
-			}
-			atoms = append(atoms, string(b))
-		}
-	} else {
-		for range atomCount.Draw(t, "") + 1 {
-			atoms = append(atoms, atomOf(set).Draw(t, ""))
-		}
-	}
+// joinAtoms joins atoms with dots, keeping as many as fit in maxLen
+// characters and cutting the first to maxLen when it alone is longer.
+func joinAtoms(atoms []string, maxLen int) string {
 	var b strings.Builder
 	for i, a := range atoms {
 		if i > 0 {
-			if b.Len()+2 > maxLen {
+			if b.Len()+1+len(a) > maxLen {
 				break
 			}
 			b.WriteByte('.')
@@ -120,6 +61,46 @@ func dotAtom(t *pbt.T, set string, maxLen int) string {
 	return b.String()
 }
 
+var (
+	commonLocal = pbt.Frequency(
+		pbt.W(15, pbt.Map(pbt.SliceOfN(atomOf(commonAtext, 20), 1, 4), func(as []string) string { return joinAtoms(as, 64) })),
+		pbt.W(1, concat(fixedString(commonAtext, 31), pbt.Just("."), fixedString(commonAtext, 32))),
+	)
+	emailLabels = pbt.SliceOfN(labelOf(alnum), 1, 3)
+	tldLen      = pbt.IntRange(2, 10)
+	tldGen      = pbt.Custom("tld", func(t *pbt.T) string {
+		return drawChars(t, alpha, tldLen.Draw(t, ""))
+	})
+)
+
+// Email generates e-mail addresses in the form most validators accept,
+// which is also valid under RFC 5321, RFC 5322 and the HTML standard: a
+// local part of one to four atoms of letters, digits, "_", "+" and "-"
+// joined by single dots, at most 64 characters (RFC 5321 §4.5.3.1.1) and
+// exactly 64 in one case in sixteen, and a domain of one to three labels
+// of letters, digits and hyphens followed by a top-level label of two to
+// ten letters, at most 254 characters in all. Letters are in both cases.
+// net/mail.ParseAddress reads every value. Values shrink toward "a@a.aa".
+//
+// For the whole syntax a mail system must accept, use RFC5321Mailbox or
+// RFC5322AddrSpec.
+func Email() pbt.Gen[string] {
+	return pbt.Custom("Email()", func(t *pbt.T) string {
+		local := commonLocal.Draw(t, "")
+		labels := append(emailLabels.Draw(t, ""), tldGen.Draw(t, ""))
+		budget := 254 - len(local) - 1
+		for len(labels) > 2 && len(strings.Join(labels, ".")) > budget {
+			labels = labels[1:]
+		}
+		return local + "@" + strings.Join(labels, ".")
+	})
+}
+
+var (
+	htmlLocal  = stringIn(atext+".", 1, 64)
+	htmlLabels = pbt.SliceOfN(labelOf(alnum), 1, 5)
+)
+
 // HTMLEmail generates the valid e-mail addresses of the HTML standard
 // (§4.10.5.1.5), which an input element of type email accepts: a local
 // part of one to 64 characters of atext and dots in any arrangement,
@@ -128,152 +109,144 @@ func dotAtom(t *pbt.T, set string, maxLen int) string {
 // letters, digits and hyphens that start and end with a letter or a digit,
 // at most 63 characters each. Values shrink toward "a@a".
 func HTMLEmail() pbt.Gen[string] {
-	local := stringIn(atext+".", 1, 64)
 	return pbt.Custom("HTMLEmail()", func(t *pbt.T) string {
-		l := local.Draw(t, "")
-		n := labelCount.Draw(t, "")
-		labels := make([]string, n+1)
-		for i := range labels {
-			labels[i] = labelOf(alnum).Draw(t, "")
-		}
-		return l + "@" + strings.Join(labels, ".")
+		return htmlLocal.Draw(t, "") + "@" + strings.Join(htmlLabels.Draw(t, ""), ".")
 	})
 }
 
+// quotedOf returns the generator of quoted strings whose items are drawn
+// by item, at most maxLen octets including the quotes; each item is in a
+// span of its own.
+func quotedOf(item pbt.Gen[string], maxLen int) pbt.Gen[string] {
+	items := pbt.SliceOfN(item, 0, 30)
+	return pbt.Custom("quoted-string", func(t *pbt.T) string {
+		var kept []string
+		n := 2
+		for _, it := range items.Draw(t, "") {
+			if n+len(it) > maxLen {
+				break
+			}
+			kept = append(kept, it)
+			n += len(it)
+		}
+		return `"` + joinWS(kept) + `"`
+	})
+}
+
+func escaped(set string) pbt.Gen[string] {
+	return pbt.Map(charIn(set), func(c byte) string { return `\` + string(c) })
+}
+
+func char(set string) pbt.Gen[string] {
+	return pbt.Map(charIn(set), func(c byte) string { return string(c) })
+}
+
 var (
-	localForm   = choice(4, 1)    // dot-string or dot-atom, quoted string
-	domainForm  = choice(5, 1, 1) // a domain, an IPv4 literal, an IPv6 literal
-	quotedItem  = choice(8, 1, 1) // a character, an escaped character, white space
-	quotedLen   = pbt.IntRange(0, 30)
-	ipv6TagCase = choice(9, 1) // "IPv6" as RFC 5321 writes it, in lower case
+	// Quoted-string of RFC 5321 §4.1.2: qtextSMTP and quoted-pairSMTP,
+	// a backslash and any of %d32-126.
+	quotedSMTP = quotedOf(pbt.Frequency(pbt.W(9, char(qtextSMTP)), pbt.W(1, escaped(vchar+" "))), 64)
+	// quoted-string of RFC 5322 §3.2.4: qtext, quoted-pair of VCHAR or
+	// WSP, and folding white space.
+	quoted5322 = quotedOf(pbt.Frequency(pbt.W(8, char(qtext5322)), pbt.W(1, escaped(vchar+" \t")), pbt.W(1, fws)), 130)
+
+	smtpLocal = pbt.Frequency(
+		pbt.W(4, pbt.Map(pbt.SliceOfN(atomOf(atext, 64), 1, 16), func(as []string) string { return joinAtoms(as, 64) })),
+		pbt.W(1, quotedSMTP),
+	)
+	smtpLabels = hostLabels(alnum, alnum, 4)
+	ipv6SMTP   = ipv6Text("IPv6-addr", 2, true)
+	ipv6Tag    = literalCase("IPv6:", 9, 1)
+
+	// smtpDomain draws a Domain or an address literal of RFC 5321; a
+	// domain is fitted to the octets the local part leaves.
+	smtpDomain = pbt.Frequency(
+		pbt.W(5, pbt.Map(smtpLabels, func(ls []string) func(int) string {
+			return func(budget int) string { return fitLabels(ls, budget) }
+		})),
+		pbt.W(1, pbt.Custom("IPv4-address-literal", func(t *pbt.T) func(int) string {
+			b := ipv4Addrs.Draw(t, "").As4()
+			var parts [4]string
+			for i, o := range b {
+				parts[i] = snum(o, octetPad.Draw(t, ""))
+			}
+			s := "[" + strings.Join(parts[:], ".") + "]"
+			return func(int) string { return s }
+		})),
+		pbt.W(1, pbt.Custom("IPv6-address-literal", func(t *pbt.T) func(int) string {
+			s := "[" + ipv6Tag.Draw(t, "") + ipv6SMTP.Draw(t, "") + "]"
+			return func(int) string { return s }
+		})),
+	)
 )
 
 // RFC5321Mailbox generates mailboxes in the syntax of RFC 5321 §4.1.2, the
-// address of SMTP's MAIL and RCPT commands: a Local-part that is a
-// Dot-string of atext atoms or a Quoted-string, which may contain spaces
-// and backslash escapes, at most 64 octets (§4.5.3.1.1), then "@" and a
-// Domain of labels of letters, digits and hyphens, at most 63 characters
-// each, or an address literal: an IPv4 address in brackets, such as
-// "[192.0.2.1]", or "IPv6:" and an IPv6 address in any form of §4.1.3,
-// where "::" stands for at least two zero groups. A mailbox has at most
-// 254 octets, the 256 of a path (§4.5.3.1.3) without the angle brackets.
-// The General-address-literal, which no registered tag uses, is not
-// generated. Values shrink toward "a@a"; the shrinker keeps the form of
-// each part, so a quoted local part shrinks toward the empty quoted string
-// and an address literal toward [0.0.0.0], as in ""@a and a@[0.0.0.0].
+// address of SMTP's MAIL and RCPT commands. The Local-part is a Dot-string
+// of one to sixteen atext atoms of up to 64 characters each, or a
+// Quoted-string, which may contain spaces and backslash escapes, at most
+// 64 octets in all (§4.5.3.1.1). The domain is a Domain of one to five
+// labels of letters, digits and hyphens that start and end with a letter
+// or a digit, any of them with a digit, as in "3com", at most 63
+// characters each; or an address literal (§4.1.3): an IPv4 address in
+// brackets whose octets may have leading zeros, as Snum allows, such as
+// "[192.000.002.001]", or "IPv6:" in either case and an IPv6 address in
+// any form of §4.1.3, where "::" stands for at least two zero groups and
+// an embedded IPv4 address may also have leading zeros. A mailbox has at
+// most 254 octets, the 256 of a path (§4.5.3.1.3) without the angle
+// brackets. A General-address-literal needs a tag registered with IANA,
+// and the only one is IPv6, which the IPv6 literal covers. Values shrink
+// toward "a@a"; the shrinker keeps the form
+// of each part, so a quoted local part shrinks toward the empty quoted
+// string and an address literal toward [0.0.0.0], as in ""@a and
+// a@[0.0.0.0].
+//
+// net/mail.ParseAddress (Go 1.26) rejects some of these: the empty quoted
+// string, IPv4 literals with leading zeros, and IPv6 literals.
 func RFC5321Mailbox() pbt.Gen[string] {
-	addrs6, addrs4 := pbt.IPv6(), pbt.IPv4()
 	return pbt.Custom("RFC5321Mailbox()", func(t *pbt.T) string {
-		var local string
-		if localForm.Draw(t, "") == 0 {
-			local = dotAtom(t, atext, 64)
-		} else {
-			local = quotedSMTP.Draw(t, "")
-		}
-		budget := 254 - len(local) - 1
-		var domain string
-		switch domainForm.Draw(t, "") {
-		case 0:
-			domain = hostname(t, alnum, min(budget, 253))
-		case 1:
-			domain = "[" + addrs4.Draw(t, "").String() + "]"
-		default:
-			tag := "IPv6:"
-			if ipv6TagCase.Draw(t, "") == 1 {
-				tag = "ipv6:"
-			}
-			domain = "[" + tag + ipv6Text(t, addrs6, 2) + "]"
-		}
-		return local + "@" + domain
+		local := smtpLocal.Draw(t, "")
+		return local + "@" + smtpDomain.Draw(t, "")(min(253, 254-len(local)-1))
 	})
 }
 
-// The quoted strings of RFC 5321 and RFC 5322, each in a span of its own
-// whose first choice is the number of items.
 var (
-	quotedSMTP = pbt.Custom("quoted", func(t *pbt.T) string { return quoted(t, qtextSMTP, false, 64) })
-	quoted5322 = pbt.Custom("quoted", func(t *pbt.T) string { return quoted(t, qtext5322, true, 66) })
+	local5322 = pbt.Frequency(
+		pbt.W(4, pbt.Map(pbt.SliceOfN(atomOf(atext, 64), 1, 8), func(as []string) string { return strings.Join(as, ".") })),
+		pbt.W(2, quoted5322),
+	)
+	domain5322 = pbt.Frequency(
+		pbt.W(4, pbt.Map(pbt.SliceOfN(atomOf(atext, 63), 1, 8), func(as []string) string { return strings.Join(as, ".") })),
+		pbt.W(1, pbt.Custom("domain-literal", func(t *pbt.T) string {
+			return "[" + literalBody.Draw(t, "") + "]"
+		})),
+	)
+	literalBody = pbt.Frequency(
+		pbt.W(2, IPv4()),
+		pbt.W(2, concat(pbt.Just("IPv6:"), ipv6Text("IPv6", 1, false))),
+		pbt.W(1, pbt.Map(pbt.SliceOfN(pbt.Frequency(pbt.W(9, char(dtext)), pbt.W(1, fws)), 0, 30), joinWS)),
+	)
+	aroundCFWS = optional(9, 1, cfws)
 )
 
-// quoted draws a quoted string of at most maxLen octets: characters of
-// set, backslash escapes, and, when wsp is set, runs of spaces and tabs,
-// which RFC 5322 writes as folding white space. An escape takes a
-// character of VCHAR, a space or a tab.
-func quoted(t *pbt.T, set string, wsp bool, maxLen int) string {
-	var b strings.Builder
-	b.WriteByte('"')
-	for range quotedLen.Draw(t, "") {
-		var item string
-		switch quotedItem.Draw(t, "") {
-		case 0:
-			item = string(charIn(set).Draw(t, ""))
-		case 1:
-			item = "\\" + string(charIn(vchar+" \t").Draw(t, ""))
-			if !wsp && item == "\\\t" {
-				item = "\\ " // quoted-pairSMTP takes %d32-126, no tab
-			}
-		default:
-			if wsp {
-				item = stringIn(" \t", 1, 3).Draw(t, "")
-			} else {
-				item = " "
-			}
-		}
-		if b.Len()+len(item)+1 > maxLen {
-			break
-		}
-		b.WriteString(item)
-	}
-	b.WriteByte('"')
-	return b.String()
-}
-
-var literalForm = choice(2, 2, 1) // an IPv4 address, an IPv6 address, any dtext
-
 // RFC5322AddrSpec generates addresses in the addr-spec syntax of RFC 5322
-// §3.4.1: a local-part that is a dot-atom of atext or a quoted-string,
-// which may hold escapes and runs of spaces and tabs, then "@" and a
-// domain that is a dot-atom, whose atoms may hold any atext and not only
-// the letters, digits and hyphens of host names, or a domain-literal in
-// brackets of dtext and white space, often an IPv4 address or "IPv6:" and
-// an IPv6 address. RFC 5322 sets no length limits, and comments, line
-// folding and the obsolete syntax of §4.4 are not generated. Values shrink
-// toward "a@a"; the shrinker keeps the form of each part, so a quoted local
-// part shrinks toward the empty quoted string and a domain literal toward
-// the empty literal, as in ""@a and a@[].
+// §3.4.1. The local-part is a dot-atom of one to eight atext atoms of up to
+// 64 characters, which RFC 5322 does not limit as RFC 5321 does, or a
+// quoted-string with escapes and folding white space; the domain is a
+// dot-atom of one to eight atoms of any atext, not only the letters, digits
+// and hyphens of host names, or a domain-literal in brackets of dtext and
+// folding white space, often an IPv4 address or "IPv6:" and an IPv6
+// address. Each of the two parts has an optional CFWS on either side, in
+// one case in ten each, with comments, nested comments and folded lines.
+// The obsolete syntax of §4.4, which §4 forbids generators to produce, is
+// left out. Values shrink toward "a@a"; the shrinker keeps the form of each
+// part, so a quoted local part shrinks toward the empty quoted string and a
+// domain literal toward the empty literal, as in ""@a and a@[].
+//
+// net/mail.ParseAddress (Go 1.26) rejects some of these: the empty quoted
+// string, domain literals other than a plain IPv4 address, comments before
+// the domain or around the local part, and folded lines.
 func RFC5322AddrSpec() pbt.Gen[string] {
-	addrs6, addrs4 := pbt.IPv6(), pbt.IPv4()
 	return pbt.Custom("RFC5322AddrSpec()", func(t *pbt.T) string {
-		var local string
-		if localForm.Draw(t, "") == 0 {
-			local = dotAtom(t, atext, 64)
-		} else {
-			local = quoted5322.Draw(t, "")
-		}
-		var domain string
-		switch domainForm.Draw(t, "") {
-		case 0:
-			domain = dotAtom(t, atext, 253)
-		default:
-			var body string
-			switch literalForm.Draw(t, "") {
-			case 0:
-				body = addrs4.Draw(t, "").String()
-			case 1:
-				body = "IPv6:" + ipv6Text(t, addrs6, 1)
-			default:
-				var b strings.Builder
-				for range quotedLen.Draw(t, "") {
-					if quotedItem.Draw(t, "") == 2 {
-						b.WriteString(stringIn(" \t", 1, 3).Draw(t, ""))
-					} else {
-						b.WriteByte(charIn(dtext).Draw(t, ""))
-					}
-				}
-				body = b.String()
-			}
-			domain = "[" + body + "]"
-		}
-		return local + "@" + domain
+		return aroundCFWS.Draw(t, "") + local5322.Draw(t, "") + aroundCFWS.Draw(t, "") + "@" +
+			aroundCFWS.Draw(t, "") + domain5322.Draw(t, "") + aroundCFWS.Draw(t, "")
 	})
 }
