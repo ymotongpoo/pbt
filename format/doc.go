@@ -2,11 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package format generates strings in formats that standards define:
-// timestamps and durations of RFC 3339, ISO 8601, RFC 9110 and RFC 5322,
-// IP addresses in the text forms of RFC 4291 and RFC 5952, MAC addresses,
-// host names of RFC 1123 and RFC 1035, e-mail addresses of RFC 5321,
-// RFC 5322 and the HTML standard, URIs of RFC 3986, UUIDs of RFC 9562 and
-// JSON texts of RFC 8259 and RFC 7493.
+//
+//   - dates, times and durations of RFC 3339, ISO 8601, RFC 9110 and
+//     RFC 5322, and the layouts of package time;
+//   - IP addresses in the text forms of RFC 4291 and RFC 5952, CIDR
+//     prefixes, MAC addresses, host names of RFC 1123 and RFC 1035, and
+//     internationalized host names with the Punycode of RFC 3492;
+//   - e-mail addresses of RFC 5321, RFC 5322, RFC 6531 and the HTML
+//     standard;
+//   - URIs and URI references of RFC 3986 and http URLs;
+//   - HTTP tokens, field names and values, media types and cookies of
+//     RFC 9110, RFC 6838 and RFC 6265;
+//   - UUIDs of RFC 9562, JSON texts of RFC 8259 and RFC 7493, JSON
+//     Pointers of RFC 6901, CSV files of RFC 4180, the encodings of
+//     RFC 4648, Semantic Versioning 2.0.0 and the language tags of BCP 47;
+//   - telephone numbers of ITU-T E.164, payment card numbers with the Luhn
+//     check digit of ISO/IEC 7812, and ISBNs of ISO 2108.
 //
 // Every generator follows one production of its standard, and the name
 // says which. A function named after a standard, such as RFC3339 or

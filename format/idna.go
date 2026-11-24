@@ -142,7 +142,7 @@ func fitIDNALabels(labels []string, ascii bool, budget int) string {
 // ASCII-only labels and registry assignment are not modeled. Values
 // shrink toward "xn--9ca" (é).
 func IDNAHostname() pbt.Gen[string] {
-	return pbt.Map(unicodeLabels, func(ls []string) string { return fitIDNALabels(ls, true, 253) })
+	return named(pbt.Map(unicodeLabels, func(ls []string) string { return fitIDNALabels(ls, true, 253) }), "IDNAHostname()")
 }
 
 // UnicodeHostname generates the U-label form of IDNAHostname, with the
@@ -152,5 +152,5 @@ func IDNAHostname() pbt.Gen[string] {
 // Values shrink toward "é". net/url.Parse preserves these Unicode hosts;
 // it does not convert them to A-labels.
 func UnicodeHostname() pbt.Gen[string] {
-	return pbt.Map(unicodeLabels, func(ls []string) string { return fitIDNALabels(ls, false, 253) })
+	return named(pbt.Map(unicodeLabels, func(ls []string) string { return fitIDNALabels(ls, false, 253) }), "UnicodeHostname()")
 }

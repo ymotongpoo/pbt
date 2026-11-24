@@ -13,7 +13,7 @@ import "go.ymotongpoo.com/pbt"
 // modeled. This is a syntax generator, not a generator of assigned numbers.
 // Values shrink toward "+1".
 func PhoneNumber() pbt.Gen[string] {
-	return concat(pbt.Just("+"), char("123456789"), stringIn(digits, 0, 14))
+	return named(concat(pbt.Just("+"), char("123456789"), stringIn(digits, 0, 14)), "PhoneNumber()")
 }
 
 // PaymentCard generates eight to nineteen decimal digits with a Luhn
@@ -56,13 +56,13 @@ func luhnDigit(body string) byte {
 // 979 prefix is required, the target is "9790000000001".
 func ISBN13() pbt.Gen[string] {
 	body := concat(pbt.OneOf(pbt.Just("978"), pbt.Just("979")), fixedString(digits, 9))
-	return pbt.Map(body, func(s string) string {
+	return named(pbt.Map(body, func(s string) string {
 		sum := 0
 		for i := range len(s) {
 			sum += int(s[i]-'0') * (1 + 2*(i%2))
 		}
 		return s + string(byte((10-sum%10)%10)+'0')
-	})
+	}), "ISBN13()")
 }
 
 // ISBN10 generates unhyphenated legacy ISBN-10 strings (ISO 2108:1992
@@ -71,11 +71,11 @@ func ISBN13() pbt.Gen[string] {
 // are not modeled, for the same reasons as ISBN13. Values shrink toward
 // "0000000000".
 func ISBN10() pbt.Gen[string] {
-	return pbt.Map(fixedString(digits, 9), func(s string) string {
+	return named(pbt.Map(fixedString(digits, 9), func(s string) string {
 		sum := 0
 		for i := range len(s) {
 			sum += int(s[i]-'0') * (10 - i)
 		}
 		return s + string("0123456789X"[(11-sum%11)%11])
-	})
+	}), "ISBN10()")
 }
