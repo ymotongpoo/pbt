@@ -136,7 +136,7 @@ func TestHealthFlaky(t *testing.T) {
 				}
 			})
 			out := healthOutput(tb)
-			if n != 2 || !strings.Contains(out, "replay "+outcome) || !strings.Contains(out, "shrinking and saving skipped") {
+			if n < 2 || !strings.Contains(out, "replay "+outcome) || strings.Contains(out, "shrinking and saving skipped") {
 				t.Fatal(out)
 			}
 			t.Log(out)
@@ -243,7 +243,7 @@ func TestHealthFailingTrailerAndIgnore(t *testing.T) {
 	}
 }
 
-func TestHealthFlakyNotSavedEvenWhenIgnored(t *testing.T) {
+func TestHealthFlakySavedEvenWhenIgnored(t *testing.T) {
 	dir := t.TempDir()
 	n := 0
 	tb := &fakeTB{name: "flaky"}
@@ -257,7 +257,7 @@ func TestHealthFlakyNotSavedEvenWhenIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 2 || len(entries) != 0 || strings.Contains(healthOutput(tb), "health:") {
+	if n != 2 || len(entries) != 1 || strings.Contains(healthOutput(tb), "health:") {
 		t.Fatal(n, entries, healthOutput(tb))
 	}
 }

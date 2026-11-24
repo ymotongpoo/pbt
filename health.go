@@ -24,7 +24,7 @@ const (
 	// It is never upgraded to an error unless explicitly named in CheckHealth.
 	HealthSlow
 	// HealthFlaky diagnoses a failure that does not reproduce with the same choices
-	// and failure identity. Such a case is neither shrunk nor saved.
+	// and failure identity. Shrinking and saving still proceed.
 	HealthFlaky
 	// HealthShrink reports shrinking stopped by its time or step budget.
 	HealthShrink
@@ -70,8 +70,7 @@ func CheckHealth(checks ...HealthCheck) Option {
 
 // IgnoreHealth silences the named health diagnostics, including report notes.
 // It takes precedence over CheckHealth regardless of option order. With no
-// arguments it changes nothing. Ignoring HealthFlaky does not make an unstable
-// failure safe to shrink or save: the replay safety check still runs.
+// arguments it changes nothing. The stability replay still runs.
 func IgnoreHealth(checks ...HealthCheck) Option {
 	checks = append([]HealthCheck(nil), checks...)
 	return func(c *config) {
@@ -233,10 +232,10 @@ func (r *runner) reportHealth() {
 	}
 }
 
-func (r *runner) stableFailure(t *T) bool {
+func (r *runner) stableFailure(t *T) *T {
 	replay := r.run(t.choices, t.size, nil)
 	if replay.failed && !replay.discarded && replay.failKey == t.failKey {
-		return true
+		return replay
 	}
 	outcome := "passed"
 	if replay.discarded {
@@ -244,6 +243,6 @@ func (r *runner) stableFailure(t *T) bool {
 	} else if replay.failed {
 		outcome = "failed elsewhere: " + replay.failKey
 	}
-	r.healthExtra = append(r.healthExtra, healthNote{HealthFlaky, "property or generator is nondeterministic: replay " + outcome + "; original failure at " + t.failKey + "; shrinking and saving skipped"})
-	return false
+	r.healthExtra = append(r.healthExtra, healthNote{HealthFlaky, "property or generator is nondeterministic: replay " + outcome + "; original failure at " + t.failKey})
+	return t
 }

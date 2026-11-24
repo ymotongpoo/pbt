@@ -254,10 +254,7 @@ func Check(tb TB, prop Property, opts ...Option) {
 		r.reportStats(passed)
 		return
 	}
-	if !r.stableFailure(fail) {
-		r.report(fail, fmt.Sprintf("property failed after %d passed checks; replay was inconsistent", passed), nil)
-		return
-	}
+	fail = r.stableFailure(fail)
 	minimal, steps := r.shrink(fail)
 	var trailer []string
 	if !cfg.noSave {
