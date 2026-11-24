@@ -192,7 +192,7 @@ func TestHealthIgnoresPropertyTimeAndNestedDrawTime(t *testing.T) {
 	start := time.Now()
 	r.run(nil, 1, newRand(1))
 	elapsed := time.Since(start)
-	if r.health.generation >= elapsed-20*time.Millisecond || len(r.health.draws) != 1 {
+	if r.health.generation >= elapsed-20*time.Millisecond || len(r.health.draws) != 0 {
 		t.Fatalf("generation %s, elapsed %s, draws %v", r.health.generation, elapsed, r.health.draws)
 	}
 }

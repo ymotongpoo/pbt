@@ -94,3 +94,19 @@ func TestCallsiteReport(t *testing.T) {
 	}
 	t.Log(tb.errors[0])
 }
+
+func TestCallSitesOnlyOnReplay(t *testing.T) {
+	cfg, _ := newConfig([]Option{Seed(1)})
+	r := &runner{tb: &fakeTB{name: "sites"}, cfg: cfg, prop: func(pt *T) {
+		Int().Draw(pt, "")
+		pt.Fatal("fail")
+	}}
+	search := r.run(nil, 1, newRand(1))
+	if search.draws[0].pc != 0 {
+		t.Fatal("search captured a call site")
+	}
+	replay := r.stableFailure(search)
+	if replay.draws[0].pc == 0 {
+		t.Fatal("stability replay lost the call site")
+	}
+}

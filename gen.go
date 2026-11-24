@@ -49,20 +49,24 @@ func (g Gen[V]) Draw(t *T, label string) V {
 		return g.drawSpan(t)
 	}
 	var pc uintptr
-	if len(t.open) == 0 && !t.omitDrawSite {
+	if t.rng == nil && len(t.open) == 0 && !t.omitDrawSite {
 		pc = drawCaller()
-	}
-	if t.health != nil && len(t.open) == 0 {
-		start, choices := time.Now(), len(t.choices)
-		defer func() {
-			t.health.generation += time.Since(start)
-			t.health.draws[healthDraw{label: label, gen: g.String(), pc: pc}] += len(t.choices) - choices
-		}()
 	}
 	i := len(t.draws)
 	t.draws = append(t.draws, drawRecord{pc: pc, label: label, gen: g.String(), value: undrawn{}, depth: t.labelDepth})
 	t.labelDepth++
-	defer func() { t.labelDepth-- }()
+	var start time.Time
+	choices := len(t.choices)
+	if t.health != nil && len(t.open) == 0 {
+		start = time.Now()
+	}
+	defer func() {
+		t.labelDepth--
+		if !start.IsZero() {
+			t.health.generation += time.Since(start)
+			t.draws[i].choices = len(t.choices) - choices
+		}
+	}()
 	v := g.drawSpan(t)
 	t.draws[i].value = v
 	return v

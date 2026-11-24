@@ -86,11 +86,12 @@ type span struct {
 // drawRecord is one value the property drew, kept for the report: every
 // draw at the top level, and every labeled draw inside a generator.
 type drawRecord struct {
-	pc    uintptr
-	label string
-	gen   string
-	value any
-	depth int
+	choices int // choices consumed by a top-level draw, for large-case diagnostics
+	pc      uintptr
+	label   string
+	gen     string
+	value   any
+	depth   int
 }
 
 type (

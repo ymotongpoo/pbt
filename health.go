@@ -150,6 +150,11 @@ func (h *healthStats) add(t *T) {
 	}
 	if len(t.choices) > healthLargeChoices {
 		h.large++
+		for _, d := range t.draws {
+			if d.depth == 0 {
+				h.draws[healthDraw{label: d.label, gen: d.gen, pc: d.pc}] += d.choices
+			}
+		}
 	}
 }
 
