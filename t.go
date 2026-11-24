@@ -472,19 +472,19 @@ func (t *T) log(msg string) {
 }
 
 // Skip discards the test case; it counts neither as passed nor as failed.
-func (t *T) Skip(args ...any) { t.discardUser(fmt.Sprint(args...)) }
+func (t *T) Skip(args ...any) { t.discardUser("Skip", fmt.Sprint(args...)) }
 
 // Skipf discards the test case; it counts neither as passed nor as failed.
-func (t *T) Skipf(format string, args ...any) { t.discardUser(fmt.Sprintf(format, args...)) }
+func (t *T) Skipf(format string, args ...any) { t.discardUser("Skipf", fmt.Sprintf(format, args...)) }
 
 // SkipNow discards the test case; it counts neither as passed nor as failed.
-func (t *T) SkipNow() { t.discardUser("skipped") }
+func (t *T) SkipNow() { t.discardUser("SkipNow", "skipped") }
 
 // Assume discards the test case unless cond holds. It is the equivalent of
 // PropEr's ?IMPLIES. Check gives up when too many cases are discarded.
 func (t *T) Assume(cond bool) {
 	if !cond {
-		t.discardUser("assumption failed")
+		t.discardUser("Assume", "assumption failed")
 	}
 }
 
@@ -556,9 +556,9 @@ func (t *T) runOnFail() {
 }
 
 // discardUser records the caller only for search cases, never during shrinking.
-func (t *T) discardUser(reason string) {
+func (t *T) discardUser(method, reason string) {
 	if t.health != nil {
-		t.discardSource = filepath.Base(callerKey())
+		t.discardSource = method + " at " + filepath.Base(callerKey())
 	}
 	t.discard(reason)
 }

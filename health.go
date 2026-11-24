@@ -5,7 +5,9 @@ package pbt
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -171,7 +173,7 @@ func topHealthSources(m map[string]int, unit string) string {
 	})
 	parts := make([]string, 0, healthTopSources)
 	for _, k := range keys[:min(len(keys), healthTopSources)] {
-		parts = append(parts, fmt.Sprintf("%s: %d%s", k, m[k], unit))
+		parts = append(parts, fmt.Sprintf("%s (%d%s)", k, m[k], unit))
 	}
 	return strings.Join(parts, "; ")
 }
@@ -182,16 +184,17 @@ func (r *runner) healthNotes() []healthNote {
 	if h != nil {
 		var filter []string
 		if h.discards >= healthMinDiscards && h.discards*healthDiscardFactor >= h.cases {
-			filter = append(filter, fmt.Sprintf("discarded %d/%d cases (%s)", h.discards, h.cases, topHealthSources(h.sources, " discards")))
+			filter = append(filter, fmt.Sprintf("%d of %d cases were discarded; most by %s", h.discards, h.cases, topHealthSources(h.sources, "")))
 		}
-		rejected := map[string]int{}
+		var rejected []string
 		for name, f := range h.filters {
 			if f.drawn >= healthMinFilterDraws && f.rejected*100 >= f.drawn*healthFilterPercent {
-				rejected[fmt.Sprintf("%s (%d/%d values rejected)", name, f.rejected, f.drawn)] = f.rejected
+				rejected = append(rejected, fmt.Sprintf("%s rejected %d of %d values", name, f.rejected, f.drawn))
 			}
 		}
 		if len(rejected) > 0 {
-			filter = append(filter, topHealthSources(rejected, " rejections"))
+			sort.Strings(rejected)
+			filter = append(filter, rejected...)
 		}
 		if len(filter) > 0 {
 			notes = append(notes, healthNote{HealthFilter, strings.Join(filter, "; ")})
@@ -208,7 +211,7 @@ func (r *runner) healthNotes() []healthNote {
 				}
 				draws[name] += n
 			}
-			notes = append(notes, healthNote{HealthLarge, fmt.Sprintf("%d/%d cases exceeded %d choices; largest draws: %s", h.large, h.cases, healthLargeChoices, topHealthSources(draws, " choices"))})
+			notes = append(notes, healthNote{HealthLarge, fmt.Sprintf("%d of %d cases exceeded %d choices; largest draws: %s", h.large, h.cases, healthLargeChoices, topHealthSources(draws, " choices"))})
 		}
 		if h.cases > 0 && h.generation >= healthSlowTotal && h.generation/time.Duration(h.cases) >= healthSlowAverage {
 			notes = append(notes, healthNote{HealthSlow, fmt.Sprintf("generation took %s total, %s per case (property work excluded)", h.generation.Round(time.Millisecond), (h.generation / time.Duration(h.cases)).Round(time.Millisecond))})
@@ -224,7 +227,7 @@ func (r *runner) healthNotes() []healthNote {
 }
 
 func healthLine(n healthNote) string {
-	return fmt.Sprintf("health: %s: %s (use IgnoreHealth(%s) to silence; CheckHealth(%s) to fail a passing run)", n.check, n.text, n.check, n.check)
+	return fmt.Sprintf("health: %s: %s (CheckHealth(%s) makes this fail; IgnoreHealth(%s) hides it)", n.check, n.text, n.check, n.check)
 }
 
 func (r *runner) reportHealth() {
@@ -246,8 +249,18 @@ func (r *runner) stableFailure(t *T) *T {
 	if replay.discarded {
 		outcome = "discarded: " + replay.discardReason
 	} else if replay.failed {
-		outcome = "failed elsewhere: " + replay.failKey
+		outcome = "failed elsewhere: " + strings.TrimPrefix(failureIdentity(replay.failKey), "was ")
 	}
-	r.healthExtra = append(r.healthExtra, healthNote{HealthFlaky, "property or generator is nondeterministic: replay " + outcome + "; original failure at " + t.failKey})
+	r.healthExtra = append(r.healthExtra, healthNote{HealthFlaky, "the failure did not recur when its input was replayed (the replay " + outcome + "); the original failure " + failureIdentity(t.failKey)})
 	return t
+}
+
+// Failure keys also include descriptions, such as "no interleaving".
+func failureIdentity(key string) string {
+	if i := strings.LastIndexByte(key, ':'); i >= 0 {
+		if _, err := strconv.Atoi(key[i+1:]); err == nil {
+			return "was at " + filepath.Base(key)
+		}
+	}
+	return fmt.Sprintf("was %q", key)
 }

@@ -422,9 +422,6 @@ func (r *runner) search() (found *T, passed int, err error) {
 				detail := ""
 				if r.health != nil {
 					detail = "; sources: " + topHealthSources(r.health.sources, " discards")
-					for _, n := range r.healthNotes() {
-						detail += "\n[pbt] " + healthLine(n)
-					}
 				}
 				return nil, passed, fmt.Errorf("gave up after %d discarded test cases (%d passed); last reason: %s%s", discards, passed, t.discardReason, detail)
 			}

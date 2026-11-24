@@ -40,7 +40,7 @@ func TestHealthFilterDiscards(t *testing.T) {
 				}
 			}, Checks(30))
 			out := healthOutput(tb)
-			if len(tb.errors) != 0 || !strings.Contains(out, "discarded 30/60 cases") || !strings.Contains(out, "health_test.go:") {
+			if len(tb.errors) != 0 || !strings.Contains(out, "30 of 60 cases were discarded") || !strings.Contains(out, "health_test.go:") {
 				t.Fatal(out)
 			}
 			t.Log(out)
@@ -70,7 +70,7 @@ func TestHealthFilterValuesAndOptions(t *testing.T) {
 				}
 				return
 			}
-			if !strings.Contains(out, "180/200 values rejected") || (mode == "fail") != (len(tb.errors) > 0) {
+			if !strings.Contains(out, "rejected 180 of 200 values") || (mode == "fail") != (len(tb.errors) > 0) {
 				t.Fatal(out)
 			}
 			t.Log(out)
@@ -81,7 +81,7 @@ func TestHealthFilterValuesAndOptions(t *testing.T) {
 func TestHealthGaveUpBreakdown(t *testing.T) {
 	tb := healthRun(func(pt *T) { Filter(Int(), func(int) bool { return false }).Draw(pt, "") }, Checks(2))
 	out := healthOutput(tb)
-	for _, want := range []string{"gave up after 21 discarded", "Filter(Int()): 21 discards", "2100/2100 values rejected"} {
+	for _, want := range []string{"gave up after 21 discarded", "Filter(Int()) (21 discards)"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %s: %s", want, out)
 		}
@@ -98,7 +98,7 @@ func TestHealthLarge(t *testing.T) {
 	})
 	tb := healthRun(func(pt *T) { huge := g.Draw(pt, ""); _ = huge }, Checks(10))
 	out := healthOutput(tb)
-	if len(tb.errors) != 0 || !strings.Contains(out, "10/10 cases exceeded 10000 choices") || !strings.Contains(out, "huge: 100010 choices") {
+	if len(tb.errors) != 0 || !strings.Contains(out, "10 of 10 cases exceeded 10000 choices") || !strings.Contains(out, "huge (100010 choices)") {
 		t.Fatal(out)
 	}
 	t.Log(out)
@@ -290,7 +290,20 @@ func TestHealthNestingLimitSource(t *testing.T) {
 	var g Gen[int]
 	g = Custom("recursive", func(pt *T) int { return g.Draw(pt, "") })
 	tb := healthRun(func(pt *T) { g.Draw(pt, "") }, Checks(1))
-	if !strings.Contains(healthOutput(tb), "generator nesting limit: 11 discards") {
+	if !strings.Contains(healthOutput(tb), "generator nesting limit (11 discards)") {
+		t.Fatal(healthOutput(tb))
+	}
+}
+
+func TestHealthFailureIdentityAndSingleBreakdown(t *testing.T) {
+	if got := failureIdentity("/tmp/path/property_test.go:123"); got != "was at property_test.go:123" {
+		t.Fatal(got)
+	}
+	if got := failureIdentity("no interleaving"); got != "was \"no interleaving\"" {
+		t.Fatal(got)
+	}
+	tb := healthRun(func(pt *T) { pt.Assume(false) }, Checks(2))
+	if strings.Count(healthOutput(tb), "Assume at") != 1 {
 		t.Fatal(healthOutput(tb))
 	}
 }
