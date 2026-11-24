@@ -5,6 +5,76 @@ The notable changes of pbt are recorded here. The format follows
 [Semantic Versioning](https://semver.org/) with a major version of 0, so a
 minor version may change the API.
 
+## Unreleased
+
+### Added
+
+- The package `go.ymotongpoo.com/pbt/format`, which generates strings in
+  the formats that standards define: timestamps and durations of RFC 3339,
+  ISO 8601, RFC 9110 and RFC 5322, IP, MAC and host name text, e-mail
+  addresses of RFC 5321, RFC 5322, RFC 6531 and the HTML standard, URIs of
+  RFC 3986, HTTP tokens, fields, media types and cookies, UUIDs, JSON and
+  I-JSON, JSON Pointers, CSV, the encodings of RFC 4648, Semantic
+  Versioning, BCP 47 language tags, E.164 numbers, Luhn-checked card
+  numbers and ISBNs. A function named after a standard, such as
+  `RFC5321Mailbox`, covers its production for testing parsers; a plain
+  name, such as `Email`, generates the common form. `Time(layout)` takes
+  the layout constants of package time. Every value is built from the
+  grammar, so shrinking keeps it valid.
+- Generators of standard library types: `Time`, `TimeRange`, `Duration`,
+  `DurationRange`, `FixedZone` and `Zone` for package time, which lean
+  toward the edges of the calendar and the changes of a zone's offset;
+  `IPv4`, `IPv6`, `Addr`, `AddrIn`, `Prefix` and `AddrPort` for
+  `net/netip`, with the special-purpose blocks of RFC 6890; and
+  `HardwareAddr`.
+- `RuneIn`, which draws runes from the range tables of package unicode,
+  and `StringMatching`, which builds strings that match a regular
+  expression as a whole.
+- Health checks: `HealthCheck` with `HealthFilter`, `HealthLarge`,
+  `HealthSlow`, `HealthFlaky` and `HealthShrink`. A passing run warns
+  about wasted, oversized or slowly generated input; a failing report
+  notes a failure that did not recur on replay and a shrink that ran out
+  of budget. `CheckHealth` and `-pbt.checkhealth` turn warnings into
+  failures, and `IgnoreHealth` and `-pbt.ignorehealth` hide them.
+- `MaxFailures` and `-pbt.failures`, which collect, shrink, save and
+  report up to n failures that fail in different ways.
+- `Maximize` and `Minimize` accept several names per case; the targeted
+  search takes turns between the objectives.
+- `BoundedGrowth` and `UnboundedGrowth`, which share the growth allowance
+  of `Make` among the collections of a hand-written generator, or exempt
+  a part from it.
+- `Make` and `cmd/pbtgen` generate `time.Time`, `*time.Location`,
+  `netip.Addr`, `netip.Prefix`, `netip.AddrPort`, `net.IP` and
+  `net.HardwareAddr` with the new generators, and take `min` and `max`
+  RFC 3339 tags on `time.Time` fields.
+
+### Changed
+
+- A report names an unlabeled draw at the top level of a property after
+  the variable it is assigned to, as in `start (Time()) = ...`, or after
+  its file and line, as in `Int() at prop_test.go:12 = 5`. `Verbose` adds
+  the line to every draw. Tests that match the text of reports may need
+  updating.
+- A failing `Check` replays the failing case once before shrinking, so a
+  property and its cleanups run one more time on a failure.
+- The shrinker can switch an alternative of `OneOf` or `Frequency`, or
+  shorten a length drawn first, and reconnect the choices that follow.
+  Counterexamples for an existing seed can be smaller than in 0.3.4.
+- `Make` bounds the total work of a value: one value spends at most
+  `8*max(size, 1)` units of growth across all its collections, strings,
+  map entries and pointers, and recursive references stay nil or empty
+  once the allowance is spent. Values that used more than that, and some
+  deeply recursive values, differ for an existing seed; other values stay
+  as they were. `Make[time.Time]` and the other standard types above are
+  no longer zero.
+- `Maximize` and `Minimize` no longer panic when a case reports a second
+  utility name.
+
+To upgrade from 0.3: tests that assert on the text of a report with an
+unlabeled draw, such as `Int() = 5`, now see the variable name or the file
+and line; a property with side effects runs once more when it fails;
+`WithType` generators for `time.Time` and the netip types can be dropped.
+
 ## 0.3.4 - 2026-11-14
 
 ### Fixed

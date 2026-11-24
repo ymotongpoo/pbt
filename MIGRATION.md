@@ -20,7 +20,8 @@ line by line. This page lists the correspondences and the differences.
 Options exist per call too: `pbt.Checks`, `pbt.Seed`, `pbt.Sizes`,
 `pbt.ShrinkTime`, `pbt.SearchSteps`, `pbt.Setup`, `pbt.CheckCoverage`,
 `pbt.NoSave`, `pbt.TestdataDir`, `pbt.ReplayFile`, `pbt.NoReplay`,
-`pbt.Verbose`, `pbt.ReportLimit`, `pbt.ReportDepth`.
+`pbt.Verbose`, `pbt.ReportLimit`, `pbt.ReportDepth`, `pbt.MaxFailures`,
+`pbt.CheckHealth`, `pbt.IgnoreHealth`.
 
 Shrinking in pbt keeps the kind of failure it started from, the assertion
 site or the panic site, so the counterexample reports the bug the search
@@ -40,7 +41,8 @@ found rather than a simpler, unrelated one.
 | `rapid.Float64Range(lo, hi)` | `pbt.Float64Range(lo, hi)`; the full range is reachable, including the extremes |
 | `rapid.Float64()` | `pbt.Float64()`, which is finite; `pbt.AnyFloat64()` adds NaN and the infinities |
 | `rapid.Bool()`, `Rune()`, `String()`, `StringN`, `StringOf`, `StringOfN` | the same names |
-| `rapid.StringMatching(regexp)` | not provided; build the string from its parts |
+| `rapid.StringMatching(regexp)` | `pbt.StringMatching(regexp)`; both build the string from the whole pattern, and pbt checks that the whole string matches it |
+| `rapid.SliceOfBytesMatching(regexp)` | `pbt.Map(pbt.StringMatching(regexp), func(s string) []byte { return []byte(s) })` |
 | `rapid.SliceOf`, `SliceOfN`, `SliceOfDistinct`, `SliceOfNDistinct` | the same names; `SliceOfDistinct` takes the key function last |
 | `rapid.MapOf`, `MapOfN` | the same names |
 | `rapid.MapOfValues` | `pbt.Map(pbt.SliceOfDistinct(val, key), ...)` |
@@ -60,6 +62,12 @@ size parameter, `Frequency` weights alternatives, `ShrinkTo`,
 `SampleShrink` shows a shrink path. `Collect`, `Classify`, `Aggregate`,
 `Measure` and `Cover` report and check the distribution, `Conjunction`,
 `Deadline` and `OnFail` compose properties, and `Func` generates functions.
+`Time`, `TimeRange`, `Duration`, `Zone`, `IPv4`, `IPv6`, `AddrIn` and
+`HardwareAddr` generate standard library types, `RuneIn` draws from
+Unicode tables, and the package `go.ymotongpoo.com/pbt/format` generates
+strings in standard formats, such as `format.RFC3339()` and
+`format.Email()`. Health checks warn about wasted or oversized input, and
+`MaxFailures` reports several distinct failures from one run.
 
 ## Stateful tests
 

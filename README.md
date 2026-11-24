@@ -4,10 +4,13 @@ Property-based testing for Go, aiming at the feature set of Erlang's
 [PropEr](https://proper-testing.github.io/): typed generators with
 automatic shrinking, user-controlled distributions with statistics to verify
 them, stateful and parallel command testing with symbolic variables, state
-machines, targeted search, and existential properties.
+machines, targeted search, and existential properties. Generators of times,
+network addresses and the text formats that RFCs and ISO standards define,
+health checks that warn about wasted input, and runs that collect several
+failures at once come with it, in pure Go without dependencies.
 
 **Status: under development.** The API is not stable yet. The design, the
-comparison with rapid, PropEr and QuickCheck, and the plan are in
+comparison with rapid, Hegel, PropEr and QuickCheck, and the plan are in
 [DESIGN.md](DESIGN.md) (a Japanese version is in [DESIGN.ja.md](DESIGN.ja.md)).
 The `examples/` module ports every chapter of the book *PropEr Testing*
 by Fred Hebert, which is the acceptance test of the design, and its
@@ -26,6 +29,7 @@ Requires Go 1.25 or later.
 
 ```go
 import "go.ymotongpoo.com/pbt"
+import "go.ymotongpoo.com/pbt/format" // strings in standard formats
 ```
 
 ## A stateless property
@@ -107,6 +111,39 @@ shows it. Results that only the system knows (ids, handles) are `pbt.Var`
 values in the model and are resolved with `pbt.Resolve` at execution time.
 Package `fsm` adds named states with weighted transitions.
 
+## Standard types and formats
+
+Times, durations, zones and `net/netip` addresses have generators that
+lean toward the values where code breaks: month ends, leap days, changes
+of a zone's offset, private and documentation networks. The package
+`go.ymotongpoo.com/pbt/format` generates strings in the formats that
+standards define. A function named after a standard covers its grammar,
+which is what a parser must accept; a plain name gives the common form.
+
+```go
+func TestTimestamps(t *testing.T) {
+	pbt.Check(t, func(t *pbt.T) {
+		s := format.RFC3339().Draw(t, "")
+		if _, err := time.Parse(time.RFC3339, s); err != nil {
+			t.Fatalf("time.Parse rejects %s: %v", s, err)
+		}
+	})
+}
+```
+
+```text
+[pbt] s (RFC3339()) = "1970-01-01T00:00:00z"
+[pbt] error: time.Parse rejects 1970-01-01T00:00:00z: parsing time "1970-01-01T00:00:00z" as "2006-01-02T15:04:05Z07:00": cannot parse "z" as "Z07:00"
+```
+
+RFC 3339 allows the lower-case `z`, and Go's parser does not. The package
+covers timestamps, IP and host name text, e-mail addresses, URIs, HTTP
+fields and cookies, UUIDs, JSON, CSV, Semantic Versioning, language tags
+and more; chapter 10 of the guide lists them. `format.Time(time.RFC1123)`
+generates what Go writes for a layout constant. `StringMatching` builds
+strings from a regular expression, and `RuneIn` draws from Unicode scripts
+and categories.
+
 ## Distributions and statistics
 
 Weights, sizes and shrinking targets are under your control: `Frequency`,
@@ -114,9 +151,12 @@ Weights, sizes and shrinking targets are under your control: `Frequency`,
 `Make[T]` derives a generator from a struct type, with `pbt` tags for
 ranges and lengths and `WithType` or `WithField` for overrides, and
 `cmd/pbtgen` writes the same generators as source under `go generate`, where
-they can fill unexported fields. `Recursive` and `Bounded` keep recursive
-types, including mutually recursive ones, to about `size` nodes per value,
-and `NoPanic` turns a function into a property over its parameter types.
+they can fill unexported fields. Both know `time.Time` and the netip types,
+and bound the work of a value to `8*max(size, 1)` units of growth, so a
+recursive struct stays proportional to the size. `Recursive` and `Bounded`
+keep hand-written recursive generators, including mutually recursive ones,
+to about `size` nodes per value, and `NoPanic` turns a function into a
+property over its parameter types.
 
 Coming from rapid? See [MIGRATION.md](MIGRATION.md); [BENCHMARK.md](BENCHMARK.md)
 compares the two on the same properties.
@@ -126,8 +166,15 @@ passing run. `Cover` declares the share a class must reach; with the
 99.7% confidence and fails on a shortfall or on evidence that stays short.
 A 100% requirement is checked directly: every passing case must hit the
 label, and one miss makes the requirement unmet.
-`Maximize` and `Minimize` turn a property into a targeted search;
-`CheckExists` looks for a witness.
+`Maximize` and `Minimize` turn a property into a targeted search, with one
+or several objectives; `CheckExists` looks for a witness.
+
+Health checks watch every run: a passing run warns when most cases are
+discarded, when cases draw too many choices or when generation is slow,
+and a failing report notes a failure that did not recur on replay or a
+shrink that ran out of time. `CheckHealth` turns the warnings into
+failures. `MaxFailures(n)` keeps a run going after a failure and reports up
+to `n` failures that fail in different ways, each one shrunk and saved.
 
 ## Flags
 
@@ -139,13 +186,17 @@ label, and one miss makes the requirement unmet.
 | `-pbt.maxsize` | 42 | size the cases grow up to, one per passing case |
 | `-pbt.shrinktime` | 30s | time budget for shrinking |
 | `-pbt.searchsteps` | 1000 | steps of a targeted search |
+| `-pbt.failures` | 1 | distinct failures to collect, shrink and report |
+| `-pbt.checkhealth` | none | health checks that fail a passing run, such as `default,slow` |
+| `-pbt.ignorehealth` | none | health checks to hide |
 | `-pbt.nosave` | false | do not write failing cases under `testdata/pbt` |
 | `-pbt.replay` | none | a saved case to replay before searching |
 | `-pbt.v` | false | verbose output |
 
 The same settings are available per call as options: `pbt.Checks`,
 `pbt.Seed`, `pbt.Sizes`, `pbt.ShrinkTime`, `pbt.SearchSteps`, `pbt.NoSave`,
-`pbt.TestdataDir`, `pbt.ReplayFile`, `pbt.NoReplay`, `pbt.Verbose`, plus
+`pbt.TestdataDir`, `pbt.ReplayFile`, `pbt.NoReplay`, `pbt.Verbose`,
+`pbt.MaxFailures`, `pbt.CheckHealth` and `pbt.IgnoreHealth`, plus
 `pbt.Setup`, `pbt.CheckCoverage`, `pbt.ReportLimit` and `pbt.ReportDepth`.
 The changes between releases are listed in [CHANGELOG.md](CHANGELOG.md).
 
