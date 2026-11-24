@@ -21,6 +21,10 @@ const defaultValueLimit = 2000
 // failed.
 func (r *runner) report(t *T, headline string, trailer []string) {
 	r.tb.Helper()
+	trailer = append([]string(nil), trailer...)
+	for _, n := range r.healthNotes() {
+		trailer = append(trailer, healthLine(n))
+	}
 	r.tb.Errorf("%s", r.format(t, headline, trailer))
 }
 

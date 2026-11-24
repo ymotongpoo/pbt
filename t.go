@@ -6,6 +6,7 @@ package pbt
 import (
 	"fmt"
 	"math/rand/v2"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -107,7 +108,9 @@ type Property func(t *T)
 // A property fails when it calls one of the Error, Fatal or Fail methods, or
 // when it panics. Skip and Assume discard the current test case instead.
 type T struct {
-	name string
+	health        *healthStats
+	discardSource string
+	name          string
 
 	rng     *rand.Rand // source of fresh choices; nil when replaying
 	prefix  []uint64   // choices replayed before falling back to rng or zero
@@ -245,6 +248,7 @@ func (t *T) beginSpan(label string) {
 		parent = int32(t.open[n-1])
 		depth = t.spans[parent].depth + 1
 		if depth > maxSpanDepth {
+			t.discardSource = "generator nesting limit"
 			t.discard(fmt.Sprintf("generators nested more than %d levels deep in %s; bound the recursion, for example with Sized", maxSpanDepth, label))
 		}
 	}
@@ -467,19 +471,19 @@ func (t *T) log(msg string) {
 }
 
 // Skip discards the test case; it counts neither as passed nor as failed.
-func (t *T) Skip(args ...any) { t.discard(fmt.Sprint(args...)) }
+func (t *T) Skip(args ...any) { t.discardUser(fmt.Sprint(args...)) }
 
 // Skipf discards the test case; it counts neither as passed nor as failed.
-func (t *T) Skipf(format string, args ...any) { t.discard(fmt.Sprintf(format, args...)) }
+func (t *T) Skipf(format string, args ...any) { t.discardUser(fmt.Sprintf(format, args...)) }
 
 // SkipNow discards the test case; it counts neither as passed nor as failed.
-func (t *T) SkipNow() { t.discard("skipped") }
+func (t *T) SkipNow() { t.discardUser("skipped") }
 
 // Assume discards the test case unless cond holds. It is the equivalent of
 // PropEr's ?IMPLIES. Check gives up when too many cases are discarded.
 func (t *T) Assume(cond bool) {
 	if !cond {
-		t.discard("assumption failed")
+		t.discardUser("assumption failed")
 	}
 }
 
@@ -548,4 +552,12 @@ func (t *T) runOnFail() {
 			f()
 		}()
 	}
+}
+
+// discardUser records the caller only for search cases, never during shrinking.
+func (t *T) discardUser(reason string) {
+	if t.health != nil {
+		t.discardSource = filepath.Base(callerKey())
+	}
+	t.discard(reason)
 }

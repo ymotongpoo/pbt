@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
 // maxFilterTries is how many values Filter draws before it discards the test
@@ -50,6 +51,13 @@ func (g Gen[V]) Draw(t *T, label string) V {
 	var pc uintptr
 	if len(t.open) == 0 && !t.omitDrawSite {
 		pc = drawCaller()
+	}
+	if t.health != nil && len(t.open) == 0 {
+		start, choices := time.Now(), len(t.choices)
+		defer func() {
+			t.health.generation += time.Since(start)
+			t.health.draws[healthDraw{label: label, gen: g.String(), pc: pc}] += len(t.choices) - choices
+		}()
 	}
 	i := len(t.draws)
 	t.draws = append(t.draws, drawRecord{pc: pc, label: label, gen: g.String(), value: undrawn{}, depth: t.labelDepth})
@@ -152,10 +160,14 @@ func Filter[V any](g Gen[V], pred func(V) bool) Gen[V] {
 	name := "Filter(" + g.name + ")"
 	return Gen[V]{name: name, draw: func(t *T) V {
 		for range maxFilterTries {
-			if v := g.drawSpan(t); pred(v) {
+			v := g.drawSpan(t)
+			accepted := pred(v)
+			t.health.filter(name, !accepted)
+			if accepted {
 				return v
 			}
 		}
+		t.discardSource = name
 		t.discard(name + ": no value satisfied the predicate in " + fmt.Sprint(maxFilterTries) + " tries")
 		panic("unreachable")
 	}}

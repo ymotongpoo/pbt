@@ -129,8 +129,9 @@ func TestCleanupsRunToCompletion(t *testing.T) {
 		t.Cleanup(func() { t.Cleanup(func() { ran++ }) }) // registered during cleanup
 		t.Cleanup(func() { panic("first cleanup panics") })
 	}, Seed(1), NoSave(), Checks(1))
-	if ran != 2 {
-		t.Errorf("later cleanups ran %d times, want 2", ran)
+	// Two callbacks run both on the original failure and its health replay.
+	if ran != 4 {
+		t.Errorf("later cleanups ran %d times, want 4", ran)
 	}
 	if len(tb.errors) != 1 || !strings.Contains(tb.errors[0], "first cleanup panics") {
 		t.Errorf("the cleanup panic was not reported: %q", tb.errors)

@@ -5,6 +5,7 @@ package pbt
 
 import (
 	"cmp"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -32,8 +33,9 @@ type shrinker struct {
 
 	// onAccept, when set, runs after every accepted candidate; returning
 	// false stops shrinking. SampleShrink uses it.
-	onAccept func() bool
-	stop     bool
+	onAccept    func() bool
+	stop        bool
+	exhaustedBy string
 
 	maskFor *T
 	frozen  []bool // choices inside NoShrink spans
@@ -43,11 +45,29 @@ type shrinker struct {
 func (r *runner) shrink(t *T) (*T, int) {
 	s := &shrinker{r: r, cur: t, deadline: time.Now().Add(r.cfg.shrinkTime)}
 	s.run()
+	if r.health != nil && s.exhaustedBy != "" {
+		hint := "raise the time budget with ShrinkTime or -pbt.shrinktime"
+		if s.steps >= maxShrinkSteps {
+			hint = fmt.Sprintf("the step limit is fixed at %d; ShrinkTime and -pbt.shrinktime only change the time budget", maxShrinkSteps)
+		}
+		r.healthExtra = append(r.healthExtra, healthNote{HealthShrink, fmt.Sprintf("shrinking stopped after %d steps: %s; %s", s.steps, s.exhaustedBy, hint)})
+	}
 	return s.cur, s.steps
 }
 
 func (s *shrinker) exhausted() bool {
-	return s.stop || s.steps >= maxShrinkSteps || !time.Now().Before(s.deadline)
+	if s.stop {
+		return true
+	}
+	if s.steps >= maxShrinkSteps {
+		s.exhaustedBy = "step limit reached"
+		return true
+	}
+	if !time.Now().Before(s.deadline) {
+		s.exhaustedBy = "ShrinkTime budget expired"
+		return true
+	}
+	return false
 }
 
 func (s *shrinker) try(cand []uint64) bool {

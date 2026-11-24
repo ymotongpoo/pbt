@@ -72,22 +72,24 @@ var (
 type Option func(*config)
 
 type config struct {
-	checks      int
-	seed        uint64
-	hasSeed     bool
-	startSize   int
-	maxSize     int
-	shrinkTime  time.Duration
-	noSave      bool
-	testdata    string
-	verbose     bool
-	setup       func(*T) func()
-	checkCover  bool
-	search      int
-	valueLimit  int
-	reportDepth int
-	replayFile  string
-	noReplay    bool
+	checks       int
+	seed         uint64
+	hasSeed      bool
+	startSize    int
+	maxSize      int
+	shrinkTime   time.Duration
+	noSave       bool
+	testdata     string
+	verbose      bool
+	setup        func(*T) func()
+	checkCover   bool
+	search       int
+	valueLimit   int
+	reportDepth  int
+	replayFile   string
+	noReplay     bool
+	checkHealth  map[HealthCheck]bool
+	ignoreHealth map[HealthCheck]bool
 }
 
 // Checks sets the number of passing test cases Check requires.
@@ -221,7 +223,7 @@ func Check(tb TB, prop Property, opts ...Option) {
 		tb.Errorf("[pbt] %v", err)
 		return
 	}
-	r := &runner{tb: tb, prop: prop, cfg: cfg}
+	r := &runner{tb: tb, prop: prop, cfg: cfg, health: newHealthStats()}
 	if path := cfg.replayFile; path != "" {
 		t, err := r.replayFile(path)
 		if err != nil {
@@ -229,6 +231,7 @@ func Check(tb TB, prop Property, opts ...Option) {
 			return
 		}
 		if t.failed && !t.discarded {
+			r.stableFailure(t)
 			r.report(t, "replayed "+path+", which still fails", nil)
 			return
 		}
@@ -236,6 +239,7 @@ func Check(tb TB, prop Property, opts ...Option) {
 	}
 	if !cfg.noReplay {
 		if t, path := r.replaySaved(); t != nil {
+			r.stableFailure(t)
 			r.report(t, "saved counterexample "+filepath.Base(path)+" still fails", nil)
 			return
 		}
@@ -246,7 +250,12 @@ func Check(tb TB, prop Property, opts ...Option) {
 		return
 	}
 	if fail == nil {
+		r.reportHealth()
 		r.reportStats(passed)
+		return
+	}
+	if !r.stableFailure(fail) {
+		r.report(fail, fmt.Sprintf("property failed after %d passed checks; replay was inconsistent", passed), nil)
 		return
 	}
 	minimal, steps := r.shrink(fail)
@@ -283,6 +292,8 @@ func CheckExists(tb TB, prop Property, opts ...Option) {
 		tb.Errorf("[pbt] %v", err)
 		return
 	}
+	// CheckExists intentionally omits health checks: rejected candidates are
+	// expected, and witness replay has different semantics from failure replay.
 	r := &runner{tb: tb, prop: prop, cfg: cfg, exists: true}
 	witness, tried, err := r.search()
 	if err != nil {
@@ -298,13 +309,15 @@ func CheckExists(tb TB, prop Property, opts ...Option) {
 }
 
 type runner struct {
-	tb      TB
-	prop    Property
-	cfg     config
-	stats   *stats
-	exists  bool // look for a passing case instead of a failing one
-	best    *T   // best case of a targeted search, for the report
-	current *T   // the case a targeted search mutates
+	health      *healthStats
+	healthExtra []healthNote
+	tb          TB
+	prop        Property
+	cfg         config
+	stats       *stats
+	exists      bool // look for a passing case instead of a failing one
+	best        *T   // best case of a targeted search, for the report
+	current     *T   // the case a targeted search mutates
 }
 
 // want reports whether a case is what the search looks for: a failure for
@@ -320,6 +333,9 @@ func (r *runner) want(t *T) bool {
 // further choices and may be nil, in which case missing choices are 0.
 func (r *runner) run(prefix []uint64, size int, rng *rand.Rand) *T {
 	t := newT(r.tb.Name(), prefix, size, r.cfg.maxSize, rng)
+	if rng != nil {
+		t.health = r.health
+	}
 	prop := r.prop
 	if setup := r.cfg.setup; setup != nil {
 		prop = func(t *T) {
@@ -330,6 +346,9 @@ func (r *runner) run(prefix []uint64, size int, rng *rand.Rand) *T {
 		}
 	}
 	t.execute(prop)
+	if t.health != nil {
+		t.health.add(t)
+	}
 	return t
 }
 
@@ -403,8 +422,14 @@ func (r *runner) search() (found *T, passed int, err error) {
 		case t.discarded:
 			discards++
 			if discards > maxDiscardRatio*max(cfg.checks, limit, passed) {
-				return nil, passed, fmt.Errorf("gave up after %d discarded test cases (%d passed); last reason: %s",
-					discards, passed, t.discardReason)
+				detail := ""
+				if r.health != nil {
+					detail = "; sources: " + topHealthSources(r.health.sources, " discards")
+					for _, n := range r.healthNotes() {
+						detail += "\n[pbt] " + healthLine(n)
+					}
+				}
+				return nil, passed, fmt.Errorf("gave up after %d discarded test cases (%d passed); last reason: %s%s", discards, passed, t.discardReason, detail)
 			}
 		case r.want(t):
 			return t, passed, nil
