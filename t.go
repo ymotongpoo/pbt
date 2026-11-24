@@ -72,10 +72,14 @@ const (
 )
 
 // spanReplay reconnects the old tail when a changed generator span closes.
-// Its index is stable because all choices before that span are unchanged.
+// The span is named by its sequence number, the number of spans begun
+// before it, which is stable because all choices before that span are
+// unchanged. Its index in spans is not: leaf spans are dropped when they
+// close, so a span that is still open, or a leaf that is about to be
+// dropped, can sit at the index the span had in the old trace.
 type spanReplay struct {
-	index int
-	tail  []uint64
+	seq  int32
+	tail []uint64
 }
 
 // span records which choices one generator consumed. Spans nest like the
@@ -87,7 +91,8 @@ type span struct {
 	start, end int32
 	parent     int32 // index of the enclosing span, or -1
 	depth      int32
-	noshrink   bool // the shrinker must not change the choices inside
+	seq        int32 // spans begun before this one in the case
+	noshrink   bool  // the shrinker must not change the choices inside
 }
 
 // drawRecord is one value the property drew, kept for the report: every
@@ -127,6 +132,7 @@ type T struct {
 	spans   []span
 	open    []int       // stack of indices into spans
 	realign *spanReplay // shrink-only replay; never used in generation
+	spanSeq int32       // spans begun so far, for spanReplay
 
 	size    int
 	maxSize int
@@ -262,7 +268,8 @@ func (t *T) beginSpan(label string) {
 			t.discard(fmt.Sprintf("generators nested more than %d levels deep in %s; bound the recursion, for example with Sized", maxSpanDepth, label))
 		}
 	}
-	t.spans = append(t.spans, span{label: label, start: int32(len(t.choices)), end: -1, parent: parent, depth: depth})
+	t.spans = append(t.spans, span{label: label, start: int32(len(t.choices)), end: -1, parent: parent, depth: depth, seq: t.spanSeq})
+	t.spanSeq++
 	t.open = append(t.open, len(t.spans)-1)
 }
 
@@ -271,7 +278,7 @@ func (t *T) endSpan() {
 	i := t.open[n-1]
 	t.open = t.open[:n-1]
 	t.spans[i].end = int32(len(t.choices))
-	if t.realign != nil && t.realign.index == i {
+	if t.realign != nil && t.realign.seq == t.spans[i].seq {
 		t.prefix = append(append([]uint64(nil), t.choices...), t.realign.tail...)
 		t.realign = nil
 	}

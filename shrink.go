@@ -643,8 +643,9 @@ func (s *shrinker) set2(i int, vi uint64, j int, vj uint64) bool {
 	return s.try(cand)
 }
 
-// switchBranches lowers the structural choice at the start of a span and
-// reconnects the choices following that span when it closes. Replay supplies
+// switchBranches lowers the first choice of a span, such as the index of
+// a OneOf or the length a generator draws first, and reconnects the
+// choices following that span when it closes. Replay supplies
 // either zeros or the old leading choices within the replacement, followed
 // by zeros if it grows. The usual acceptance checks still apply to the actual
 // recorded sequence, including failure identity and NoShrink protection.
@@ -653,7 +654,7 @@ func (s *shrinker) switchBranches() bool {
 	for k := len(s.cur.spans) - 1; k >= 0 && !s.exhausted(); k-- {
 		sp := s.cur.spans[k]
 		i, end := int(sp.start), int(sp.end)
-		if end <= i+1 || end >= len(s.cur.choices) || s.cur.metas[i].kind != kindFlag || s.cur.choices[i] == 0 || s.frozenAt(i) || s.insideNoShrink(k) {
+		if end <= i+1 || end >= len(s.cur.choices) || s.cur.choices[i] == 0 || s.frozenAt(i) || s.insideNoShrink(k) {
 			continue
 		}
 		accepted := false
@@ -664,7 +665,7 @@ func (s *shrinker) switchBranches() bool {
 				if leading {
 					cand = append(cand, s.cur.choices[i+1:end]...)
 				}
-				return s.tryReplay(cand, &spanReplay{index: k, tail: s.cur.choices[end:]})
+				return s.tryReplay(cand, &spanReplay{seq: sp.seq, tail: s.cur.choices[end:]})
 			}
 			old := s.cur.choices[i]
 			accepted = set(0)

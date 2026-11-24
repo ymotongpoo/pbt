@@ -391,3 +391,33 @@ func TestShrinkSwitchAlternatives(t *testing.T) {
 		}
 	}
 }
+
+// The realigned span is named by its sequence number: leaf spans that open
+// and close before it, such as those of the Frequency draws here, sit for a
+// moment at the index the span had in the old trace.
+func TestRealignAfterDroppedLeafSpans(t *testing.T) {
+	atom := Custom("atom", func(t *T) string {
+		b := make([]byte, IntRange(1, 20).Draw(t, ""))
+		for i := range b {
+			b[i] = SampledFrom([]byte("abc")).Draw(t, "")
+		}
+		return string(b)
+	})
+	g := Custom("outer", func(t *T) string {
+		form := Frequency(W(4, Just("")), W(1, Just("!"))).Draw(t, "")
+		mode := Frequency(W(15, Just("")), W(1, Just("?"))).Draw(t, "")
+		a := atom.Draw(t, "")
+		n := IntRange(0, 100).Draw(t, "")
+		return form + mode + a + "@" + string(rune('0'+n%10))
+	})
+	for seed := uint64(1); seed <= 5; seed++ {
+		c := counterexample(t, func(pt *T) {
+			if s := g.Draw(pt, "s"); s[len(s)-1] != '0' {
+				pt.Fail()
+			}
+		}, Seed(seed))
+		if got := drawn[string](t, c, 0); got != "a@1" {
+			t.Errorf("seed %d: %q, want %q", seed, got, "a@1")
+		}
+	}
+}
