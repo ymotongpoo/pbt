@@ -5,6 +5,7 @@ package format
 
 import (
 	"strings"
+	"sync"
 
 	"go.ymotongpoo.com/pbt"
 )
@@ -32,8 +33,18 @@ func choice(weights ...int) pbt.Gen[int] {
 	return pbt.Frequency(alts...)
 }
 
+// charGens caches the generators of charIn, which the grammars call per
+// character.
+var charGens sync.Map // string -> pbt.Gen[byte]
+
 // charIn generates one byte of set, shrinking toward set[0].
-func charIn(set string) pbt.Gen[byte] { return pbt.SampledFrom([]byte(set)) }
+func charIn(set string) pbt.Gen[byte] {
+	if g, ok := charGens.Load(set); ok {
+		return g.(pbt.Gen[byte])
+	}
+	g, _ := charGens.LoadOrStore(set, pbt.SampledFrom([]byte(set)))
+	return g.(pbt.Gen[byte])
+}
 
 // stringIn generates between minLen and maxLen bytes of set, with a length
 // that grows with the size parameter like pbt.SliceOfN; a negative maxLen
@@ -42,12 +53,9 @@ func stringIn(set string, minLen, maxLen int) pbt.Gen[string] {
 	return pbt.Map(pbt.SliceOfN(charIn(set), minLen, maxLen), func(b []byte) string { return string(b) })
 }
 
-// ldhLabel draws a label of letters, digits and hyphens that starts with a
-// character of first and ends with an alphanumeric character, with a
-// length between 1 and maxLen drawn like an integer, so that the longest
-// label is common.
-func ldhLabel(t *pbt.T, first string, maxLen int) string {
-	n := pbt.IntRange(1, maxLen).Draw(t, "")
+// ldhLabel draws a label of n letters, digits and hyphens that starts with
+// a character of first and ends with an alphanumeric character.
+func ldhLabel(t *pbt.T, first string, n int) string {
 	var b strings.Builder
 	b.WriteByte(charIn(first).Draw(t, ""))
 	for i := 1; i < n; i++ {
