@@ -51,7 +51,7 @@ pbtはGo 1.25以降で動き、標準ライブラリ以外に依存しません�
 `pbt.Check(t, biggestProperty)` を実行すると、次の報告が出ます。
 
 ```text
-[pbt] property failed after 12 passed checks and 16 shrink steps (size 13)
+[pbt] property failed after 12 passed checks and 20 shrink steps (size 13)
 [pbt] xs (SliceOfN(Int(), 1, -1)) = []int{-1}
 [pbt] error: biggest([-1]) = 0, want -1
 [pbt] saved to testdata/pbt/TestBiggest/5a0c…; go test replays it until the file is deleted
@@ -82,4 +82,5 @@ pbtはGo 1.25以降で動き、標準ライブラリ以外に依存しません�
 1章から4章は、生成器、データのサイズと分布、縮小、実行のオプションを扱います。
 5章から7章は、モデルに対するステートフルテスト、並行実行、状態機械を扱います。
 8章は標的型探索と存在性のプロパティ、9章は型から導く生成器です。
-10章では、例題の移植、rapidからの移行ガイド、参照資料を案内します。
+10章は、規格が定める形式の文字列を扱います。
+11章では、例題の移植、rapidからの移行ガイド、参照資料を案内します。

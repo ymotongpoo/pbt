@@ -18,7 +18,8 @@ Writing a generator for every struct of a program is tedious, and most of the ti
 | `netip.Addr`, `netip.Prefix`, `netip.AddrPort` | `Addr`, `Prefix`, `AddrPort` |
 | `net.IP` | addresses of `Addr` in both the 4-byte and the 16-byte form |
 | `net.HardwareAddr` | `HardwareAddr` |
- A `time.Time` field takes `min` and `max` as RFC 3339 timestamps, as `Placed` does above. `time.Duration` stays an integer type and is drawn like any `int64`.
+
+A `time.Time` field takes `min` and `max` as RFC 3339 timestamps, as `Placed` does above. `time.Duration` stays an integer type and is drawn like any `int64`.
 
 Other types need help. Unexported fields stay zero, because reflection cannot set them, so a type whose state is all unexported needs `WithType`. Interfaces, channels and functions have no derivable generator and need `WithType` or `WithField` as well; `Make` panics with the field name when one is missing.
 

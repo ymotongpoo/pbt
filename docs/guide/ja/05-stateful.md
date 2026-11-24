@@ -66,7 +66,7 @@ Goは `Map` や `Frequency` の呼び出しでは型引数を推論しますが�
 報告には、プログラム、実行の履歴、失敗したステップの前のモデル状態が載ります。
 
 ```text
-[pbt] property failed after 5 passed checks and 65 shrink steps (size 6)
+[pbt] property failed after 5 passed checks and 81 shrink steps (size 6)
 [pbt] cmds (Commands) = Program{
 [pbt]     var1 = issue()
 [pbt]     var2 = close(var1)

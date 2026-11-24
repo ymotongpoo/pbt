@@ -65,7 +65,8 @@ pbtは列全体をモデルに対して生成してから実行するためで�
 ## 参照資料
 
 - pkg.go.devの[パッケージドキュメント](https://pkg.go.dev/go.ymotongpoo.com/pbt)は、すべての関数とオプションを、実行できる例とともに説明しています。
-- [DESIGN.md](https://github.com/ymotongpoo/pbt/blob/main/DESIGN.md) は設計の判断と、PropEr、QuickCheck、Hypothesis、rapidとの比較を記録しています。日本語版はDESIGN.ja.mdです。
+- [パッケージformatのドキュメント](https://pkg.go.dev/go.ymotongpoo.com/pbt/format)は、すべての形式について、規格のどの部分を扱うかと縮小先を説明しています。
+- [DESIGN.md](https://github.com/ymotongpoo/pbt/blob/main/DESIGN.md) は設計の判断と、PropEr、QuickCheck、Hypothesis、rapid、Hegelとの比較を記録しています。日本語版はDESIGN.ja.mdです。
 - [CHANGELOG.md](https://github.com/ymotongpoo/pbt/blob/main/CHANGELOG.md) は各リリースの変更を列挙しています。v1.0まではAPIが変わることがあります。
 - 不具合の報告と質問は[GitHubリポジトリ](https://github.com/ymotongpoo/pbt)へお願いします。
 
@@ -77,6 +78,9 @@ go test ./... -pbt.seed=0x1c3           # 実行を繰り返す
 go test ./... -pbt.startsize=10 -pbt.maxsize=100
 go test ./... -pbt.shrinktime=2m
 go test ./... -pbt.searchsteps=5000     # 標的型探索を長くする
+go test ./... -pbt.failures=3           # 種類の異なる失敗を3件まで集める
+go test ./... -pbt.checkhealth=default  # 無駄な入力や大きすぎる入力で失敗にする
+go test ./... -pbt.ignorehealth=slow    # 時間の警告を隠す
 go test ./... -pbt.nosave               # testdata/pbt に書き込まない
 go test ./... -pbt.replay=testdata/pbt/TestQueue/3f2a… -run TestQueue
 go test ./... -pbt.v                    # 要約と縮小のステップを表示する

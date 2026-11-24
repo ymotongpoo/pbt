@@ -1,13 +1,14 @@
 # プロパティと実行
-<!-- summary: 実行のオプションとフラグ、Assumeと破棄、SetupとCleanup、Conjunction、Deadline、OnFail、Recover、NoPanic、シードと保存されたケースと再生の仕組み。 -->
+<!-- summary: 実行のオプションとフラグ、Assumeと破棄、SetupとCleanup、Conjunction、Deadline、OnFail、Recover、NoPanic、MaxFailuresによる1回の実行での複数の失敗、シードと保存されたケースと再生の仕組み。 -->
 
 実行の形を決める要素を扱います。
 ケースの数、サイズ、破棄したケースの扱い、ケースの前後に動くもの、プロパティの組み合わせ、失敗の再現です。
 
 ## オプションとフラグ
 
-すべての設定に、`go test` の実行全体に有効なフラグと、1回の `Check` に有効なオプションがあります。
+ほとんどの設定に、`go test` の実行全体に有効なフラグと、1回の `Check` に有効なオプションがあります。
 オプションがフラグより優先されます。
+ただしヘルスチェックは例外で、フラグとオプションの指定が足し合わされます。
 
 | フラグ | オプション | デフォルト | 意味 |
 | --- | --- | --- | --- |
@@ -15,6 +16,7 @@
 | `-pbt.seed` | `Seed(s)` | ランダム | 実行のシード。すべての報告に表示 |
 | `-pbt.startsize`、`-pbt.maxsize` | `Sizes(start, max)` | 1、42 | 最初のケースのサイズと、増加の上限 |
 | `-pbt.shrinktime` | `ShrinkTime(d)` | 30s | 失敗1件の縮小に使う時間 |
+| `-pbt.failures` | `MaxFailures(n)` | 1 | 集めて縮小し報告する、種類の異なる失敗の数 |
 | `-pbt.searchsteps` | `SearchSteps(n)` | 1000 | 標的型探索のケース数 |
 | `-pbt.nosave` | `NoSave()` | false | 失敗したケースを保存しない |
 | `-pbt.replay` | `ReplayFile(path)` | なし | 探索の前に再実行する保存済みケース |
@@ -23,6 +25,8 @@
 | | `NoReplay()` | false | 保存済みケースを再実行しない |
 | | `Setup(f)` | なし | 各ケースの前に `f` を実行 |
 | | `CheckCoverage()` | false | 不足か未決の `Cover` 要求で失敗 |
+| `-pbt.checkhealth` | `CheckHealth(checks...)` | なし | 通過した実行を失敗にするヘルスチェック（2章） |
+| `-pbt.ignorehealth` | `IgnoreHealth(checks...)` | なし | 隠すヘルスチェック |
 | | `ReportLimit(chars)`、`ReportDepth(levels)` | 2000、3 | 報告する値の文字数と、入れ子の値の深さ |
 
 <!-- snippet: properties_test.go#options -->
@@ -100,12 +104,45 @@ Goは実行中の関数を中断できないので、`Deadline` はプロパテ�
 `Make` は9章で説明します。
 `WithType` と `WithField` のオプションで引数を絞れます。
 
+## 1回の実行での複数の失敗
+
+実行は通常、最初の失敗で止まり、それを縮小して報告します。
+そのため、バグが2つある関数では、バグが1つずつしか見えません。
+1つ目を直して再び実行して、ようやく2つ目に出会います。
+`MaxFailures(n)` か `-pbt.failures=n` を指定すると、失敗の後も実行を続けます。
+仕方の異なる失敗を最大 `n` 件集め、それぞれを縮小し、保存し、報告します。
+
+<!-- snippet: failures_test.go#failures -->
+
+```text
+[pbt] failure 1 of 2: property failed after 6 passed checks and 9 shrink steps (size 4)
+[pbt] s (StringOf(SampledFrom(10 values))) = "0"
+[pbt] error: parsePort("0") accepted 0
+[pbt] reproduce: go test -run 'TestPort' -pbt.seed=0x1 -pbt.failures=2
+[pbt] failure 2 of 2: property failed after 6 passed checks and 90 shrink steps (size 8)
+[pbt] s (StringOf(SampledFrom(10 values))) = "7000"
+[pbt] error: parsePort("7000") rejected a valid port
+[pbt] reproduce: go test -run 'TestPort' -pbt.seed=0x1 -pbt.failures=2
+```
+
+失敗した行が違うか、パニックの型か発生位置が違うとき、2つの失敗は異なるものとみなされます。
+この区別は、3章で縮小を1つのバグにとどめていたものと同じです。
+縮小器が途中で新しい仕方の失敗に出会えば、それも `n` 件のうちの1件になります。
+どの失敗にも、`ShrinkTime` の時間がそれぞれ丸ごと割り当てられます。
+2つ目の最小値7000は局所的な最小です。
+本当の境界は6554ですが、そこへ至るには後ろの桁をより大きな数字にする必要があり、縮小器はそれを試しません。
+保存した失敗はまとめて再実行され、保存済みのケースが再実行で失敗したときは、それ以上の失敗を探しません。
+`CheckExists` はこのオプションを無視します。
+
 ## シード、保存したケース、再実行
 
 すべての報告は、実行のシードを含む `reproduce:` の行で終わります。
 そのシードを `-pbt.seed` に渡すと、プロパティのコードとpbtのバージョンが同じであれば、失敗したケースを含む同じケースの列が繰り返されます。
 pbtを更新すると、同じシードから生成されるケースが変わることがあります。
-v0.3.2では整数生成の修正により一部のシードで生成結果が変わりますが、既存の保存済み選択列は従来どおり再生されます。
+v0.3.2では整数生成の修正により、一部のシードで生成結果が変わります。
+v0.4.0では、一部の再帰的な型について `Make` が生成する値が変わり、縮小器が別の、より小さなケースに到達することがあります。
+保存済みのケースは、その選択の列を、インストールされているバージョンの生成器に通して再生します。
+pbtを更新した後は、再帰的な型に `Make` を使うプロパティの保存済みケースが、別の値を作ることがあります。
 
 失敗したケースは `testdata/pbt/<テスト名>/<ハッシュ>` にもテキストファイルとして保存されます。
 サイズ、コメントとして取り出した値、そして選択の列が入っています。
