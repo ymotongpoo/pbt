@@ -134,9 +134,10 @@ type T struct {
 	measures []measurement
 	covers   []coverRecord
 
-	hasUtility  bool
-	utilityName string
-	utility     float64
+	hasUtility    bool
+	moreUtilities []utility
+	utilityName   string
+	utility       float64
 
 	// recActive and recBudget implement Bounded: the outermost bounded
 	// draw of a value sets the budget, and every nested one, of any type,

@@ -6,7 +6,6 @@ package pbt
 import (
 	"flag"
 	"fmt"
-	"math"
 	"math/rand/v2"
 	"path/filepath"
 	"strings"
@@ -330,9 +329,8 @@ type runner struct {
 	prop        Property
 	cfg         config
 	stats       *stats
-	exists      bool // look for a passing case instead of a failing one
-	best        *T   // best case of a targeted search, for the report
-	current     *T   // the case a targeted search mutates
+	exists      bool        // look for a passing case instead of a failing one
+	objectives  []objective // objectives in order of first appearance
 }
 
 // want reports whether a case is what the search looks for: a failure for
@@ -375,10 +373,10 @@ func (r *runner) reportStats(passed int) {
 	if st == nil {
 		st = newStats()
 	}
-	if r.cfg.verbose || !st.empty() || r.best != nil {
+	if r.cfg.verbose || !st.empty() || len(r.objectives) > 0 {
 		lines := []string{fmt.Sprintf("OK, passed %d checks (seed 0x%x)", passed, r.cfg.seed)}
-		if r.best != nil {
-			lines = append(lines, fmt.Sprintf("best %s = %s over %d search steps", r.best.utilityName, formatNum(r.best.utility), passed))
+		for _, o := range r.objectives {
+			lines = append(lines, fmt.Sprintf("best %s = %s over %d search steps", o.name, formatNum(o.bestValue), passed))
 		}
 		lines = append(lines, st.lines()...)
 		r.tb.Logf("[pbt] %s", strings.Join(lines, "\n[pbt] "))
@@ -414,7 +412,7 @@ func (r *runner) search() (found *T, passed int, err error) {
 	discards := 0
 	tried := 0
 	targeted := false
-	uMin, uMax := math.Inf(1), math.Inf(-1)
+	nextObjective := 0
 	for {
 		limit := cfg.checks
 		if targeted {
@@ -429,8 +427,15 @@ func (r *runner) search() (found *T, passed int, err error) {
 		rng := newRand(caseSeed(cfg.seed, uint64(tried+discards)))
 		temp := 1 - float64(tried)/float64(limit)
 		var t *T
-		if targeted && r.current != nil && rng.Float64() >= restartProbability {
-			t = r.run(mutate(rng, r.current, temp), r.current.size, rng)
+		selected := -1
+		var current *T
+		if len(r.objectives) > 0 {
+			selected = nextObjective % len(r.objectives)
+			nextObjective = selected + 1
+			current = r.objectives[selected].current
+		}
+		if targeted && current != nil && rng.Float64() >= restartProbability {
+			t = r.run(mutate(rng, current, temp), current.size, rng)
 		} else {
 			t = r.run(nil, min(cfg.startSize+tried, cfg.maxSize), rng)
 		}
@@ -459,17 +464,7 @@ func (r *runner) search() (found *T, passed int, err error) {
 			tried++
 			if t.hasUtility {
 				targeted = true
-				uMin, uMax = min(uMin, t.utility), max(uMax, t.utility)
-				scale := (uMax - uMin) / 100
-				switch {
-				case r.current == nil || t.utility > r.current.utility:
-					r.current = t
-				case scale > 0 && temp > 0 && rng.Float64() < math.Exp(-(r.current.utility-t.utility)/(scale*temp)):
-					r.current = t
-				}
-				if r.best == nil || t.utility > r.best.utility {
-					r.best = t
-				}
+				r.observeObjectives(t, selected, temp, rng)
 			}
 		}
 	}

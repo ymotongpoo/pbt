@@ -4,25 +4,91 @@
 package pbt
 
 import (
-	"fmt"
+	"math"
 	"math/rand/v2"
 	"slices"
 )
 
-// Maximize declares the utility of the current test case for a targeted
-// search, as PropEr's ?MAXIMIZE does. Once a case reports a utility, Check
-// stops drawing fresh cases and instead mutates the best case found so far,
-// looking for inputs with a higher utility, for the number of search steps
-// in the configuration. The name labels the utility in the report. A case
-// has one utility: calling Maximize again with the same name replaces the
-// value, and calling it with another name panics.
-func (t *T) Maximize(name string, utility float64) {
-	if t.hasUtility && t.utilityName != name {
-		panic(fmt.Sprintf("pbt: Maximize: a case has one utility, but %q was reported after %q", name, t.utilityName))
+// Maximize declares a named utility of the current case for targeted search.
+// Each objective has its own current and best case. Steps mutate the current
+// case of one objective, cycling through names in order of first appearance;
+// simulated annealing may accept a lower utility to escape local optima.
+// Calling Maximize again with the same name replaces its value. A case that
+// omits an objective cannot become its current case. SearchSteps sets the
+// total budget shared by all objectives.
+func (t *T) Maximize(name string, value float64) {
+	if !t.hasUtility || t.utilityName == name {
+		t.hasUtility, t.utilityName, t.utility = true, name, value
+		return
 	}
-	t.hasUtility = true
-	t.utilityName = name
-	t.utility = utility
+	for i := range t.moreUtilities {
+		if t.moreUtilities[i].name == name {
+			t.moreUtilities[i].value = value
+			return
+		}
+	}
+	t.moreUtilities = append(t.moreUtilities, utility{name, value})
+}
+
+type utility struct {
+	name  string
+	value float64
+}
+
+// Keep the first utility inline: the common single-objective case allocates
+// no collection in T.
+func (t *T) utilityCount() int {
+	if !t.hasUtility {
+		return 0
+	}
+	return 1 + len(t.moreUtilities)
+}
+func (t *T) utilityAt(i int) utility {
+	if i == 0 {
+		return utility{t.utilityName, t.utility}
+	}
+	return t.moreUtilities[i-1]
+}
+
+type objective struct {
+	name                    string
+	current, best           *T
+	currentValue, bestValue float64
+	uMin, uMax              float64
+}
+
+// Observe all reported utilities, but make the annealing decision only for
+// the objective selected for this step. New objectives start from this case.
+func (r *runner) observeObjectives(t *T, selected int, temp float64, rng *rand.Rand) {
+	for i := 0; i < t.utilityCount(); i++ {
+		u := t.utilityAt(i)
+		index := -1
+		for j := range r.objectives {
+			if r.objectives[j].name == u.name {
+				index = j
+				break
+			}
+		}
+		if index < 0 {
+			r.objectives = append(r.objectives, objective{
+				name: u.name, current: t, best: t, currentValue: u.value, bestValue: u.value,
+				uMin: u.value, uMax: u.value,
+			})
+			continue
+		}
+		o := &r.objectives[index]
+		o.uMin, o.uMax = min(o.uMin, u.value), max(o.uMax, u.value)
+		if u.value > o.bestValue {
+			o.best, o.bestValue = t, u.value
+		}
+		if index != selected {
+			continue
+		}
+		scale := (o.uMax - o.uMin) / 100
+		if u.value > o.currentValue || (scale > 0 && temp > 0 && rng.Float64() < math.Exp(-(o.currentValue-u.value)/(scale*temp))) {
+			o.current, o.currentValue = t, u.value
+		}
+	}
 }
 
 // Minimize is Maximize with the sign reversed.

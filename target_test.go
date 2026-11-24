@@ -117,18 +117,13 @@ func TestCheckExistsWithGuidance(t *testing.T) {
 	}
 }
 
-func TestMaximizeAllowsOneUtilityPerCase(t *testing.T) {
+func TestMaximizeReplacesNamedUtilities(t *testing.T) {
 	c := &T{}
 	c.Maximize("distance", 1)
-	c.Maximize("distance", 2) // the same name replaces the value
-	if c.utility != 2 {
-		t.Fatalf("utility = %v, want 2", c.utility)
-	}
-	defer func() {
-		msg, _ := recover().(string)
-		if !strings.Contains(msg, `"length" was reported after "distance"`) {
-			t.Errorf("second utility name did not panic as expected: %q", msg)
-		}
-	}()
 	c.Maximize("length", 3)
+	c.Maximize("distance", 2)
+	c.Minimize("length", 4)
+	if c.utilityCount() != 2 || c.utilityAt(0) != (utility{"distance", 2}) || c.utilityAt(1) != (utility{"length", -4}) {
+		t.Fatal(c.utilityAt(0), c.utilityAt(1))
+	}
 }

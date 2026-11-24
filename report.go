@@ -34,8 +34,9 @@ func (r *runner) format(t *T, headline string, trailer []string) string {
 	t.runOnFail()
 	var b strings.Builder
 	fmt.Fprintf(&b, "[pbt] %s (size %d)\n", headline, t.size)
-	if t.hasUtility {
-		fmt.Fprintf(&b, "[pbt] utility %s = %s\n", t.utilityName, formatNum(t.utility))
+	for i := 0; i < t.utilityCount(); i++ {
+		u := t.utilityAt(i)
+		fmt.Fprintf(&b, "[pbt] utility %s = %s\n", u.name, formatNum(u.value))
 	}
 	omitted := 0
 	for _, d := range t.draws {
