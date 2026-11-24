@@ -262,16 +262,21 @@ func (r *runner) healthNotes() []healthNote {
 	return out
 }
 
-func healthLine(n healthNote) string {
-	return fmt.Sprintf("health: %s: %s (CheckHealth(%s) makes this fail; IgnoreHealth(%s) hides it)", n.check, n.text, n.check, n.check)
+// healthLine formats a note. The hint names CheckHealth only where it
+// would change the outcome: on a warning of a passing run.
+func healthLine(n healthNote, warning bool) string {
+	if warning {
+		return fmt.Sprintf("health: %s: %s (CheckHealth(%s) makes this fail; IgnoreHealth(%s) hides it)", n.check, n.text, n.check, n.check)
+	}
+	return fmt.Sprintf("health: %s: %s (IgnoreHealth(%s) hides it)", n.check, n.text, n.check)
 }
 
 func (r *runner) reportHealth() {
 	for _, n := range r.healthNotes() {
 		if r.cfg.checkHealth[n.check] {
-			r.tb.Errorf("[pbt] %s", healthLine(n))
+			r.tb.Errorf("[pbt] %s", healthLine(n, false))
 		} else {
-			r.tb.Logf("[pbt] %s", healthLine(n))
+			r.tb.Logf("[pbt] %s", healthLine(n, true))
 		}
 	}
 }

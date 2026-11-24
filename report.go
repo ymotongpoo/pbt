@@ -23,7 +23,7 @@ func (r *runner) report(t *T, headline string, trailer []string) {
 	r.tb.Helper()
 	trailer = append([]string(nil), trailer...)
 	for _, n := range r.healthNotes() {
-		trailer = append(trailer, healthLine(n))
+		trailer = append(trailer, healthLine(n, false))
 	}
 	r.tb.Errorf("%s", r.format(t, headline, trailer))
 }
