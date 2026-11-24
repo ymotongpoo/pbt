@@ -68,7 +68,8 @@ func casedTag(g pbt.Gen[string], canonical bool) pbt.Gen[string] {
 		}
 		b := []byte(strings.Join(parts, "-"))
 		for i, c := range b {
-			if c >= 'a' && c <= 'z' && pbt.Bool().Draw(t, "") {
+			up := pbt.Bool().Draw(t, "")
+			if c >= 'a' && c <= 'z' && up {
 				b[i] = c - 'a' + 'A'
 			}
 		}
