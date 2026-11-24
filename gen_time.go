@@ -73,7 +73,7 @@ var (
 //
 // An instant is drawn as seconds and nanoseconds since the Unix epoch, and
 // the nanoseconds are rounded to whole microseconds, milliseconds or seconds
-// in a share of the cases. About a third of the values are then moved to an
+// in a share of the cases. Nearly half of the values are then moved to an
 // instant where calendar code tends to break, as long as that instant lies
 // in the range: the first or last nanosecond of a day, a month or a year in
 // the location, February 29 of the nearest leap year, and, in a location
