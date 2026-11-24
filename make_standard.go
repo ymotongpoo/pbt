@@ -57,5 +57,5 @@ func standardDraw(typ reflect.Type, tg tag) drawFn {
 	default:
 		return nil
 	}
-	return func(t *T, _ *budget) reflect.Value { return reflect.ValueOf(g.drawSpan(t)) }
+	return func(t *T, _ *budget) reflect.Value { return reflect.ValueOf(UnboundedGrowth(g).drawSpan(t)) }
 }

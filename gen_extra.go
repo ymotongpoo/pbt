@@ -42,9 +42,12 @@ func BytesN(minLen, maxLen int) Gen[[]byte] {
 // five is nil, and nil is the value pointers shrink to.
 func Ptr[E any](elem Gen[E], allowNil bool) Gen[*E] {
 	return Gen[*E]{name: fmt.Sprintf("Ptr(%s, %v)", elem.name, allowNil), draw: func(t *T) *E {
-		if allowNil && !t.drawBool(0.8) {
+		if allowNil && (!t.drawBool(0.8) || (t.makeBudget != nil && (t.makeBudget.left <= 0 || t.makeBudget.depth >= maxGrowthDepth))) {
 			return nil
 		}
+		b := t.makeBudget
+		b.enter()
+		defer b.leave()
 		v := elem.drawSpan(t)
 		return &v
 	}}

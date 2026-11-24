@@ -12,15 +12,6 @@ import (
 	"sync"
 )
 
-// maxMakeDepth bounds how deep Make follows pointers and collections of a
-// recursive type before it stops with nil and empty values.
-const maxMakeDepth = 40
-
-// budget counts the recursive nodes one top-level draw may still create.
-// Without it, a type whose fields hold slices of itself grows exponentially
-// with the size parameter; with it, a value holds about size such nodes.
-type budget struct{ left int }
-
 // MakeOption adjusts the generator that Make derives from a type.
 type MakeOption func(*makeConfig)
 
@@ -56,8 +47,7 @@ func asAny[V any](g Gen[V]) Gen[any] {
 // generators from type declarations. Booleans, integers, floats and strings
 // use the generators of this package; slices, arrays, maps and pointers
 // are built from their element types; structs get every exported field
-// generated, and recursion through pointers and collections ends after
-// maxMakeDepth levels. Fields may carry a `pbt` tag: "-" leaves the field
+// generated. Fields may carry a `pbt` tag: "-" leaves the field
 // zero, and "min=A,max=B" bounds a number or the length of a string, slice
 // or map. Interfaces, channels and functions need a generator supplied with
 // WithType or WithField; Make panics otherwise. Unexported fields stay
@@ -66,6 +56,21 @@ func asAny[V any](g Gen[V]) Gen[any] {
 // locations use FixedZone without tzdata. Time bounds use RFC 3339 timestamps.
 // Other types with unexported state need WithType; cmd/pbtgen can fill
 // unexported fields of types in the package it writes into.
+//
+// One draw shares 8*max(size, 1) growth units across the whole value. Each
+// collection element (including a string rune or a map candidate) and each
+// non-nil pointer spends one unit. After exhaustion, pointers are nil and
+// collections stop growing. Fixed fields, arrays and nonrecursive minimum
+// lengths are completed; recursive collections may stop below their minimum
+// to terminate. Recursive collections and pointers also stop after 64 nested
+// growth steps, independently of the engine's span nesting limit.
+// For a fixed type and tags, this bounds work and choices by
+// C*(8*max(size, 1)+1), where C is the cost of completing its fixed fields,
+// arrays and required nonrecursive elements, including up to ten attempts
+// per distinct map key. WithType and WithField overrides are exempt, as are
+// the standard-library generators above. Values that do not exhaust the
+// budget or reach a depth limit keep their seeded choices. Values formerly
+// truncated by the old recursion limits can change even below this budget.
 func Make[V any](opts ...MakeOption) Gen[V] {
 	cfg := &makeConfig{types: map[reflect.Type]Gen[any]{}, fields: map[reflect.Type]map[string]Gen[any]{}}
 	for _, o := range opts {
@@ -83,10 +88,10 @@ func Make[V any](opts ...MakeOption) Gen[V] {
 		}
 	}
 	draw := makeDraw(typ, cfg, tag{}, nil)
-	return Gen[V]{name: fmt.Sprintf("Make[%s]", typ), draw: func(t *T) V {
-		v, _ := draw(t, &budget{left: max(t.size, 1)}).Interface().(V) // a nil interface value stays the zero V
+	return BoundedGrowth(Gen[V]{name: fmt.Sprintf("Make[%s]", typ), draw: func(t *T) V {
+		v, _ := draw(t, t.makeBudget).Interface().(V) // a nil interface value stays the zero V
 		return v
-	}}
+	}})
 }
 
 // valueAs converts a value from a supplied generator to the type Make needs,
@@ -140,10 +145,10 @@ func parseTag(s string) tag {
 type drawFn func(*T, *budget) reflect.Value
 
 // makeDraw builds the drawing function for typ. stack holds the types being
-// built, so that a recursive reference becomes a lazy, depth-bounded draw.
+// built, so that a recursive reference becomes a lazy draw sharing the growth budget.
 func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) drawFn {
 	if g, ok := cfg.types[typ]; ok {
-		return func(t *T, _ *budget) reflect.Value { return valueAs(g.drawSpan(t), typ) }
+		return func(t *T, _ *budget) reflect.Value { return valueAs(UnboundedGrowth(g).drawSpan(t), typ) }
 	}
 	if draw := standardDraw(typ, tg); draw != nil {
 		return draw
@@ -155,10 +160,6 @@ func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) d
 			var once sync.Once
 			var inner drawFn
 			return func(t *T, b *budget) reflect.Value {
-				if b.left <= 0 || len(t.open) > maxMakeDepth {
-					return reflect.Zero(typ)
-				}
-				b.left--
 				once.Do(func() { inner = makeDraw(typ, cfg, tg, nil) })
 				return inner(t, b)
 			}
@@ -191,11 +192,8 @@ func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) d
 		minLen, maxLen := lengthBounds(tg)
 		elem := makeDraw(typ.Elem(), cfg, tag{}, stack)
 		return func(t *T, b *budget) reflect.Value {
-			if len(t.open) > maxMakeDepth {
-				return reflect.MakeSlice(typ, 0, 0)
-			}
 			g := Gen[reflect.Value]{name: typ.Elem().String(), draw: func(t *T) reflect.Value { return elem(t, b) }}
-			vals := drawSlice(t, g, minLen, maxLen, nil)
+			vals := drawSlice(t, g, minLen, maxLen, nil, recursiveType(typ))
 			out := reflect.MakeSlice(typ, len(vals), len(vals))
 			for i, v := range vals {
 				out.Index(i).Set(v)
@@ -217,9 +215,6 @@ func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) d
 		val := makeDraw(typ.Elem(), cfg, tag{}, stack)
 		return func(t *T, b *budget) reflect.Value {
 			out := reflect.MakeMap(typ)
-			if len(t.open) > maxMakeDepth {
-				return out
-			}
 			pair := Gen[[2]reflect.Value]{name: "entry", draw: func(t *T) [2]reflect.Value { return [2]reflect.Value{key(t, b), val(t, b)} }}
 			drawSlice(t, pair, minLen, maxLen, func(kv [2]reflect.Value) bool {
 				if out.MapIndex(kv[0]).IsValid() {
@@ -227,15 +222,17 @@ func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) d
 				}
 				out.SetMapIndex(kv[0], kv[1])
 				return true
-			})
+			}, recursiveType(typ))
 			return out
 		}
 	case reflect.Pointer:
 		elem := makeDraw(typ.Elem(), cfg, tag{}, stack)
 		return func(t *T, b *budget) reflect.Value {
-			if len(t.open) > maxMakeDepth || !t.drawBool(0.8) {
+			if !t.drawBool(0.8) || b.left <= 0 || b.depth >= maxGrowthDepth {
 				return reflect.Zero(typ)
 			}
+			b.enter()
+			defer b.leave()
 			p := reflect.New(typ.Elem())
 			p.Elem().Set(elem(t, b))
 			return p
@@ -260,7 +257,7 @@ func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) d
 			}
 			if g, ok := cfg.fields[typ][f.Name]; ok {
 				ft := f.Type
-				fields = append(fields, field{i, func(t *T, _ *budget) reflect.Value { return valueAs(g.drawSpan(t), ft) }})
+				fields = append(fields, field{i, func(t *T, _ *budget) reflect.Value { return valueAs(UnboundedGrowth(g).drawSpan(t), ft) }})
 				continue
 			}
 			fields = append(fields, field{i, makeDraw(f.Type, cfg, ftag, stack)})

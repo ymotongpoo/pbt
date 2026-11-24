@@ -156,8 +156,9 @@ type T struct {
 	// recActive and recBudget implement Bounded: the outermost bounded
 	// draw of a value sets the budget, and every nested one, of any type,
 	// spends it.
-	recActive bool
-	recBudget int
+	makeBudget *budget // shared by Make and generated code
+	recActive  bool
+	recBudget  int
 
 	mu            sync.Mutex // guards failed, messages and logs, which may be touched from other goroutines
 	failKey       string     // where and how the case first failed; shrinking keeps this failure

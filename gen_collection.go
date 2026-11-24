@@ -5,6 +5,7 @@ package pbt
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 )
 
@@ -104,8 +105,16 @@ func checkLengths(minLen, maxLen int) {
 // by the choice to continue, and both sit in one span, so that deleting the
 // span removes exactly one element. Elements rejected by accept are retried
 // in their own spans, which the shrinker can delete as well.
-func drawSlice[E any](t *T, elem Gen[E], minLen, maxLen int, accept func(E) bool) []E {
+func drawSlice[E any](t *T, elem Gen[E], minLen, maxLen int, accept func(E) bool, recursive ...bool) []E {
 	out := make([]E, 0)
+	cyclic := false
+	if t.makeBudget != nil {
+		if len(recursive) > 0 {
+			cyclic = recursive[0]
+		} else {
+			cyclic = recursiveType(reflect.TypeFor[E]())
+		}
+	}
 	p := continueProbability(t, maxLen)
 	for {
 		t.beginSpan("item")
@@ -119,7 +128,9 @@ func drawSlice[E any](t *T, elem Gen[E], minLen, maxLen int, accept func(E) bool
 		default:
 			more = t.drawBool(p)
 		}
-		if !more {
+		// Keep the terminating choice even at the boundary: a value that
+		// finishes exactly on its budget must retain subsequent seeded fields.
+		if !more || (t.makeBudget != nil && ((t.makeBudget.left <= 0 && (len(out) >= minLen || cyclic)) || (cyclic && t.makeBudget.depth >= maxGrowthDepth))) {
 			t.endSpan()
 			return out
 		}
@@ -137,10 +148,10 @@ func drawSlice[E any](t *T, elem Gen[E], minLen, maxLen int, accept func(E) bool
 
 func drawAccepted[E any](t *T, elem Gen[E], accept func(E) bool) (E, bool) {
 	if accept == nil {
-		return elem.drawSpan(t), true
+		return drawGrowthElement(t, elem), true
 	}
 	for range maxDistinctTries {
-		if e := elem.drawSpan(t); accept(e) {
+		if e := drawGrowthElement(t, elem); accept(e) {
 			return e, true
 		}
 	}
@@ -225,4 +236,13 @@ func StringOf(r Gen[rune]) Gen[string] {
 func StringOfN(r Gen[rune], minLen, maxLen int) Gen[string] {
 	return named(Map(SliceOfN(r, minLen, maxLen), func(rs []rune) string { return string(rs) }),
 		fmt.Sprintf("StringOfN(%s, %d, %d)", r.name, minLen, maxLen))
+}
+
+// A rejected map candidate is still a growth attempt. Its depth unwinds
+// before the next candidate, while its spent units remain spent.
+func drawGrowthElement[E any](t *T, elem Gen[E]) E {
+	b := t.makeBudget
+	b.enter()
+	defer b.leave()
+	return elem.drawSpan(t)
 }
