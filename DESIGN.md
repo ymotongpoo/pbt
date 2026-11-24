@@ -32,30 +32,37 @@ point of comparison.
 ## Feature comparison
 
 The rapid column reflects the
-[pkg.go.dev index of v1.3.0](https://pkg.go.dev/pgregory.net/rapid). The pbt
-column is the proposal in this document.
+[pkg.go.dev index of v1.3.0](https://pkg.go.dev/pgregory.net/rapid). The
+Hegel column reflects the Go frontend of the
+[hegel](https://github.com/hegeldev/hegel) monorepo at commit 980d45f, a
+library on the Hypothesis engine that calls a native library. The pbt column
+describes v0.4.0.
 
-| Feature | PropEr | QuickCheck | rapid v1.3.0 | pbt (proposed) |
-| --- | --- | --- | --- | --- |
-| Type-safe generators | n/a (dynamic typing) | yes | yes | yes |
-| Shrinking without user code | partial (custom types need a shrinker) | partial (`shrink` must be implemented) | yes | yes |
-| Shrinking across Bind (`?LET`) | partial (shrinks the inner value, regenerates the outer) | no (`>>=` loses shrinking) | yes | yes |
-| Shrinking control (`?SHRINK`, `?LETSHRINK`) | yes | yes | no | partial (subtree shrinking is automatic; value-level hints come later) |
-| Size parameter (`sized`, `resize`) | yes | yes | no | yes |
-| Weighted choice (`frequency`, `weighted_union`) | yes | yes | no (`OneOf` is uniform) | yes |
-| Distribution checks (`cover`, `checkCoverage`) | no | yes | no | yes |
-| Statistics (`collect`, `classify`, `aggregate`, `measure`) | yes | yes | no | yes |
-| Property combinators (`conjunction`, `?IMPLIES`, `?WHENFAIL`, `?TIMEOUT`) | yes | yes | no | yes |
-| Stateful testing | yes | no (separate libraries) | yes | yes |
-| Symbolic variables | yes | n/a | no | yes |
-| Parallel command testing (interleaving check) | yes | no | no | yes |
-| Targeted PBT | yes | no | no | yes |
-| Existential properties (`?EXISTS`) | yes | no | no | yes |
-| Function generation | yes | yes | no | yes |
-| Generators derived from types | yes (from type declarations) | partial (generic deriving) | yes (`Make[T]`) | yes (reflection and code generation) |
-| Checking functions against specs (`check_spec`) | yes | no | no | partial (limited to "does not panic" and similar) |
-| Saving failures and replaying them | partial (in-process only) | no (only a seed to pass again) | yes | yes |
-| Hooking into a coverage-guided fuzzer | no | no | yes (`MakeFuzz`) | no (out of scope) |
+| Feature | PropEr | QuickCheck | rapid v1.3.0 | Hegel (Go) | pbt |
+| --- | --- | --- | --- | --- | --- |
+| Type-safe generators | n/a (dynamic typing) | yes | yes | yes | yes |
+| Shrinking without user code | partial (custom types need a shrinker) | partial (`shrink` must be implemented) | yes | yes | yes |
+| Shrinking across Bind (`?LET`) | partial (shrinks the inner value, regenerates the outer) | no (`>>=` loses shrinking) | yes | yes | yes |
+| Shrinking control (`?SHRINK`, `?LETSHRINK`) | yes | yes | no | no | yes |
+| Size parameter (`sized`, `resize`) | yes | yes | no | no | yes |
+| Weighted choice (`frequency`, `weighted_union`) | yes | yes | no (`OneOf` is uniform) | no (`OneOf` is uniform) | yes |
+| Distribution checks (`cover`, `checkCoverage`) | no | yes | no | no | yes |
+| Statistics (`collect`, `classify`, `aggregate`, `measure`) | yes | yes | no | partial (events) | yes |
+| Property combinators (`conjunction`, `?IMPLIES`, `?WHENFAIL`, `?TIMEOUT`) | yes | yes | no | partial (`Assume`, `Note`) | yes |
+| Stateful testing | yes | no (separate libraries) | yes | yes (rule methods found by reflection) | yes |
+| Symbolic variables | yes | n/a | no | partial (value pools) | yes |
+| Parallel command testing (interleaving check) | yes | no | no | no (concurrent rules with invariants) | yes |
+| Targeted PBT | yes | no | no | yes (labeled targets) | yes (several objectives) |
+| Existential properties (`?EXISTS`) | yes | no | no | no | yes |
+| Function generation | yes | yes | no | no | yes |
+| Generators derived from types | yes (from type declarations) | partial (generic deriving) | yes (`Make[T]`) | yes (`Default`) | yes (reflection and code generation) |
+| Generators of standard text formats | no | no | partial (`StringMatching`) | yes (e-mail, URL, domain, IP, dates, regular expressions) | yes (the package `format`) |
+| Health checks of the run | no | no | no | yes | yes (warnings; `CheckHealth` makes them failures) |
+| Several distinct failures in one run | no | no | no | yes | yes (`MaxFailures`) |
+| Checking functions against specs (`check_spec`) | yes | no | no | no | partial (limited to "does not panic" and similar) |
+| Saving failures and replaying them | partial (in-process only) | no (only a seed to pass again) | yes | yes (a database) | yes |
+| Hooking into a coverage-guided fuzzer | no | no | yes (`MakeFuzz`) | no | no (out of scope) |
+| Pure Go, no native library | n/a | n/a | yes | no (loads libhegel) | yes |
 
 ## Reusing testing.F
 
@@ -190,6 +197,51 @@ no matter what the weights are. The order of the alternatives in `Frequency`
 is the shrinking priority. Primitive generators still lean toward boundary
 values by default, and a combination of `Frequency` and `Just` overrides that.
 
+## Diagnostics, several failures and standard formats
+
+v0.4.0 takes four ideas from Hegel and Hypothesis and fits them to the
+principles above. Each one keeps the engine in pure Go.
+
+Health checks follow the pairing of `Cover` and `CheckCoverage`: a passing
+run warns, and an option turns the warning into a failure. `HealthFilter`
+reports wasted cases, by the `Filter`, `Assume` or `Skip` that threw them
+away; `HealthLarge` reports cases that draw too many choices, by the draws
+that consumed them; `HealthSlow` reports slow generation and never fails a
+run unless it is named, because CI machines vary. On a failure, `Check`
+replays the case once before shrinking: a failure that does not recur gets
+a `HealthFlaky` note, and is still shrunk and saved, since a race in a
+parallel test is flaky by nature. A shrink stopped by its budget gets a
+`HealthShrink` note.
+
+`MaxFailures(n)` keeps a run going after a failure and collects failures
+whose identity, the site of the assertion or the type and site of the
+panic, differs. The default of 1 keeps the earlier behavior and the
+`internal/expect` helper of the examples, which expects one report.
+
+The shrinker learned to switch an alternative. Lowering the first choice
+of a span, such as the index of a `OneOf` or a length drawn before its
+elements, changes how many choices the span consumes; the shrinker
+replays the candidate and reconnects the choices that followed the old
+span when the new one closes. The span is identified by the number of
+spans begun before it, which is stable because the choices before it are
+unchanged.
+
+Standard formats live in the package `format`, built on the public API of
+`pbt` alone. The typed generators of standard library types stay in
+`pbt`, because `Make` and `cmd/pbtgen` need them, and a subpackage cannot
+be imported by the package it builds on. The naming rule follows Go's own
+layout constants such as `time.RFC3339`: a function named after a standard
+generates the alternatives of its production, which a parser must accept,
+and a plain name generates the common or canonical form, which a program
+should write. Every generator builds its values from the grammar instead
+of filtering them, so a shrink candidate is always valid.
+
+Hegel's reflection over `Rule` and `Invariant` methods, its value pools,
+its workload runner, its choice of engine phases and its entropy backend
+for Antithesis are left out: explicit `Command` values already express
+what the rules do, `Var` covers the pools, `TB` lets `Check` run outside
+`go test`, and the existing options select the phases that matter.
+
 ## API sketch
 
 Like rapid, a property draws values from generators inside its body. Go has
@@ -246,6 +298,15 @@ func Make[V any](opts ...MakeOption) Gen[V]              // derived from the typ
 func Recursive[V any](leaf Gen[V], extend func(self Gen[V]) Gen[V]) Gen[V] // bounded recursion
 func Bounded[V any](leaf, node Gen[V]) Gen[V]            // one recursion budget per value, shared across types
 func NoPanic(f any, opts ...MakeOption) Property           // check_spec, limited to the signature
+func BoundedGrowth[V any](g Gen[V]) Gen[V]               // the growth allowance of Make, 8*max(size, 1) units per value
+func UnboundedGrowth[V any](g Gen[V]) Gen[V]             // exempts a part from the surrounding allowance
+func Time() Gen[time.Time]                               // and TimeRange; leans toward calendar edges and zone transitions
+func Duration() Gen[time.Duration]                       // and DurationRange
+func FixedZone() Gen[*time.Location]                     // and Zone(names...) for IANA zones
+func IPv4() Gen[netip.Addr]                              // and IPv6, Addr, AddrIn(prefixes...), with RFC 6890 blocks
+func Prefix() Gen[netip.Prefix]                          // and AddrPort, HardwareAddr
+func RuneIn(tables ...*unicode.RangeTable) Gen[rune]     // every range equally likely
+func StringMatching(pattern string) Gen[string]          // the whole string matches the regexp
 // cmd/pbtgen: go run go.ymotongpoo.com/pbt/cmd/pbtgen -type T1,T2 [-prefix Gen] writes GenT1, GenT2 as source
 // from the files go build compiles on the current platform; a name the package already declares is an error
 
@@ -272,6 +333,10 @@ func NoReplay() Option                                   // skip the cases saved
 func Verbose() Option                                    // the summary of a passing run and every accepted shrink step; -pbt.v
 func ReportLimit(chars int) Option                       // characters of one reported value; 2000 by default
 func ReportDepth(levels int) Option                      // levels of nested labeled draws a report lists; 3 by default
+func MaxFailures(n int) Option                           // distinct failures to collect; -pbt.failures
+type HealthCheck uint8                                   // HealthFilter, HealthLarge, HealthSlow, HealthFlaky, HealthShrink
+func CheckHealth(checks ...HealthCheck) Option           // warnings become failures; -pbt.checkhealth
+func IgnoreHealth(checks ...HealthCheck) Option          // hides them; -pbt.ignorehealth
 func (t *T) Assume(cond bool)                            // ?IMPLIES
 func (t *T) Classify(cond bool, label string)            // classify
 func (t *T) Collect(v any)                               // collect
@@ -279,7 +344,7 @@ func (t *T) Aggregate(values ...any)                     // aggregate
 func (t *T) Measure(name string, v float64)              // measure
 func (t *T) Cover(cond bool, pct float64, label string)  // cover
 func (t *T) OnFail(f func())                             // ?WHENFAIL
-func (t *T) Maximize(name string, utility float64)       // ?MAXIMIZE; Minimize reverses the sign
+func (t *T) Maximize(name string, utility float64)       // ?MAXIMIZE, one objective per name; Minimize reverses the sign
 func (t *T) Size() int
 // plus Errorf, Error, Fatalf, Fatal, Fail, FailNow, Failed, Logf, Log, Skip, Skipf, SkipNow, Cleanup
 
@@ -304,6 +369,20 @@ func ModelState(f func() any) StatefulOption             // shows the model in t
 func (p Program) RunSequential(t *T)
 func ParallelCommands(init func(), gen func() CommandGen, opts ...StatefulOption) Gen[ParallelProgram]
 func (p ParallelProgram) RunParallel(t *T)
+```
+
+The package `format` returns strings. Its generators are listed in the
+package documentation; a few show the naming rule.
+
+```go
+package format // go.ymotongpoo.com/pbt/format
+
+func Time(layout string) pbt.Gen[string]                  // what time.Time.Format writes, for Go's layout constants
+func RFC3339() pbt.Gen[string]                            // the whole date-time production, leap seconds included
+func Email() pbt.Gen[string]                              // the form validators accept
+func RFC5321Mailbox() pbt.Gen[string]                     // and RFC5322AddrSpec: the productions a mail parser must accept
+func URL() pbt.Gen[string]                                // and RFC3986URI, RFC3986Reference
+func JSON() pbt.Gen[string]                               // and IJSON, UUID, SemVer, RFC4180CSV, RFC5646LanguageTag, ...
 ```
 
 The layer that corresponds to the book's `proper_fsm` in Chapter 11 lives in
@@ -407,6 +486,7 @@ it finds before it reports it.
 | 4 | Targeted PBT, existential properties | The targeted PBT examples in the PropEr documentation are ported (the online edition of the book has no chapter on them) |
 | 5 | Generators derived from types (`Make[T]` through reflection, constraints in struct tags, code generation with `go/types` under `go generate`), checking functions against specs | Generators for structs with recursive types are derived automatically |
 | 6 | Visualization of shrinking, documentation, performance comparison with rapid | A migration guide with a correspondence table exists |
+| 7 | Diagnostics and standard formats: names and lines of unlabeled draws in reports, health checks, several failures per run, several objectives, a shrink pass that switches alternatives, generators of standard library types, `StringMatching`, the package `format`, and a bound on the work of `Make` | Chapter 10 of the guide shows a parser of the standard library departing from its RFC |
 
 Phase 0 uses rapid as the yardstick because the two share a method, so the
 difference shows directly in shrinking quality. As of 2026-10-31, Phases 0
@@ -422,7 +502,10 @@ module compares the two with the results in BENCHMARK.md. The Chapter 10
 port runs on PostgreSQL as well when `PBT_BOOKSTORE_DSN` is set; that run
 found two differences from SQLite, the backslash as the default `LIKE`
 escape and the enforced column width, both recorded in the chapter's
-README. Visualization stays at the verbose shrink log.
+README. Visualization stays at the verbose shrink log. As of 2026-11-24,
+Phase 7 is implemented for v0.4.0: it adopts the diagnostics and the
+generators of standard formats that Hegel offers, and keeps the engine in
+pure Go.
 
 ## What Go offers
 
@@ -509,6 +592,7 @@ go.ymotongpoo.com/pbt        root module, no external dependencies
 ├── go.mod
 ├── LICENSE.md               Apache License 2.0
 ├── fsm/                     the equivalent of proper_fsm (Chapter 11)
+├── format/                  strings in the formats that standards define
 └── examples/                separate module go.ymotongpoo.com/pbt/examples with the book ports
     └── go.mod
 ```
@@ -589,7 +673,8 @@ the module path to `go.ymotongpoo.com/pbt/v2`.
 
 ## Decisions
 
-The decisions below date from 2026-10-31.
+The first eight decisions date from 2026-10-31, the others from
+2026-11-24.
 
 | Item | Decision |
 | --- | --- |
@@ -601,6 +686,11 @@ The decisions below date from 2026-10-31.
 | License | Apache License 2.0 |
 | Compatibility layer for rapid | None |
 | Acceptance target | Every example and exercise in the book can be ported |
+| Placement of standard formats | Generators of standard library types in `pbt`, which `Make` needs; text formats in the subpackage `format` |
+| Names of standard formats | A name after a standard covers its production, a plain name gives the common form, and `format.Time` takes Go's layout constants |
+| Health checks | Warnings by default; `CheckHealth` and `-pbt.checkhealth` make them failures, `HealthSlow` only when named |
+| Several failures | `MaxFailures`, 1 by default |
+| Registry data | No tables that follow a registry, such as ISO 3166, ISO 4217, ISO 639 or the lengths of IBANs, in v0.4.0 |
 
 Two items from the review before v0.1.0 stay open.
 

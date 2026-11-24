@@ -22,29 +22,35 @@ gopterはジェネリクス以前の `interface{}` ベースのAPIなので、�
 ## 既存ライブラリとの機能比較
 
 rapidの列は[pkg.go.devのv1.3.0のインデックス](https://pkg.go.dev/pgregory.net/rapid)で確認した範囲です。
-pbtの列は本書面での提案です。
+Hegelの列は、[hegel](https://github.com/hegeldev/hegel)モノレポのコミット980d45fにあるGo版で確認した範囲です。
+HegelはHypothesisのエンジンの上に作られたライブラリで、ネイティブライブラリを呼び出して動きます。
+pbtの列はv0.4.0の内容です。
 
-| 機能 | PropEr | QuickCheck | rapid v1.3.0 | pbt（案） |
-| --- | --- | --- | --- | --- |
-| 型安全な生成器 | －（動的型） | ○ | ○ | ○ |
-| ユーザーコード不要の縮小 | △（独自型には縮小関数が必要） | △（`shrink` の実装が必要） | ○ | ○ |
-| Bind（`?LET`）を跨ぐ縮小 | △（内側を縮小して外側を再生成） | ×（`>>=` で縮小が失われる） | ○ | ○ |
-| 縮小の制御（`?SHRINK`、`?LETSHRINK`） | ○ | ○ | × | △（部分木への縮小は自動。値レベルの指定は後続） |
-| サイズパラメーター（`sized`、`resize`） | ○ | ○ | × | ○ |
-| 重み付き選択（`frequency`、`weighted_union`） | ○ | ○ | ×（`OneOf` は均等） | ○ |
-| 分布の検証（`cover`、`checkCoverage`） | × | ○ | × | ○ |
-| 統計（`collect`、`classify`、`aggregate`、`measure`） | ○ | ○ | × | ○ |
-| プロパティの合成（`conjunction`、`?IMPLIES`、`?WHENFAIL`、`?TIMEOUT`） | ○ | ○ | × | ○ |
-| ステートフルテスト | ○ | ×（別ライブラリ） | ○ | ○ |
-| シンボリック変数 | ○ | － | × | ○ |
-| 並行コマンドテスト（交互配置の検査） | ○ | × | × | ○ |
-| 標的型PBT | ○ | × | × | ○ |
-| 存在性プロパティ（`?EXISTS`） | ○ | × | × | ○ |
-| 関数の生成 | ○ | ○ | × | ○ |
-| 型からの生成器導出 | ○（型宣言から） | △（総称導出） | ○（`Make[T]`） | ○（リフレクションとコード生成） |
-| 関数仕様の検査（`check_spec`） | ○ | × | × | △（panicしないこと等に限る） |
-| 失敗の保存と自動再実行 | △（プロセス内のみ） | ×（シードの再指定のみ） | ○ | ○ |
-| カバレッジ誘導ファザーとの連携 | × | × | ○（`MakeFuzz`） | ×（対象外） |
+| 機能 | PropEr | QuickCheck | rapid v1.3.0 | Hegel（Go） | pbt |
+| --- | --- | --- | --- | --- | --- |
+| 型安全な生成器 | －（動的型） | ○ | ○ | ○ | ○ |
+| ユーザーコード不要の縮小 | △（独自型には縮小関数が必要） | △（`shrink` の実装が必要） | ○ | ○ | ○ |
+| Bind（`?LET`）を跨ぐ縮小 | △（内側を縮小して外側を再生成） | ×（`>>=` で縮小が失われる） | ○ | ○ | ○ |
+| 縮小の制御（`?SHRINK`、`?LETSHRINK`） | ○ | ○ | × | × | ○ |
+| サイズパラメーター（`sized`、`resize`） | ○ | ○ | × | × | ○ |
+| 重み付き選択（`frequency`、`weighted_union`） | ○ | ○ | ×（`OneOf` は均等） | ×（`OneOf` は均等） | ○ |
+| 分布の検証（`cover`、`checkCoverage`） | × | ○ | × | × | ○ |
+| 統計（`collect`、`classify`、`aggregate`、`measure`） | ○ | ○ | × | △（イベント） | ○ |
+| プロパティの合成（`conjunction`、`?IMPLIES`、`?WHENFAIL`、`?TIMEOUT`） | ○ | ○ | × | △（`Assume`、`Note`） | ○ |
+| ステートフルテスト | ○ | ×（別ライブラリ） | ○ | ○（ルールのメソッドをリフレクションで見つける） | ○ |
+| シンボリック変数 | ○ | － | × | △（値のプール） | ○ |
+| 並行コマンドテスト（交互配置の検査） | ○ | × | × | ×（不変条件を検査する並行ルール） | ○ |
+| 標的型PBT | ○ | × | × | ○（ラベル付きの目的） | ○（複数の目的） |
+| 存在性プロパティ（`?EXISTS`） | ○ | × | × | × | ○ |
+| 関数の生成 | ○ | ○ | × | × | ○ |
+| 型からの生成器導出 | ○（型宣言から） | △（総称導出） | ○（`Make[T]`） | ○（`Default`） | ○（リフレクションとコード生成） |
+| 規格の文字列書式の生成器 | × | × | △（`StringMatching`） | ○（メール、URL、ドメイン、IP、日付、正規表現） | ○（`format` パッケージ） |
+| 実行のヘルスチェック | × | × | × | ○ | ○（警告。`CheckHealth` で失敗にする） |
+| 1回の実行での複数の失敗 | × | × | × | ○ | ○（`MaxFailures`） |
+| 関数仕様の検査（`check_spec`） | ○ | × | × | × | △（panicしないこと等に限る） |
+| 失敗の保存と自動再実行 | △（プロセス内のみ） | ×（シードの再指定のみ） | ○ | ○（データベース） | ○ |
+| カバレッジ誘導ファザーとの連携 | × | × | ○（`MakeFuzz`） | × | ×（対象外） |
+| ネイティブライブラリを使わない純粋なGo | － | － | ○ | ×（libhegelを読み込む） | ○ |
 
 ## testing.F の流用可否
 
@@ -137,6 +143,42 @@ QuickCheckの `cover` と `checkCoverage` に相当する機能も含めます�
 つまり `Frequency` の選択肢の並び順が縮小の優先順位です。
 プリミティブ型の生成器が境界値へ偏らせるのはデフォルトの挙動として残し、`Frequency` と `Just` の組み合わせで上書きできる形にしています。
 
+## 診断、複数の失敗、規格の書式
+
+v0.4.0では、HegelとHypothesisから4つの考え方を取り込み、ここまでの設計原則に合わせました。
+いずれもエンジンを純粋なGoのまま保っています。
+
+ヘルスチェックは、`Cover` と `CheckCoverage` と同じ組み合わせに従います。
+通過した実行では警告を出し、オプションを付けると警告を失敗に変えます。
+`HealthFilter` は、捨てたケースを、捨てた `Filter`、`Assume`、`Skip` ごとに報告します。
+`HealthLarge` は、選択を多く使うケースを、その選択を使った取り出しごとに報告します。
+`HealthSlow` は生成の遅さを報告しますが、CIのマシンの性能はまちまちなので、名前を指定しない限り実行を失敗にしません。
+失敗したときは、縮小の前に `Check` がそのケースを1回だけ再実行します。
+再実行で失敗が再現しなければ `HealthFlaky` の注記を付けますが、縮小と保存はそのまま行います。
+並行テストの競合は本質的に再現が不安定だからです。
+縮小が予算で止まったときは `HealthShrink` の注記を付けます。
+
+`MaxFailures(n)` は失敗の後も実行を続け、識別子の異なる失敗を集めます。
+識別子は、アサーションの位置か、panicの型と位置です。
+デフォルトの1は従来の挙動を保ち、報告が1件であることを前提にしたexamplesの `internal/expect` もそのまま動きます。
+
+縮小器は選択肢を切り替えられるようになりました。
+`OneOf` の添字や、要素より前に引く長さのような、区間の最初の選択を下げると、その区間が使う選択の数が変わります。
+縮小器は候補を再実行し、新しい区間が閉じた時点で、古い区間の後ろにあった選択をつなぎ直します。
+区間は、それより前に始まった区間の数で特定します。
+その区間より前の選択は変わらないので、この数は変わりません。
+
+規格の書式は、`pbt` の公開APIだけで組んだ `format` パッケージに置きます。
+標準ライブラリの型の生成器は、`Make` と `cmd/pbtgen` が使うので `pbt` に置きます。
+サブパッケージは、自分が依存するパッケージからimportできないからです。
+名前の付け方は、`time.RFC3339` のようなGoのレイアウト定数に倣います。
+規格名の関数は、パーサーが受け付けなければならない生成規則の選択肢をすべて出します。
+平易な名前の関数は、プログラムが書き出すべき一般的な形か正規形を出します。
+どの生成器も値を絞り込まずに文法から組み立てるので、縮小の候補も常に妥当な値です。
+
+Hegelの、`Rule` と `Invariant` のメソッドをリフレクションで集める仕組み、値のプール、ワークロードの実行器、エンジンのフェーズの選択、Antithesis向けの乱数源は取り込みませんでした。
+明示的な `Command` の値がルールの役割を表せること、`Var` がプールの役割を担うこと、`TB` によって `go test` の外でも `Check` を実行できること、必要なフェーズは既存のオプションで選べることが理由です。
+
 ## APIの骨格
 
 rapidと同じく、プロパティ本体の中で生成器から値を取り出す命令的な形を基本にします。
@@ -192,6 +234,15 @@ func Make[V any](opts ...MakeOption) Gen[V]              // リフレクショ�
 func Recursive[V any](leaf Gen[V], extend func(self Gen[V]) Gen[V]) Gen[V] // 予算付きの再帰
 func Bounded[V any](leaf, node Gen[V]) Gen[V]            // 値1つにつき1つの再帰予算を型を跨いで共有する
 func NoPanic(f any, opts ...MakeOption) Property           // check_spec。シグネチャから分かる範囲に限る
+func BoundedGrowth[V any](g Gen[V]) Gen[V]               // Make の成長の予算。1つの値あたり 8*max(size, 1) 単位
+func UnboundedGrowth[V any](g Gen[V]) Gen[V]             // 囲む予算から一部を外す
+func Time() Gen[time.Time]                               // と TimeRange。暦の境目とゾーンの切り替わりに寄る
+func Duration() Gen[time.Duration]                       // と DurationRange
+func FixedZone() Gen[*time.Location]                     // と IANA のゾーンを読む Zone(names...)
+func IPv4() Gen[netip.Addr]                              // と IPv6、Addr、AddrIn(prefixes...)。RFC 6890 のブロックを含む
+func Prefix() Gen[netip.Prefix]                          // と AddrPort、HardwareAddr
+func RuneIn(tables ...*unicode.RangeTable) Gen[rune]     // どの範囲も同じ確率で選ぶ
+func StringMatching(pattern string) Gen[string]          // 文字列全体が正規表現に一致する
 // cmd/pbtgen: go run go.ymotongpoo.com/pbt/cmd/pbtgen -type T1,T2 [-prefix Gen] が、go build が対象にするファイルから
 // GenT1、GenT2 をソースとして書き出す。パッケージが既に宣言している名前はエラーになる
 
@@ -218,6 +269,10 @@ func NoReplay() Option                                   // testdata/pbt の保�
 func Verbose() Option                                    // 通過した実行の要約と、採用した縮小の各ステップを出す。-pbt.v
 func ReportLimit(chars int) Option                       // 報告に載せる値1つの文字数。デフォルトは2000
 func ReportDepth(levels int) Option                      // 報告に載せる入れ子のラベル付き値の深さ。デフォルトは3
+func MaxFailures(n int) Option                           // 集める失敗の数。-pbt.failures
+type HealthCheck uint8                                   // HealthFilter、HealthLarge、HealthSlow、HealthFlaky、HealthShrink
+func CheckHealth(checks ...HealthCheck) Option           // 警告を失敗にする。-pbt.checkhealth
+func IgnoreHealth(checks ...HealthCheck) Option          // 警告を隠す。-pbt.ignorehealth
 func (t *T) Assume(cond bool)                            // ?IMPLIES
 func (t *T) Classify(cond bool, label string)            // classify
 func (t *T) Collect(v any)                               // collect
@@ -225,7 +280,7 @@ func (t *T) Aggregate(values ...any)                     // aggregate
 func (t *T) Measure(name string, v float64)              // measure
 func (t *T) Cover(cond bool, pct float64, label string)  // cover
 func (t *T) OnFail(f func())                             // ?WHENFAIL
-func (t *T) Maximize(name string, utility float64)       // ?MAXIMIZE。Minimize は符号を反転する
+func (t *T) Maximize(name string, utility float64)       // ?MAXIMIZE。名前ごとに1つの目的。Minimize は符号を反転する
 func (t *T) Size() int
 // ほかに Errorf、Error、Fatalf、Fatal、Fail、FailNow、Failed、Logf、Log、Skip、Skipf、SkipNow、Cleanup
 
@@ -250,6 +305,20 @@ func ModelState(f func() any) StatefulOption             // 報告にモデル�
 func (p Program) RunSequential(t *T)
 func ParallelCommands(init func(), gen func() CommandGen, opts ...StatefulOption) Gen[ParallelProgram]
 func (p ParallelProgram) RunParallel(t *T)
+```
+
+`format` パッケージは文字列を返します。
+生成器の一覧はパッケージのドキュメントにあり、ここでは名前の付け方を示す例だけを挙げます。
+
+```go
+package format // go.ymotongpoo.com/pbt/format
+
+func Time(layout string) pbt.Gen[string]                  // Goのレイアウト定数に従って time.Time.Format が書く文字列
+func RFC3339() pbt.Gen[string]                            // うるう秒を含むdate-timeの生成規則全体
+func Email() pbt.Gen[string]                              // 検証器が受け付ける形
+func RFC5321Mailbox() pbt.Gen[string]                     // と RFC5322AddrSpec。メールのパーサーが受け付けるべき生成規則
+func URL() pbt.Gen[string]                                // と RFC3986URI、RFC3986Reference
+func JSON() pbt.Gen[string]                               // と IJSON、UUID、SemVer、RFC4180CSV、RFC5646LanguageTag など
 ```
 
 本書11章の `proper_fsm` に相当する層は、サブパッケージ `fsm` にあります。
@@ -327,6 +396,7 @@ PropErの標的型PBTは、値に対する近傍関数を使う焼きなまし�
 | 4 | 標的型PBT、存在性プロパティ | PropErのドキュメントにある標的型PBTの例を移植できる（本書のオンライン版にこの章はない） |
 | 5 | 型からの導出（リフレクションによる `Make[T]`、構造体タグによる制約、`go/types` を使った `go generate` でのコード生成）、関数仕様の検査 | 再帰型を含む構造体の生成器が自動で得られる |
 | 6 | 縮小過程の可視化、ドキュメント、rapidとの性能比較 | 対応表付きの移行ガイドがある |
+| 7 | 診断と規格の書式。報告に載るラベルなしの取り出しの名前と行、ヘルスチェック、1回の実行での複数の失敗、複数の目的、選択肢を切り替える縮小、標準ライブラリの型の生成器、`StringMatching`、`format` パッケージ、`Make` の仕事量の上限 | ガイド10章で、標準ライブラリのパーサーとRFCとの違いを示せる |
 
 第0フェーズの完了判定にrapidを使うのは、同じ方式を採る実装どうしでは差が縮小の質に直接現れるためです。
 2026年10月31日時点で、第0フェーズから第4フェーズまでは実装とテストが済んでいます。
@@ -338,6 +408,8 @@ rapidが自身の縮小品質に課しているテストは `parity_test.go` で
 10章の移植は `PBT_BOOKSTORE_DSN` を設定するとPostgreSQLでも走ります。
 その実行でSQLiteとの差異が2つ見つかりました。`LIKE` のエスケープ文字がデフォルトでバックスラッシュであること、列幅が強制されることの2つで、章のREADMEに記録してあります。
 可視化は詳細ログに縮小の各ステップを出すところまでです。
+2026年11月24日時点で、v0.4.0に向けて第7フェーズを実装しました。
+Hegelが備える診断と規格の書式の生成器を取り込み、エンジンは純粋なGoのまま保っています。
 
 ## Go固有の利点
 
@@ -400,6 +472,7 @@ go.ymotongpoo.com/pbt        ルートモジュール。外部依存なし
 ├── go.mod
 ├── LICENSE.md               Apache License 2.0
 ├── fsm/                     proper_fsm に相当（11章）
+├── format/                  規格が定める書式の文字列
 └── examples/                別モジュール go.ymotongpoo.com/pbt/examples。本書の各章の移植
     └── go.mod
 ```
@@ -470,7 +543,7 @@ Apache License 2.0は認識の対象です。
 
 ## 決定事項
 
-2026年10月31日に次を決めました。
+最初の8項目は2026年10月31日に、残りは2026年11月24日に決めました。
 
 | 項目 | 決定 |
 | --- | --- |
@@ -482,6 +555,11 @@ Apache License 2.0は認識の対象です。
 | ライセンス | Apache License 2.0 |
 | rapid互換レイヤー | 設けない |
 | 到達目標 | 本書の例題と演習をすべて移植できること |
+| 規格の書式の置き場所 | 標準ライブラリの型の生成器は `Make` が使うので `pbt` に置き、文字列の書式はサブパッケージ `format` に置く |
+| 規格の書式の名前 | 規格名の関数は生成規則を網羅し、平易な名前は一般的な形を出す。`format.Time` はGoのレイアウト定数を受け取る |
+| ヘルスチェック | デフォルトは警告。`CheckHealth` と `-pbt.checkhealth` で失敗にする。`HealthSlow` は名前を指定したときだけ |
+| 複数の失敗 | `MaxFailures`。デフォルトは1 |
+| 登録簿のデータ | ISO 3166、ISO 4217、ISO 639、IBANの国別の長さのように登録簿に従う表は、v0.4.0には入れない |
 
 v0.1.0の前に行ったレビューで、2点を先送りにしました。
 
