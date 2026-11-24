@@ -307,3 +307,29 @@ func TestHealthFailureIdentityAndSingleBreakdown(t *testing.T) {
 		t.Fatal(healthOutput(tb))
 	}
 }
+
+func TestHealthFlags(t *testing.T) {
+	got, err := parseHealthChecks("Filter, HealthSLOW,shrink", false)
+	if err != nil || len(got) != 3 || got[0] != HealthFilter || got[1] != HealthSlow || got[2] != HealthShrink {
+		t.Errorf("parse: %v %v", got, err)
+	}
+	if got, err := parseHealthChecks("default", true); err != nil || len(got) != 2 {
+		t.Errorf("default: %v %v", got, err)
+	}
+	for _, s := range []string{"default", "fast", ""} {
+		if _, err := parseHealthChecks(s, false); err == nil {
+			t.Errorf("%q parses", s)
+		}
+	}
+	saved := *flagCheckHealth
+	defer func() { *flagCheckHealth = saved }()
+	*flagCheckHealth = "slow"
+	cfg, err := newConfig([]Option{CheckHealth(HealthFilter)})
+	if err != nil || !cfg.checkHealth[HealthSlow] || !cfg.checkHealth[HealthFilter] || cfg.checkHealth[HealthLarge] {
+		t.Errorf("flag and option: %v %v", cfg.checkHealth, err)
+	}
+	*flagCheckHealth = "nonsense"
+	if _, err := newConfig(nil); err == nil || !strings.Contains(err.Error(), "-pbt.checkhealth") {
+		t.Errorf("bad flag: %v", err)
+	}
+}

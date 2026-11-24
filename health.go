@@ -54,7 +54,10 @@ func (h HealthCheck) String() string {
 // arguments it selects HealthFilter and HealthLarge. Timing is noisy, so
 // HealthSlow must be explicitly named. HealthFlaky and HealthShrink only apply
 // to runs that already fail. IgnoreHealth takes precedence. CheckExists,
-// Gen.Example and SampleShrink do not perform health checks.
+// Gen.Example and SampleShrink do not perform health checks. The flag
+// -pbt.checkhealth names checks for every Check of a go test run, such as
+// -pbt.checkhealth=filter,slow or -pbt.checkhealth=default; the flag and
+// the options add up.
 func CheckHealth(checks ...HealthCheck) Option {
 	checks = append([]HealthCheck(nil), checks...)
 	if len(checks) == 0 {
@@ -70,9 +73,42 @@ func CheckHealth(checks ...HealthCheck) Option {
 	}
 }
 
+// parseHealthChecks reads the value of -pbt.checkhealth or -pbt.ignorehealth:
+// names separated by commas, such as "filter,slow", in any letter case and
+// with or without the Health prefix. With withDefault, "default" stands for
+// the checks of CheckHealth without arguments.
+func parseHealthChecks(s string, withDefault bool) ([]HealthCheck, error) {
+	var checks []HealthCheck
+	for _, name := range strings.Split(s, ",") {
+		name = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(name)), "health")
+		switch name {
+		case "filter":
+			checks = append(checks, HealthFilter)
+		case "large":
+			checks = append(checks, HealthLarge)
+		case "slow":
+			checks = append(checks, HealthSlow)
+		case "flaky":
+			checks = append(checks, HealthFlaky)
+		case "shrink":
+			checks = append(checks, HealthShrink)
+		case "default":
+			if !withDefault {
+				return nil, fmt.Errorf("unknown health check %q", name)
+			}
+			checks = append(checks, HealthFilter, HealthLarge)
+		default:
+			return nil, fmt.Errorf("unknown health check %q; use filter, large, slow, flaky or shrink", name)
+		}
+	}
+	return checks, nil
+}
+
 // IgnoreHealth silences the named health diagnostics, including report notes.
 // It takes precedence over CheckHealth regardless of option order. With no
-// arguments it changes nothing. The stability replay still runs.
+// arguments it changes nothing. The stability replay still runs. The flag
+// -pbt.ignorehealth names checks to silence for every Check of a go test
+// run, such as -pbt.ignorehealth=slow; the flag and the options add up.
 func IgnoreHealth(checks ...HealthCheck) Option {
 	checks = append([]HealthCheck(nil), checks...)
 	return func(c *config) {

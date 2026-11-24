@@ -55,16 +55,18 @@ func drawForAll[V any](t *T, g Gen[V]) V {
 }
 
 var (
-	flagFailures   = flag.Int("pbt.failures", 1, "maximum number of distinct failures pbt.Check reports")
-	flagChecks     = flag.Int("pbt.checks", defaultChecks, "number of test cases pbt.Check runs per property")
-	flagSeed       = flag.Uint64("pbt.seed", 0, "seed of the random number generator used by pbt.Check (0 picks one at random)")
-	flagStartSize  = flag.Int("pbt.startsize", defaultStartSize, "size parameter of the first test case")
-	flagMaxSize    = flag.Int("pbt.maxsize", defaultMaxSize, "size parameter the test cases grow up to")
-	flagShrinkTime = flag.Duration("pbt.shrinktime", defaultShrink, "time budget for shrinking a failing test case")
-	flagNoSave     = flag.Bool("pbt.nosave", false, "do not save failing test cases under testdata/pbt")
-	flagSearch     = flag.Int("pbt.searchsteps", defaultSearchSteps, "number of steps of a targeted search (a property that calls Maximize or Minimize)")
-	flagV          = flag.Bool("pbt.v", false, "verbose output from pbt.Check")
-	flagReplay     = flag.String("pbt.replay", "", "path of a saved test case that pbt.Check replays before searching")
+	flagFailures     = flag.Int("pbt.failures", 1, "maximum number of distinct failures pbt.Check reports")
+	flagChecks       = flag.Int("pbt.checks", defaultChecks, "number of test cases pbt.Check runs per property")
+	flagSeed         = flag.Uint64("pbt.seed", 0, "seed of the random number generator used by pbt.Check (0 picks one at random)")
+	flagStartSize    = flag.Int("pbt.startsize", defaultStartSize, "size parameter of the first test case")
+	flagMaxSize      = flag.Int("pbt.maxsize", defaultMaxSize, "size parameter the test cases grow up to")
+	flagShrinkTime   = flag.Duration("pbt.shrinktime", defaultShrink, "time budget for shrinking a failing test case")
+	flagNoSave       = flag.Bool("pbt.nosave", false, "do not save failing test cases under testdata/pbt")
+	flagSearch       = flag.Int("pbt.searchsteps", defaultSearchSteps, "number of steps of a targeted search (a property that calls Maximize or Minimize)")
+	flagV            = flag.Bool("pbt.v", false, "verbose output from pbt.Check")
+	flagReplay       = flag.String("pbt.replay", "", "path of a saved test case that pbt.Check replays before searching")
+	flagCheckHealth  = flag.String("pbt.checkhealth", "", "comma-separated health checks that fail a passing run (filter, large, slow, flaky, shrink, or default for filter and large)")
+	flagIgnoreHealth = flag.String("pbt.ignorehealth", "", "comma-separated health checks to silence (filter, large, slow, flaky, shrink)")
 )
 
 // Option adjusts how Check runs a property. Options take precedence over the
@@ -194,6 +196,20 @@ func newConfig(opts []Option) (config, error) {
 		valueLimit:  defaultValueLimit,
 		reportDepth: defaultReportDepth,
 		replayFile:  *flagReplay,
+	}
+	if *flagCheckHealth != "" {
+		checks, err := parseHealthChecks(*flagCheckHealth, true)
+		if err != nil {
+			return c, fmt.Errorf("-pbt.checkhealth: %v", err)
+		}
+		CheckHealth(checks...)(&c)
+	}
+	if *flagIgnoreHealth != "" {
+		checks, err := parseHealthChecks(*flagIgnoreHealth, false)
+		if err != nil {
+			return c, fmt.Errorf("-pbt.ignorehealth: %v", err)
+		}
+		IgnoreHealth(checks...)(&c)
 	}
 	for _, o := range opts {
 		o(&c)
