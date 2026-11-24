@@ -71,6 +71,13 @@ const (
 	modeText                    // the rune table of Rune: mostly printable ASCII
 )
 
+// spanReplay reconnects the old tail when a changed generator span closes.
+// Its index is stable because all choices before that span are unchanged.
+type spanReplay struct {
+	index int
+	tail  []uint64
+}
+
 // span records which choices one generator consumed. Spans nest like the
 // generators that produced them and are the unit the shrinker deletes,
 // reorders and replaces. A draw that consumed a single choice and nothing
@@ -118,7 +125,8 @@ type T struct {
 	choices []uint64
 	metas   []choiceMeta
 	spans   []span
-	open    []int // stack of indices into spans
+	open    []int       // stack of indices into spans
+	realign *spanReplay // shrink-only replay; never used in generation
 
 	size    int
 	maxSize int
@@ -263,6 +271,10 @@ func (t *T) endSpan() {
 	i := t.open[n-1]
 	t.open = t.open[:n-1]
 	t.spans[i].end = int32(len(t.choices))
+	if t.realign != nil && t.realign.index == i {
+		t.prefix = append(append([]uint64(nil), t.choices...), t.realign.tail...)
+		t.realign = nil
+	}
 	// A leaf span over one choice carries no information the choice does
 	// not, so drop it to keep the record small.
 	if i == len(t.spans)-1 && t.spans[i].end-t.spans[i].start <= 1 && !t.spans[i].noshrink {

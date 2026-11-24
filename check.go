@@ -345,7 +345,12 @@ func (r *runner) want(t *T) bool {
 // run executes the property once. prefix is replayed first; rng supplies
 // further choices and may be nil, in which case missing choices are 0.
 func (r *runner) run(prefix []uint64, size int, rng *rand.Rand) *T {
+	return r.runReplay(prefix, size, rng, nil)
+}
+
+func (r *runner) runReplay(prefix []uint64, size int, rng *rand.Rand, realign *spanReplay) *T {
 	t := newT(r.tb.Name(), prefix, size, r.cfg.maxSize, rng)
+	t.realign = realign
 	if rng != nil {
 		t.health = r.health
 	}

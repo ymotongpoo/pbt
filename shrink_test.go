@@ -342,3 +342,52 @@ func TestZigzagLayout(t *testing.T) {
 		}
 	}
 }
+
+func TestShrinkSwitchAlternatives(t *testing.T) {
+	short := SliceOfN(IntRange(0, 9), 1, 1)
+	long := SliceOfN(IntRange(0, 9), 8, 8)
+	for _, weighted := range []bool{false, true} {
+		for _, seed := range []uint64{1, 3, 5} {
+			for _, nested := range []bool{false, true} {
+				for _, two := range []bool{false, true} {
+					alt := OneOf(short, long)
+					if weighted {
+						alt = Frequency(W(1, short), W(3, long))
+					}
+					prop := func(pt *T) {
+						if nested {
+							SliceOfN(alt, 3, 3).Draw(pt, "a")
+						} else {
+							alt.Draw(pt, "a")
+						}
+						p := IntRange(0, 100000).Draw(pt, "p")
+						q := 1001
+						if two {
+							q = IntRange(0, 100000).Draw(pt, "q")
+						}
+						if p > 1000 && q > 1000 {
+							pt.Fatalf("%d %d", p, q)
+						}
+					}
+					c := counterexample(t, prop, Seed(seed))
+					if nested {
+						for _, a := range drawn[[][]int](t, c, 0) {
+							if !slices.Equal(a, []int{0}) {
+								t.Fatalf("seed %d weighted %v nested %v two %v: %v", seed, weighted, nested, two, a)
+							}
+						}
+					} else if a := drawn[[]int](t, c, 0); !slices.Equal(a, []int{0}) {
+						t.Fatalf("seed %d weighted %v two %v: %v", seed, weighted, two, a)
+					}
+					if drawn[int](t, c, 1) != 1001 || (two && drawn[int](t, c, 2) != 1001) {
+						t.Fatalf("wrong tail: %s", drawsLine(c))
+					}
+					again := counterexample(t, prop, Seed(seed))
+					if !slices.Equal(c.choices, again.choices) {
+						t.Fatal("shrinking is not deterministic")
+					}
+				}
+			}
+		}
+	}
+}

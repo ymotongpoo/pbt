@@ -71,11 +71,15 @@ func (s *shrinker) exhausted() bool {
 }
 
 func (s *shrinker) try(cand []uint64) bool {
+	return s.tryReplay(cand, nil)
+}
+
+func (s *shrinker) tryReplay(cand []uint64, realign *spanReplay) bool {
 	if s.exhausted() {
 		return false
 	}
 	s.steps++
-	t := s.r.run(cand, s.cur.size, nil)
+	t := s.r.runReplay(cand, s.cur.size, nil, realign)
 	s.r.collectFailure(t)
 	if s.r.want(t) && !t.discarded && t.failKey == s.cur.failKey && simpler(t.choices, s.cur.choices) && preservesNoShrink(s.cur, t) {
 		s.cur = t
@@ -191,6 +195,7 @@ func (s *shrinker) run() {
 		s.minimizeDuplicates,
 		s.minimizeChoices,
 		s.redistribute,
+		s.switchBranches,
 	}
 	for !s.exhausted() {
 		changed := false
@@ -636,4 +641,45 @@ func (s *shrinker) set2(i int, vi uint64, j int, vj uint64) bool {
 	cand := slices.Clone(s.cur.choices)
 	cand[i], cand[j] = vi, vj
 	return s.try(cand)
+}
+
+// switchBranches lowers the structural choice at the start of a span and
+// reconnects the choices following that span when it closes. Replay supplies
+// either zeros or the old leading choices within the replacement, followed
+// by zeros if it grows. The usual acceptance checks still apply to the actual
+// recorded sequence, including failure identity and NoShrink protection.
+func (s *shrinker) switchBranches() bool {
+	progress := false
+	for k := len(s.cur.spans) - 1; k >= 0 && !s.exhausted(); k-- {
+		sp := s.cur.spans[k]
+		i, end := int(sp.start), int(sp.end)
+		if end <= i+1 || end >= len(s.cur.choices) || s.cur.metas[i].kind != kindFlag || s.cur.choices[i] == 0 || s.frozenAt(i) || s.insideNoShrink(k) {
+			continue
+		}
+		accepted := false
+		for _, leading := range []bool{false, true} {
+			set := func(v uint64) bool {
+				cand := slices.Clone(s.cur.choices[:i+1])
+				cand[i] = v
+				if leading {
+					cand = append(cand, s.cur.choices[i+1:end]...)
+				}
+				return s.tryReplay(cand, &spanReplay{index: k, tail: s.cur.choices[end:]})
+			}
+			old := s.cur.choices[i]
+			accepted = set(0)
+			for v := old / 2; v > 0 && !accepted && !s.exhausted(); v /= 2 {
+				accepted = set(v)
+			}
+			if accepted {
+				break
+			}
+		}
+		if accepted {
+			progress = true
+			// Span indices and lengths may have changed; restart on the new trace.
+			k = len(s.cur.spans)
+		}
+	}
+	return progress
 }
