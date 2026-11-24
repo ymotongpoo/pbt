@@ -4,6 +4,7 @@
 package snippets
 
 import (
+	"net/netip"
 	"testing"
 	"time"
 
@@ -12,25 +13,55 @@ import (
 
 // snippet: make
 type Order struct {
-	ID       int      `pbt:"min=1"`
-	Items    []string `pbt:"min=1,max=5"`
-	Note     string   `pbt:"-"` // stays zero
-	Placed   time.Time
-	internal int // unexported fields stay zero
+	ID       int        `pbt:"min=1"`
+	Items    []string   `pbt:"min=1,max=5"`
+	Note     string     `pbt:"-"` // stays zero
+	Placed   time.Time  `pbt:"min=2026-01-01T00:00:00Z,max=2026-12-31T23:59:59Z"`
+	Client   netip.Addr // generated with pbt.Addr
+	internal int        // unexported fields stay zero
 }
 
 var orderGen = pbt.Make[Order](
-	pbt.WithType(pbt.Map(pbt.IntRange(0, 364), func(d int) time.Time {
-		return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, d)
-	})),
 	pbt.WithField[Order]("Items", pbt.SliceOfN(pbt.StringN(1, 8), 1, 5)),
 )
 
 func TestOrders(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
 		o := orderGen.Draw(t, "order")
-		if o.ID < 1 || len(o.Items) == 0 || o.Note != "" || o.Placed.Year() != 2026 {
+		if o.ID < 1 || len(o.Items) == 0 || o.Note != "" || o.Placed.Year() != 2026 || !o.Client.IsValid() {
 			t.Fatalf("unexpected order %+v", o)
+		}
+	})
+}
+
+// snippet: end
+
+// snippet: make-recursive
+// A directory holds files and directories. Make shares one allowance of
+// growth across the whole value, so a tree stays proportional to the size
+// parameter however the fields nest.
+type Dir struct {
+	Name  string
+	Files []string
+	Dirs  []Dir
+}
+
+func countNodes(d Dir) int {
+	n := 1 + len(d.Files) + len([]rune(d.Name))
+	for _, s := range d.Files {
+		n += len([]rune(s))
+	}
+	for _, c := range d.Dirs {
+		n += countNodes(c)
+	}
+	return n
+}
+
+func TestDirectoryTrees(t *testing.T) {
+	pbt.Check(t, func(t *pbt.T) {
+		d := pbt.Make[Dir]().Draw(t, "dir")
+		if n := countNodes(d); n > 8*max(t.Size(), 1)+1 {
+			t.Fatalf("%d elements at size %d", n, t.Size())
 		}
 	})
 }

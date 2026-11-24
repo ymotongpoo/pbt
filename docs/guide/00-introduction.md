@@ -36,7 +36,7 @@ The next implementation has a bug: it starts the maximum at 0, which is wrong wh
 A run of `pbt.Check(t, biggestProperty)` fails with this report.
 
 ```text
-[pbt] property failed after 12 passed checks and 16 shrink steps (size 13)
+[pbt] property failed after 12 passed checks and 20 shrink steps (size 13)
 [pbt] xs (SliceOfN(Int(), 1, -1)) = []int{-1}
 [pbt] error: biggest([-1]) = 0, want -1
 [pbt] saved to testdata/pbt/TestBiggest/5a0c…; go test replays it until the file is deleted
@@ -53,4 +53,4 @@ Read it line by line.
 
 ## What the rest of the guide covers
 
-The chapters build on each other. Chapters 1 to 4 cover generators, the size and distribution of the data, shrinking, and the options of a run. Chapters 5 to 7 cover stateful testing against a model, parallel execution and state machines. Chapter 8 covers targeted search and existential properties, chapter 9 the generators derived from types, and chapter 10 points to the examples, the migration guide for rapid users and the reference material.
+The chapters build on each other. Chapters 1 to 4 cover generators, the size and distribution of the data, shrinking, and the options of a run. Chapters 5 to 7 cover stateful testing against a model, parallel execution and state machines. Chapter 8 covers targeted search and existential properties, and chapter 9 the generators derived from types. Chapter 10 covers the strings in the formats that standards define. Chapter 11 points to the examples, the migration guide for rapid users and the reference material.

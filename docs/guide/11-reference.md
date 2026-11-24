@@ -45,6 +45,7 @@ A test whose name ends in `Mutant` runs a property against a planted bug and is 
 ## Reference material
 
 - The [package documentation](https://pkg.go.dev/go.ymotongpoo.com/pbt) on pkg.go.dev describes every function and option, with runnable examples.
+- The documentation of [package format](https://pkg.go.dev/go.ymotongpoo.com/pbt/format) describes every format, the parts of its standard that it covers, and its shrink targets.
 - [DESIGN.md](https://github.com/ymotongpoo/pbt/blob/main/DESIGN.md) records the design decisions and the comparison with PropEr, QuickCheck, Hypothesis and rapid, with a Japanese version in DESIGN.ja.md.
 - [CHANGELOG.md](https://github.com/ymotongpoo/pbt/blob/main/CHANGELOG.md) lists the changes of each release. The API may still change before v1.0.
 - Issues and questions go to the [GitHub repository](https://github.com/ymotongpoo/pbt).
@@ -57,6 +58,9 @@ go test ./... -pbt.seed=0x1c3           # repeat a run
 go test ./... -pbt.startsize=10 -pbt.maxsize=100
 go test ./... -pbt.shrinktime=2m
 go test ./... -pbt.searchsteps=5000     # longer targeted searches
+go test ./... -pbt.failures=3           # collect up to three distinct failures
+go test ./... -pbt.checkhealth=default  # fail on wasted or oversized input
+go test ./... -pbt.ignorehealth=slow    # hide the timing warning
 go test ./... -pbt.nosave               # keep testdata/pbt untouched
 go test ./... -pbt.replay=testdata/pbt/TestQueue/3f2a… -run TestQueue
 go test ./... -pbt.v                    # summaries and shrink steps

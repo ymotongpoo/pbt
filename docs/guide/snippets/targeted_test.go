@@ -35,7 +35,8 @@ func TestMaximizeFindsAFarWalk(t *testing.T) {
 
 // snippet: exists
 // CheckExists succeeds once a case passes: here, a Pythagorean triple. The
-// witness is shrunk and logged.
+// witness is shrunk and logged. The seed keeps the run reproducible: a few
+// seeds need more than 5000 cases to meet a triple.
 func TestATripleExists(t *testing.T) {
 	pbt.CheckExists(t, func(t *pbt.T) {
 		a := pbt.IntRange(1, 50).Draw(t, "a")
@@ -44,7 +45,51 @@ func TestATripleExists(t *testing.T) {
 		if a*a+b*b != c*c {
 			t.Fail()
 		}
-	}, pbt.Checks(5000))
+	}, pbt.Checks(5000), pbt.Seed(1))
 }
 
 // snippet: end
+
+// snippet: objectives
+// simulate runs jobs of the given durations on a pool of workers and
+// returns the longest queue and the longest wait.
+func simulate(jobs []int, workers int) (longestQueue, longestWait int) {
+	free := make([]int, workers) // the time at which each worker is free
+	for i, d := range jobs {
+		w := 0
+		for k := range free {
+			if free[k] < free[w] {
+				w = k
+			}
+		}
+		start := max(free[w], i) // job i arrives at time i
+		longestWait = max(longestWait, start-i)
+		waiting := 0
+		for _, f := range free {
+			if f > i {
+				waiting++
+			}
+		}
+		longestQueue = max(longestQueue, waiting)
+		free[w] = start + d
+	}
+	return longestQueue, longestWait
+}
+
+var poolProperty = func(t *pbt.T) {
+	jobs := pbt.SliceOf(pbt.IntRange(1, 10)).Draw(t, "jobs")
+	workers := pbt.IntRange(1, 4).Draw(t, "workers")
+	queue, wait := simulate(jobs, workers)
+	t.Maximize("queue", float64(queue))
+	t.Maximize("wait", float64(wait))
+	if wait > 100 {
+		t.Fatalf("a job waited %d", wait)
+	}
+}
+
+// snippet: end
+
+func TestPoolObjectives(t *testing.T) {
+	report := failureReport(t, "TestPool", poolProperty, pbt.Seed(1))
+	mustContain(t, report, "utility queue = 1", "utility wait = 101", "a job waited 101")
+}
