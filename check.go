@@ -25,14 +25,14 @@ type TB interface {
 
 // ForAll builds a property over one generated value.
 func ForAll[A any](g Gen[A], body func(t *T, a A)) Property {
-	return func(t *T) { body(t, g.Draw(t, "")) }
+	return func(t *T) { body(t, drawForAll(t, g)) }
 }
 
 // ForAll2 builds a property over two generated values.
 func ForAll2[A, B any](ga Gen[A], gb Gen[B], body func(t *T, a A, b B)) Property {
 	return func(t *T) {
-		a := ga.Draw(t, "")
-		b := gb.Draw(t, "")
+		a := drawForAll(t, ga)
+		b := drawForAll(t, gb)
 		body(t, a, b)
 	}
 }
@@ -40,11 +40,19 @@ func ForAll2[A, B any](ga Gen[A], gb Gen[B], body func(t *T, a A, b B)) Property
 // ForAll3 builds a property over three generated values.
 func ForAll3[A, B, C any](ga Gen[A], gb Gen[B], gc Gen[C], body func(t *T, a A, b B, c C)) Property {
 	return func(t *T) {
-		a := ga.Draw(t, "")
-		b := gb.Draw(t, "")
-		c := gc.Draw(t, "")
+		a := drawForAll(t, ga)
+		b := drawForAll(t, gb)
+		c := drawForAll(t, gc)
 		body(t, a, b, c)
 	}
+}
+
+// drawForAll has no user draw site, including when the wrapper is inlined.
+func drawForAll[V any](t *T, g Gen[V]) V {
+	saved := t.omitDrawSite
+	t.omitDrawSite = true
+	defer func() { t.omitDrawSite = saved }()
+	return g.Draw(t, "")
 }
 
 var (

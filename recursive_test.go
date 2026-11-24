@@ -72,7 +72,7 @@ func TestVerboseLogsShrinkSteps(t *testing.T) {
 		}
 	}, Seed(1), NoSave(), Verbose())
 	logs := strings.Join(tb.logs, "\n")
-	if !strings.Contains(logs, "shrink step") || !strings.Contains(logs, "x (IntRange(0, 1000)) = ") {
+	if !strings.Contains(logs, "shrink step") || !strings.Contains(logs, "x (IntRange(0, 1000)) at recursive_test.go:") {
 		t.Errorf("verbose logs lack the shrink steps:\n%s", logs)
 	}
 }

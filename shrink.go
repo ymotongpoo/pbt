@@ -101,7 +101,7 @@ func preservesNoShrink(before, after *T) bool {
 func drawsLine(t *T) string {
 	parts := make([]string, len(t.draws))
 	for i, d := range t.draws {
-		parts[i] = formatDraw(d)
+		parts[i] = formatDrawSite(d, defaultValueLimit, true)
 	}
 	return strings.Join(parts, "; ")
 }

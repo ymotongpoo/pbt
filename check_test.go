@@ -163,7 +163,7 @@ func TestReportNestsLabeledDrawsUnderTheirParent(t *testing.T) {
 		"[pbt]   a (IntRange(0, 5)) = 0",
 		"[pbt]   b (Map(inner)) = 0",
 		"[pbt]     deep (IntRange(0, 5)) = 0",
-		"[pbt] SliceOfN(pair, 1, 1) = [][2]int{[2]int{0, 0}}",
+		"[pbt] SliceOfN(pair, 1, 1) at check_test.go:149 = [][2]int{[2]int{0, 0}}",
 		"[pbt]   a (IntRange(0, 5)) = 0",
 		"[pbt]   b (Map(inner)) = 0",
 		"[pbt]     deep (IntRange(0, 5)) = 0",

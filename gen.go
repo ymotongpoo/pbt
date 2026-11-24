@@ -36,7 +36,8 @@ func (g Gen[V]) String() string {
 }
 
 // Draw generates a value. The label names the value in the report of a
-// failing test case; pass "" to use the generator's description. A draw at
+// failing test case; pass "" to infer a name from a single-variable assignment at the call
+// site, falling back to the generator description and file:line. A draw at
 // the top level of the property always appears in the report; a draw inside
 // a generator appears when it has a label, indented under the value it
 // contributes to, which is how the report shows how a value was built. The
@@ -46,8 +47,12 @@ func (g Gen[V]) Draw(t *T, label string) V {
 	if len(t.open) > 0 && label == "" {
 		return g.drawSpan(t)
 	}
+	var pc uintptr
+	if len(t.open) == 0 && !t.omitDrawSite {
+		pc = drawCaller()
+	}
 	i := len(t.draws)
-	t.draws = append(t.draws, drawRecord{label: label, gen: g.String(), value: undrawn{}, depth: t.labelDepth})
+	t.draws = append(t.draws, drawRecord{pc: pc, label: label, gen: g.String(), value: undrawn{}, depth: t.labelDepth})
 	t.labelDepth++
 	defer func() { t.labelDepth-- }()
 	v := g.drawSpan(t)

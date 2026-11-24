@@ -85,6 +85,7 @@ type span struct {
 // drawRecord is one value the property drew, kept for the report: every
 // draw at the top level, and every labeled draw inside a generator.
 type drawRecord struct {
+	pc    uintptr
 	label string
 	gen   string
 	value any
@@ -118,8 +119,9 @@ type T struct {
 	size    int
 	maxSize int
 
-	draws      []drawRecord
-	labelDepth int // labeled draws in progress: the nesting the report shows
+	draws        []drawRecord
+	omitDrawSite bool
+	labelDepth   int // labeled draws in progress: the nesting the report shows
 
 	// Statistics of this test case, merged into the run's totals when the
 	// case passes.

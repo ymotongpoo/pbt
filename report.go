@@ -40,7 +40,7 @@ func (r *runner) format(t *T, headline string, trailer []string) string {
 			continue
 		}
 		indent := strings.Repeat("  ", d.depth)
-		fmt.Fprintf(&b, "[pbt] %s%s\n", indent, strings.ReplaceAll(formatDrawLimit(d, r.cfg.valueLimit), "\n", "\n[pbt]   "+indent))
+		fmt.Fprintf(&b, "[pbt] %s%s\n", indent, strings.ReplaceAll(formatDrawSite(d, r.cfg.valueLimit, r.cfg.verbose), "\n", "\n[pbt]   "+indent))
 	}
 	if omitted > 0 {
 		fmt.Fprintf(&b, "[pbt] (%d labeled draws nested deeper than %d levels omitted; raise the depth with ReportDepth)\n", omitted, r.cfg.reportDepth)
@@ -70,6 +70,10 @@ func formatDraw(d drawRecord) string {
 // formatDrawLimit formats a draw, cutting the value text at limit characters
 // and saying how much was left out. A limit of 0 means no cut.
 func formatDrawLimit(d drawRecord, limit int) string {
+	return formatDrawSite(d, limit, false)
+}
+
+func formatDrawSite(d drawRecord, limit int, verbose bool) string {
 	text := fmt.Sprintf("%#v", d.value)
 	if _, ok := d.value.(undrawn); ok {
 		text = "(the draw did not finish)"
@@ -81,10 +85,15 @@ func formatDrawLimit(d drawRecord, limit int) string {
 		}
 		text = fmt.Sprintf("%s… (%d more characters; raise the limit with ReportLimit)", cut, utf8.RuneCountInString(text)-utf8.RuneCountInString(cut))
 	}
-	if d.label == "" {
-		return fmt.Sprintf("%s = %s", d.gen, text)
+	name := drawName(d)
+	head := d.gen
+	if name != "" {
+		head = fmt.Sprintf("%s (%s)", name, d.gen)
 	}
-	return fmt.Sprintf("%s (%s) = %s", d.label, d.gen, text)
+	if site := shortSite(d.pc); site != "" && (verbose || name == "") {
+		head += " at " + site
+	}
+	return head + " = " + text
 }
 
 // userFrames extracts "file:line function" entries from a stack trace,
