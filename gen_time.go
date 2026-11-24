@@ -89,7 +89,9 @@ func TimeRange(lo, hi time.Time) Gen[time.Time] {
 		panic(fmt.Sprintf("pbt: TimeRange(%s, %s): lo is after hi", lo.Format(time.RFC3339Nano), hi.Format(time.RFC3339Nano)))
 	}
 	loc := lo.Location()
-	lo, hi = lo.Round(0), hi.Round(0) // drop monotonic readings so that comparisons use the wall clock alone
+	// Drop monotonic readings so that comparisons use the wall clock
+	// alone, and put both bounds in the location of the values.
+	lo, hi = lo.Round(0), hi.Round(0).In(loc)
 	loSec, hiSec := lo.Unix(), hi.Unix()
 	center := min(max(0, loSec), hiSec)
 	secs := integerRange(loSec, hiSec, center, "")
@@ -125,7 +127,14 @@ func TimeRange(lo, hi time.Time) Gen[time.Time] {
 		if sec == hiSec {
 			nsHi = int64(hi.Nanosecond())
 		}
-		ns := nsLo + int64(t.draw(uint64(nsHi-nsLo), plainMeta, modeBiased))
+		// The nanoseconds shrink toward the epoch: up from the low end
+		// after it, down from the high end before it.
+		var ns int64
+		if sec >= 0 {
+			ns = nsLo + int64(t.draw(uint64(nsHi-nsLo), plainMeta, modeBiased))
+		} else {
+			ns = nsHi - int64(t.draw(uint64(nsHi-nsLo), plainMeta, modeBiased))
+		}
 		v := time.Unix(sec, ns).In(loc)
 		if p := timePrecisions[t.drawIndex(timePrecisionWeights[:], precTotal)]; p > 1 {
 			if r := v.Truncate(p); !r.Before(lo) {
@@ -167,9 +176,17 @@ func snapTime(v time.Time, snap timeSnap, variant int, lo time.Time) (time.Time,
 	case snapYearEnd:
 		return time.Date(y+1, time.January, 1, 0, 0, 0, 0, loc).Add(-1), true
 	case snapLeapDay:
-		ly := y
-		for !isLeap(ly) {
-			ly--
+		// The nearest leap year, the earlier one on a tie.
+		prev, next := y, y
+		for !isLeap(prev) {
+			prev--
+		}
+		for !isLeap(next) {
+			next++
+		}
+		ly := prev
+		if next-y < y-prev {
+			ly = next
 		}
 		hh, mm, ss := v.Clock()
 		return time.Date(ly, time.February, 29, hh, mm, ss, v.Nanosecond(), loc), true

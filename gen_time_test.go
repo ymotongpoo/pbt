@@ -173,3 +173,31 @@ func TestZone(t *testing.T) {
 	}()
 	Zone("Nowhere/Atlantis")
 }
+
+func TestTimeRangeUsesTheLocationOfLo(t *testing.T) {
+	lo := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+	hi := lo.Add(time.Hour).In(time.FixedZone("+09:00", 9*3600))
+	forArbitraryChoices(t, TimeRange(lo, hi), 2000, func(v time.Time) string {
+		if v.Location() != time.UTC {
+			return "in location " + v.Location().String()
+		}
+		return ""
+	})
+}
+
+func TestTimeRangeBeforeTheEpochShrinksToTheNearestBound(t *testing.T) {
+	lo, hi := time.Unix(-2, 100), time.Unix(-1, 500)
+	if got := minimalOf(t, TimeRange(lo, hi), func(time.Time) bool { return true }); !got.Equal(hi) {
+		t.Errorf("got %v, want %v", got, hi)
+	}
+}
+
+func TestLeapDaySnapUsesTheNearestLeapYear(t *testing.T) {
+	for _, c := range []struct{ year, want int }{{2023, 2024}, {2021, 2020}, {2022, 2020}, {2024, 2024}, {1900, 1896}} {
+		v := time.Date(c.year, time.March, 3, 4, 5, 6, 7, time.UTC)
+		s, _ := snapTime(v, snapLeapDay, 0, minTime)
+		if s.Year() != c.want || s.Month() != time.February || s.Day() != 29 {
+			t.Errorf("%d: snapped to %v", c.year, s)
+		}
+	}
+}

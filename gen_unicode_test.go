@@ -79,3 +79,35 @@ func TestRuneInPanics(t *testing.T) {
 		})
 	}
 }
+
+func TestRuneInRejectsInvalidRanges(t *testing.T) {
+	for _, tab := range []*unicode.RangeTable{
+		{R32: []unicode.Range32{{Lo: 0x110000, Hi: 0x110000, Stride: 1}}},
+		{R32: []unicode.Range32{{Lo: 0xffffffff, Hi: 0xffffffff, Stride: 1}}},
+		{R16: []unicode.Range16{{Lo: 'a', Hi: 'z', Stride: 0}}},
+		{R16: []unicode.Range16{{Lo: 'z', Hi: 'a', Stride: 1}}},
+	} {
+		func() {
+			defer func() {
+				if msg, _ := recover().(string); !strings.Contains(msg, "invalid range") {
+					t.Errorf("%v: panic %q", tab, msg)
+				}
+			}()
+			RuneIn(tab)
+		}()
+	}
+}
+
+func TestRuneInKeepsTheShareOfARangeAcrossTheSurrogates(t *testing.T) {
+	g := RuneIn(&unicode.RangeTable{R16: []unicode.Range16{{Lo: 'A', Hi: 'A', Stride: 1}, {Lo: 0xD7FF, Hi: 0xE000, Stride: 1}}})
+	rng := newRand(1)
+	a := 0
+	for range 10000 {
+		if g.drawSpan(newT("", nil, 42, 42, rng)) == 'A' {
+			a++
+		}
+	}
+	if a < 4500 || a > 5500 {
+		t.Errorf("'A' drawn %d times in 10000, want about half", a)
+	}
+}

@@ -34,20 +34,24 @@ var reASCIIWeights = []int{3, 1}
 // panics when it does not parse or can match nothing.
 //
 // The string is built from the syntax tree, so shrinking keeps it matching:
-// an alternation shrinks toward its first branch, a repetition toward its
+// an alternation shrinks toward earlier branches, a repetition toward its
 // minimum count, a literal under (?i) toward lower case, and
 // a character class toward its first printable ASCII member in the order
-// Rune uses, or toward its first code point when it has none. Three
+// Rune uses, or toward its first code point when it has none. The
+// shrinker prefers fewer choices, so a branch that takes fewer, such as b
+// in a{2}|b, can win over an earlier one. Three
 // quarters of the characters drawn for a class with printable ASCII
 // members are among those members, so that values stay readable; the rest
 // come from the whole class, surrogates excluded. Unbounded repetitions
 // such as * and + grow with the size parameter, like SliceOf.
 //
 // The empty-width assertions ^, $, \A, \z, \b and \B generate nothing.
-// Placed at the ends of the pattern they hold anyway; a value that breaks
-// one in the middle, as \b between two letters does, is drawn again, up to
-// the same number of tries as Filter, and the case is discarded after
-// that.
+// At the ends of the pattern ^, $, \A and \z hold anyway; \b and \B
+// depend on the characters next to them, even at the ends, and any
+// assertion in the middle can fail, as \b between two letters does. A
+// value that breaks an assertion is drawn again, up to the same number of
+// tries as Filter, and the case is discarded after that; the rejections
+// count toward the HealthFilter check.
 func StringMatching(pattern string) Gen[string] {
 	re, err := syntax.Parse(pattern, syntax.Perl)
 	if err != nil {
@@ -66,7 +70,10 @@ func StringMatching(pattern string) Gen[string] {
 			t.beginSpan("try")
 			genRegexp(t, root, &b)
 			t.endSpan()
-			if s := b.String(); whole.MatchString(s) {
+			s := b.String()
+			ok := whole.MatchString(s)
+			t.health.filter(name, !ok)
+			if ok {
 				return s
 			}
 		}
@@ -82,12 +89,17 @@ func compileRegexp(re *syntax.Regexp) *reNode {
 		for _, r := range re.Rune {
 			vs := []rune{r}
 			if re.Flags&syntax.FoldCase != 0 {
-				// The parser keeps one case of a folded literal, not
-				// the one written, so the lower case goes first.
-				lower := unicode.ToLower(r)
-				vs[0] = lower
-				for f := unicode.SimpleFold(lower); f != lower; f = unicode.SimpleFold(f) {
+				for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
 					vs = append(vs, f)
+				}
+				// The parser keeps one case of a folded literal, not
+				// the one written, so a lower-case member of the
+				// orbit goes first.
+				for i, f := range vs {
+					if unicode.IsLower(f) {
+						vs[0], vs[i] = vs[i], vs[0]
+						break
+					}
 				}
 			}
 			n.variants = append(n.variants, vs)
@@ -128,7 +140,7 @@ func compileRegexp(re *syntax.Regexp) *reNode {
 // setClass takes the pairs of a character class, lo and hi alternately.
 func (n *reNode) setClass(pairs []rune) {
 	for i := 0; i+1 < len(pairs); i += 2 {
-		n.ranges = appendRange(n.ranges, pairs[i], pairs[i+1], 1)
+		n.ranges = appendRange(n.ranges, uint32(pairs[i]), uint32(pairs[i+1]), 1, "class")
 	}
 	for _, r := range asciiShrinkOrder {
 		for i := 0; i+1 < len(pairs); i += 2 {
@@ -226,5 +238,5 @@ func drawClass(t *T, n *reNode) rune {
 		return n.ascii[t.draw(uint64(len(n.ascii)-1), plainMeta, modeUniform)]
 	}
 	r := n.ranges[t.draw(uint64(len(n.ranges)-1), plainMeta, modeUniform)]
-	return r.lo + rune(t.draw(r.n-1, plainMeta, modeBiased))
+	return r.at(t.draw(r.n-1, plainMeta, modeBiased))
 }

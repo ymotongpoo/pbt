@@ -11,11 +11,21 @@ import (
 	"unicode"
 )
 
-// runeRange is one range of a unicode.RangeTable: lo, lo+stride, ..., up
-// to hi, with n code points.
+// runeRange is one range of a unicode.RangeTable without its surrogates:
+// n code points lo, lo+stride, ..., where the points from index below on
+// continue at above instead, past the surrogates. A range that does not
+// cross the surrogates has below == n.
 type runeRange struct {
-	lo, stride rune
-	n          uint64
+	lo, stride, above rune
+	n, below          uint64
+}
+
+// at returns the k-th code point of the range.
+func (r runeRange) at(k uint64) rune {
+	if k < r.below {
+		return r.lo + r.stride*rune(k)
+	}
+	return r.above + r.stride*rune(k-r.below)
 }
 
 // RuneIn generates the code points of the given Unicode range tables, such
@@ -29,7 +39,9 @@ type runeRange struct {
 // range are drawn like an unsigned integer, so small scripts are not drowned
 // out by large blocks such as the CJK ideographs, and the first and the last
 // code point of a range are common. Values shrink toward the first code
-// point of the first table.
+// point of the first table. RuneIn panics on a table with a range that is
+// not valid: a stride of 0, a low bound above the high bound, or a bound
+// above unicode.MaxRune.
 func RuneIn(tables ...*unicode.RangeTable) Gen[rune] {
 	if len(tables) == 0 {
 		panic("pbt: RuneIn needs at least one table")
@@ -42,10 +54,10 @@ func RuneIn(tables ...*unicode.RangeTable) Gen[rune] {
 		}
 		names[i] = tableName(tab)
 		for _, r := range tab.R16 {
-			ranges = appendRange(ranges, rune(r.Lo), rune(r.Hi), rune(r.Stride))
+			ranges = appendRange(ranges, uint32(r.Lo), uint32(r.Hi), uint32(r.Stride), names[i])
 		}
 		for _, r := range tab.R32 {
-			ranges = appendRange(ranges, rune(r.Lo), rune(r.Hi), rune(r.Stride))
+			ranges = appendRange(ranges, r.Lo, r.Hi, r.Stride, names[i])
 		}
 	}
 	name := "RuneIn(" + strings.Join(names, ", ") + ")"
@@ -54,31 +66,40 @@ func RuneIn(tables ...*unicode.RangeTable) Gen[rune] {
 	}
 	return Gen[rune]{name: name, draw: func(t *T) rune {
 		r := ranges[t.draw(uint64(len(ranges)-1), plainMeta, modeUniform)]
-		return r.lo + r.stride*rune(t.draw(r.n-1, plainMeta, modeBiased))
+		return r.at(t.draw(r.n-1, plainMeta, modeBiased))
 	}}
 }
 
-// appendRange appends the range lo..hi with the given stride, split around
-// the surrogates.
-func appendRange(rs []runeRange, lo, hi, stride rune) []runeRange {
+// appendRange appends the range lo..hi with the given stride without its
+// surrogates, as one range so that it keeps its share of the draws. It
+// panics on a range that is not valid in a unicode.RangeTable.
+func appendRange(rs []runeRange, lo, hi, stride uint32, table string) []runeRange {
 	const surLo, surHi = 0xD800, 0xDFFF
-	add := func(lo, hi rune) {
-		if lo <= hi {
-			rs = append(rs, runeRange{lo: lo, stride: stride, n: uint64((hi-lo)/stride) + 1})
-		}
+	if stride == 0 || lo > hi || hi > unicode.MaxRune {
+		panic(fmt.Sprintf("pbt: RuneIn: table %s has an invalid range %#x..%#x with stride %d", table, lo, hi, stride))
 	}
-	if hi < surLo || lo > surHi {
-		add(lo, hi)
+	last := lo + (hi-lo)/stride*stride
+	count := func(a, b uint32) uint64 { // points of the range in [a, b]
+		if b < lo || a > last || a > b {
+			return 0
+		}
+		first := lo
+		if a > lo {
+			first = lo + (a-lo+stride-1)/stride*stride
+		}
+		end := min(b, last)
+		if first > end {
+			return 0
+		}
+		return uint64((end-first)/stride) + 1
+	}
+	below := count(0, surLo-1)
+	n := below + count(surHi+1, unicode.MaxRune)
+	if n == 0 {
 		return rs
 	}
-	if lo < surLo {
-		add(lo, lo+(surLo-1-lo)/stride*stride)
-	}
-	if hi > surHi {
-		first := lo + ((surHi+1-lo)+stride-1)/stride*stride
-		add(first, hi)
-	}
-	return rs
+	above := rune(lo) + rune(stride)*rune(below+count(surLo, surHi))
+	return append(rs, runeRange{lo: rune(lo), stride: rune(stride), above: above, n: n, below: below})
 }
 
 // tableNames maps the tables of package unicode to their names, for the

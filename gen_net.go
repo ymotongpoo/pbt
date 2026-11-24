@@ -134,20 +134,22 @@ func AddrIn(prefixes ...netip.Prefix) Gen[netip.Addr] {
 	}}
 }
 
-// hostIn draws the host bits of p: one choice for up to 64 bits, two for
-// more, the high half first.
+// hostIn draws the host bits of p as two choices, the high 64 bits and the
+// low 64 bits, whatever the prefix length. A constant number of choices
+// lets the shrinker move between prefixes of different lengths without
+// the sequence growing.
 func hostIn(t *T, p netip.Prefix) netip.Addr {
 	host := p.Addr().BitLen() - p.Bits()
 	b := p.Addr().As16()
-	var hi, lo uint64
+	var hiMax, loMax uint64
 	switch {
-	case host == 0:
-	case host <= 64:
-		lo = t.draw(maxBits(host), plainMeta, modeBiased)
-	default:
-		hi = t.draw(maxBits(host-64), plainMeta, modeBiased)
-		lo = t.draw(maxBits(64), plainMeta, modeBiased)
+	case host > 64:
+		hiMax, loMax = maxBits(host-64), maxBits(64)
+	case host > 0:
+		loMax = maxBits(host)
 	}
+	hi := t.draw(hiMax, plainMeta, modeBiased)
+	lo := t.draw(loMax, plainMeta, modeBiased)
 	for i := range 8 {
 		b[15-i] |= byte(lo >> (8 * i))
 		b[7-i] |= byte(hi >> (8 * i))
@@ -192,8 +194,9 @@ func AddrPort() Gen[netip.AddrPort] {
 }
 
 // specialMACs are prefixes of hardware addresses with special meaning: the
-// broadcast address, the multicast prefixes of IPv4 (RFC 1112) and IPv6
-// (RFC 2464), and the all-zero address.
+// broadcast address, the multicast blocks of IPv4 (RFC 1112 §6.4,
+// 01:00:5e:00:00:00 to 01:00:5e:7f:ff:ff) and IPv6 (RFC 2464 §7), and the
+// all-zero address.
 var specialMACs = [][]byte{
 	{0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
 	{0x01, 0x00, 0x5e},
@@ -224,6 +227,9 @@ func HardwareAddr() Gen[net.HardwareAddr] {
 		}
 		if k > 0 && n == 6 {
 			copy(mac, specialMACs[k-1])
+			if k == 2 {
+				mac[3] &= 0x7f // IPv4 multicast maps only 23 bits (RFC 1112 §6.4)
+			}
 		}
 		return mac
 	}}

@@ -167,3 +167,20 @@ func TestHardwareAddr(t *testing.T) {
 		t.Error("two draws share a slice")
 	}
 }
+
+func TestAddrInShrinksAcrossPrefixLengths(t *testing.T) {
+	g := AddrIn(netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("::1/128"))
+	if got := minimalOf(t, g, func(netip.Addr) bool { return true }); got.String() != "10.0.0.0" {
+		t.Errorf("shrinks to %v", got)
+	}
+	if got := minimalOf(t, IPv4(), func(a netip.Addr) bool { return a.As4()[0] >= 200 }); got.String() != "200.0.0.0" {
+		t.Errorf("IPv4 above 200 shrinks to %v", got)
+	}
+}
+
+func TestHardwareAddrIPv4MulticastStaysInItsBlock(t *testing.T) {
+	c := newT(t.Name(), []uint64{0, 2, 0, 0, 0, 255, 0, 0}, 42, 42, nil)
+	if mac := HardwareAddr().drawSpan(c); mac[3] >= 0x80 {
+		t.Errorf("IPv4 multicast address %v outside 01:00:5e:00:00:00/25", mac)
+	}
+}

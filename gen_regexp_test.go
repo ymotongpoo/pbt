@@ -114,3 +114,15 @@ func TestStringMatchingDiscardsUnsatisfiableAssertions(t *testing.T) {
 		t.Errorf("err %v", err)
 	}
 }
+
+func TestStringMatchingFoldsAlongTheOrbitOfTheParsedRune(t *testing.T) {
+	for _, p := range []string{`(?i)İ`, `(?i)K`, `(?i)ſ`, `(?i)σ`, `(?i)ς`, `(?i)Σ`, `(?i)k`} {
+		whole := regexp.MustCompile(`\A(?:` + p + `)\z`)
+		forArbitraryChoices(t, StringMatching(p), 300, func(s string) string {
+			if !whole.MatchString(s) {
+				return "does not match " + p
+			}
+			return ""
+		})
+	}
+}
