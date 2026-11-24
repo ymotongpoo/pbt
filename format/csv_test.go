@@ -76,6 +76,7 @@ func readCSVGrammar(s string) ([][]string, error) {
 }
 func TestRFC4180CSV(t *testing.T) {
 	g := RFC4180CSV()
+	checkMinimumSeeds(t, g, "")
 	checkValid(t, g, func(s string) string {
 		if _, e := readCSVGrammar(s); e != nil {
 			return e.Error()

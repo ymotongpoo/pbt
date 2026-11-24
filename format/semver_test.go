@@ -15,6 +15,7 @@ var semverRE = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-
 
 func TestSemVer(t *testing.T) {
 	g := SemVer()
+	checkMinimumSeeds(t, g, "0.0.0")
 	checkValid(t, g, func(s string) string {
 		if !semverRE.MatchString(s) {
 			return "not SemVer"

@@ -5,7 +5,6 @@ package format
 
 import (
 	"go.ymotongpoo.com/pbt"
-	"strings"
 )
 
 // SemVer generates <valid semver> of Semantic Versioning 2.0.0
@@ -17,16 +16,10 @@ import (
 // equally likely to be numeric or contain a letter or hyphen. Build
 // identifiers may contain leading zeros. Values shrink toward "0.0.0".
 func SemVer() pbt.Gen[string] {
+	pre := optionalText(affix(joined(semverPre, 1, 4, "."), "-", ""))
+	build := optionalText(affix(joined(stringIn(alnum+"-", 1, 16), 1, 4, "."), "+", ""))
 	return pbt.Custom("SemVer()", func(t *pbt.T) string {
-		pre, build := pbt.Bool().Draw(t, ""), pbt.Bool().Draw(t, "")
-		s := semverNumber.Draw(t, "") + "." + semverNumber.Draw(t, "") + "." + semverNumber.Draw(t, "")
-		if pre {
-			s += "-" + strings.Join(pbt.SliceOfN(semverPre, 1, 4).Draw(t, ""), ".")
-		}
-		if build {
-			s += "+" + strings.Join(pbt.SliceOfN(stringIn(alnum+"-", 1, 16), 1, 4).Draw(t, ""), ".")
-		}
-		return s
+		return semverNumber.Draw(t, "") + "." + semverNumber.Draw(t, "") + "." + semverNumber.Draw(t, "") + pre.Draw(t, "") + build.Draw(t, "")
 	})
 }
 
@@ -42,12 +35,7 @@ var semverNumber = pbt.Custom("numeric identifier", func(t *pbt.T) string {
 	}
 	return string(b)
 })
-var semverPre = pbt.Custom("pre-release identifier", func(t *pbt.T) string {
-	if pbt.Bool().Draw(t, "") {
-		return semverNumber.Draw(t, "")
-	}
-	return semverAlpha.Draw(t, "")
-})
+var semverPre = pbt.OneOf(semverNumber, semverAlpha)
 var semverAlpha = pbt.Custom("alphanumeric identifier", func(t *pbt.T) string {
 	n := pbt.IntRange(1, 16).Draw(t, "")
 	at := pbt.IntRange(0, n-1).Draw(t, "")

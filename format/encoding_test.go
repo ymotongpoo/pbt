@@ -31,6 +31,7 @@ func TestEncodings(t *testing.T) {
 		{Hex(), hex.DecodeString, hex.EncodeToString, 1},
 	} {
 		t.Run(tc.g.String(), func(t *testing.T) {
+			checkMinimumSeeds(t, tc.g, "")
 			checkValid(t, tc.g, func(s string) string {
 				b, e := tc.decode(s)
 				if e != nil {

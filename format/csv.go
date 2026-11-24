@@ -20,49 +20,37 @@ import (
 // It normalizes CRLF inside quoted fields to LF and drops a final bare CR.
 func RFC4180CSV() pbt.Gen[string] {
 	return pbt.Custom("RFC4180CSV()", func(t *pbt.T) string {
-		rows := pbt.IntRange(1, 6).Draw(t, "")
 		columns := pbt.IntRange(1, 6).Draw(t, "")
-		header := pbt.Bool().Draw(t, "")
-		final := pbt.Bool().Draw(t, "")
-		if header {
-			rows++
-		}
-		lines := make([]string, rows)
-		for i := range lines {
-			fields := make([]string, columns)
-			for j := range fields {
-				fields[j] = csvField.Draw(t, "")
-			}
-			lines[i] = strings.Join(fields, ",")
-		}
-		s := strings.Join(lines, "\r\n")
-		if final {
-			s += "\r\n"
-		}
-		return s
+		row := joined(csvField, columns, columns, ",")
+		header := optionalText(affix(row, "", "\r\n")).Draw(t, "")
+		records := joined(row, 1, 6, "\r\n").Draw(t, "")
+		return header + records + pbt.OneOf(pbt.Just(""), pbt.Just("\r\n")).Draw(t, "")
 	})
 }
 
-var csvField = pbt.Custom("field", func(t *pbt.T) string {
-	n := pbt.IntRange(0, 24).Draw(t, "")
-	quoted := pbt.Bool().Draw(t, "")
-	set := strings.ReplaceAll(strings.ReplaceAll(vchar+" ", "\"", ""), ",", "")
-	if quoted {
-		set += ",\r\n\""
-	}
-	var b strings.Builder
-	if quoted {
-		b.WriteByte('"')
-	}
-	for range n {
-		c := charIn(set).Draw(t, "")
-		b.WriteByte(c)
-		if c == '"' {
-			b.WriteByte(c)
+var csvField = pbt.OneOf(csvFieldOf(false), csvFieldOf(true))
+
+func csvFieldOf(quoted bool) pbt.Gen[string] {
+	return pbt.Custom("field", func(t *pbt.T) string {
+		n := pbt.IntRange(0, 24).Draw(t, "")
+		set := strings.ReplaceAll(strings.ReplaceAll(vchar+" ", "\"", ""), ",", "")
+		if quoted {
+			set += ",\r\n\""
 		}
-	}
-	if quoted {
-		b.WriteByte('"')
-	}
-	return b.String()
-})
+		var b strings.Builder
+		if quoted {
+			b.WriteByte('"')
+		}
+		for range n {
+			c := charIn(set).Draw(t, "")
+			b.WriteByte(c)
+			if c == '"' {
+				b.WriteByte(c)
+			}
+		}
+		if quoted {
+			b.WriteByte('"')
+		}
+		return b.String()
+	})
+}
