@@ -30,8 +30,11 @@ var reASCIIWeights = []int{3, 1}
 
 // StringMatching generates strings that the regular expression matches as a
 // whole: for every value s, regexp.MustCompile(`\A(?:` + pattern + `)\z`)
-// matches s. The pattern uses the syntax of package regexp, and StringMatching
-// panics when it does not parse or can match nothing.
+// matches s. The pattern uses the syntax of package regexp. StringMatching
+// panics when the pattern does not parse or when its characters can match
+// nothing, such as [^\x00-\x{10FFFF}]; a pattern that only its assertions
+// make impossible, such as a\bb, discards every case instead, as described
+// below.
 //
 // The string is built from the syntax tree, so shrinking keeps it matching:
 // an alternation shrinks toward earlier branches, a repetition toward its

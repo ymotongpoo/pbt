@@ -116,11 +116,12 @@ var (
 // percent-encoded octets with hexadecimal digits in either case among
 // them. Paths have up to nine segments of up to 16 items, a character or a
 // percent-encoded octet, and queries and fragments up to 32 items, which
-// the grammar does not limit. Values shrink toward "http://a"; the
-// shrinker keeps the form of each part, so a URI without an authority
-// shrinks toward "http:/", "http:a" or "http:", one with another kind of
-// host toward "http://", "http://0.0.0.0", "http://[::]" or
-// "http://[v0.a]", and one with another scheme toward "a://a".
+// the grammar does not limit. Values shrink toward "http://a"; a part
+// whose other forms would take more choices keeps its form, so a URI
+// without an authority can shrink toward "http:/", "http:a" or "http:", one
+// with another kind of host toward "http://", "http://0.0.0.0",
+// "http://[::]" or "http://[v0.a]", and one with another scheme toward
+// "a://a".
 //
 // net/url.Parse (Go 1.26) rejects two kinds of these valid URIs:
 // percent-encoded octets below 0x80 in a registered name, such as
@@ -133,8 +134,8 @@ func RFC3986URI() pbt.Gen[string] { return named(uri, "RFC3986URI()") }
 // reference of §4.2: a network-path reference that starts with "//" and an
 // authority, an absolute-path reference, a relative-path reference whose
 // first segment holds no colon, or an empty path, each with an optional
-// query and fragment. Values shrink toward "http://a"; the shrinker keeps
-// the form, so a relative reference shrinks toward "//a", "/", "a" or the
+// query and fragment. Values shrink toward "http://a"; a relative
+// reference can keep its form and shrink toward "//a", "/", "a" or the
 // empty reference.
 func RFC3986Reference() pbt.Gen[string] {
 	return named(pbt.OneOf(uri, relativeRef), "RFC3986Reference()")

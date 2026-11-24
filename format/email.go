@@ -194,10 +194,10 @@ var (
 // most 254 octets, the 256 of a path (§4.5.3.1.3) without the angle
 // brackets. A General-address-literal needs a tag registered with IANA,
 // and the only one is IPv6, which the IPv6 literal covers. Values shrink
-// toward "a@a"; the shrinker keeps the form
-// of each part, so a quoted local part shrinks toward the empty quoted
-// string and an address literal toward [0.0.0.0], as in ""@a and
-// a@[0.0.0.0].
+// toward "a@a"; a part whose other forms would take more choices keeps
+// its form, so a quoted local part can shrink toward the empty quoted
+// string and an address literal toward [0.0.0.0] or [IPv6:::], as in ""@a
+// and a@[0.0.0.0].
 //
 // net/mail.ParseAddress (Go 1.26) rejects some of these: the empty quoted
 // string, IPv4 literals with leading zeros, and IPv6 literals.
@@ -237,9 +237,10 @@ var (
 // address. Each of the two parts has an optional CFWS on either side, in
 // one case in ten each, with comments, nested comments and folded lines.
 // The obsolete syntax of §4.4, which §4 forbids generators to produce, is
-// left out. Values shrink toward "a@a"; the shrinker keeps the form of each
-// part, so a quoted local part shrinks toward the empty quoted string and a
-// domain literal toward the empty literal, as in ""@a and a@[].
+// left out. Values shrink toward "a@a"; a part whose other forms would take
+// more choices keeps its form, so a quoted local part can shrink toward the
+// empty quoted string and a domain literal toward [], [0.0.0.0] or
+// [IPv6:::], as in ""@a and a@[].
 //
 // net/mail.ParseAddress (Go 1.26) rejects some of these: the empty quoted
 // string, domain literals other than a plain IPv4 address, comments before

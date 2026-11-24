@@ -34,9 +34,10 @@
 // The strings are built from their grammar rather than filtered, so every
 // value is valid, including the values the shrinker tries, and values
 // shrink toward a short valid string, such as "a@a" for an e-mail address.
-// The shrinker keeps the form of each part it starts from, so a quoted
-// local part shrinks toward the empty quoted string rather than toward an
-// atom; each function's documentation lists the targets. Where a parser of
+// The shrinker prefers fewer choices, so it may switch a part to another
+// alternative, such as an unquoted cookie value for a quoted one, or keep
+// the alternative it started from when switching would take more choices;
+// each function's documentation lists the targets of every alternative. Where a parser of
 // the standard library does not accept all of a production, the
 // generator's documentation says how they differ; those differences are
 // what property tests of a parser are for.
