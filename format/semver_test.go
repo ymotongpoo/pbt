@@ -4,10 +4,11 @@
 package format
 
 import (
-	"go.ymotongpoo.com/pbt"
 	"regexp"
 	"strings"
 	"testing"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 // The numbered-capture expression published in the SemVer 2.0.0 FAQ.

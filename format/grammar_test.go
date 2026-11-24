@@ -4,8 +4,9 @@
 package format
 
 import (
-	"go.ymotongpoo.com/pbt"
 	"testing"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 // checkMinimumSeeds detects alternatives whose tails fail to realign.

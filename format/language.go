@@ -4,8 +4,9 @@
 package format
 
 import (
-	"go.ymotongpoo.com/pbt"
 	"strings"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 var grandfatheredTags = []string{
@@ -77,18 +78,30 @@ func casedTag(g pbt.Gen[string], canonical bool) pbt.Gen[string] {
 	})
 }
 
-var langtag = pbt.Custom("langtag", func(t *pbt.T) string {
-	language := pbt.OneOf(
+var (
+	languageGen = pbt.OneOf(
 		pbt.Custom("short language", func(t *pbt.T) string {
 			s := stringIn(lower, 2, 3).Draw(t, "")
-			for _, e := range pbt.SliceOfN(stringIn(lower, 3, 3), 0, 3).Draw(t, "") {
+			for _, e := range extlangs.Draw(t, "") {
 				s += "-" + e
 			}
 			return s
-		}), stringIn(lower, 4, 8)).Draw(t, "")
-	script := optionalText(affix(stringIn(lower, 4, 4), "-", "")).Draw(t, "")
-	region := optionalText(affix(pbt.OneOf(stringIn(lower, 2, 2), stringIn(digits, 3, 3)), "-", "")).Draw(t, "")
-	variants := pbt.SliceOfN(languageVariant, 0, 4).Draw(t, "")
+		}), stringIn(lower, 4, 8))
+	extlangs      = pbt.SliceOfN(stringIn(lower, 3, 3), 0, 3)
+	scriptGen     = optionalText(affix(stringIn(lower, 4, 4), "-", ""))
+	regionGen     = optionalText(affix(pbt.OneOf(stringIn(lower, 2, 2), stringIn(digits, 3, 3)), "-", ""))
+	variantList   = pbt.SliceOfN(languageVariant, 0, 4)
+	extensionList = pbt.SliceOfN(languageExtension, 0, 4)
+	privateUse    = optionalText(affix(joined(stringIn(lower+digits, 1, 8), 1, 4, "-"), "-x-", ""))
+	extSubtags    = joined(stringIn(lower+digits, 2, 8), 1, 4, "-")
+	variantLen    = pbt.IntRange(4, 8)
+)
+
+var langtag = pbt.Custom("langtag", func(t *pbt.T) string {
+	language := languageGen.Draw(t, "")
+	script := scriptGen.Draw(t, "")
+	region := regionGen.Draw(t, "")
+	variants := variantList.Draw(t, "")
 	used := map[string]bool{}
 	for i, v := range variants {
 		for used[v] {
@@ -98,7 +111,7 @@ var langtag = pbt.Custom("langtag", func(t *pbt.T) string {
 		used[v] = true
 		variants[i] = v
 	}
-	extensions := pbt.SliceOfN(languageExtension, 0, 4).Draw(t, "")
+	extensions := extensionList.Draw(t, "")
 	const singletons = "abcdefghijklmnopqrstuvwyz0123456789"
 	used = map[string]bool{}
 	for i, v := range extensions {
@@ -116,14 +129,14 @@ var langtag = pbt.Custom("langtag", func(t *pbt.T) string {
 	for _, v := range extensions {
 		s += "-" + v
 	}
-	return s + optionalText(affix(joined(stringIn(lower+digits, 1, 8), 1, 4, "-"), "-x-", "")).Draw(t, "")
+	return s + privateUse.Draw(t, "")
 })
 var languageExtension = pbt.Custom("extension", func(t *pbt.T) string {
-	return string(charIn("abcdefghijklmnopqrstuvwyz0123456789").Draw(t, "")) + "-" + joined(stringIn(lower+digits, 2, 8), 1, 4, "-").Draw(t, "")
+	return string(charIn("abcdefghijklmnopqrstuvwyz0123456789").Draw(t, "")) + "-" + extSubtags.Draw(t, "")
 })
 
 var languageVariant = pbt.Custom("variant", func(t *pbt.T) string {
-	n := pbt.IntRange(4, 8).Draw(t, "")
+	n := variantLen.Draw(t, "")
 	b := make([]byte, n)
 	for i := range b {
 		set := lower + digits

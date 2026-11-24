@@ -4,10 +4,11 @@
 package format
 
 import (
-	"go.ymotongpoo.com/pbt"
 	"regexp"
 	"strings"
 	"testing"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 func TestCommonMediaRestrictedNames(t *testing.T) {

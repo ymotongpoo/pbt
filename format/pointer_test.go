@@ -4,12 +4,13 @@
 package format
 
 import (
-	"go.ymotongpoo.com/pbt"
 	"net/url"
 	"regexp"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 func checkPointer(s string) string {

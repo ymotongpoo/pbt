@@ -4,10 +4,11 @@
 package format
 
 import (
-	"go.ymotongpoo.com/pbt"
 	"regexp"
 	"strings"
 	"testing"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 var languageRE = regexp.MustCompile(`(?i)^(?:([a-z]{2,3}(?:-[a-z]{3}){0,3}|[a-z]{4}|[a-z]{5,8})(?:-([a-z]{4}))?(?:-([a-z]{2}|[0-9]{3}))?((?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*)((?:-[0-9a-wy-z](?:-[a-z0-9]{2,8})+)*)(?:-x(?:-[a-z0-9]{1,8})+)?|x(?:-[a-z0-9]{1,8})+)$`)

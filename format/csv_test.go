@@ -6,10 +6,11 @@ package format
 import (
 	"encoding/csv"
 	"fmt"
-	"go.ymotongpoo.com/pbt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 // readCSVGrammar is a byte parser for file/record/field/TEXTDATA, retaining

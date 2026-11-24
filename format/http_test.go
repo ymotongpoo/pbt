@@ -4,13 +4,14 @@
 package format
 
 import (
-	"go.ymotongpoo.com/pbt"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 func checkCookiePair(s string) string {
@@ -177,7 +178,6 @@ func TestCookieParserDifferences(t *testing.T) {
 		{"a=b; Max-Age=0", -1, 0}, {"a=b; Max-Age=-1", -1, 0},
 		{"a=b; Max-Age=99999999999999999999", 0, 1},
 		{`a=b; Path=a\b`, 0, 1}, {`a=b; Path=a"b`, 0, 1},
-		{"a=b; Expires=thu, 01 jan 1970 00:00:00 gmt", 0, 1},
 	} {
 		c, e := http.ParseSetCookie(tc.s)
 		if e != nil {
@@ -195,7 +195,8 @@ func TestCookieParserDifferences(t *testing.T) {
 }
 
 func checkCookieDate(s string) string {
-	re := regexp.MustCompile(`(?i)^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{4}) ([0-9]{2}):([0-9]{2}):([0-9]{2}) GMT$`)
+	// rfc1123-date of RFC 2616 §3.3.1, which is case-sensitive.
+	re := regexp.MustCompile(`^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{4}) ([0-9]{2}):([0-9]{2}):([0-9]{2}) GMT$`)
 	m := re.FindStringSubmatch(s)
 	if m == nil {
 		return "sane-cookie-date syntax"

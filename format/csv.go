@@ -4,8 +4,9 @@
 package format
 
 import (
-	"go.ymotongpoo.com/pbt"
 	"strings"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 // RFC4180CSV generates file of RFC 4180 §2: one to six records and, in
@@ -20,23 +21,39 @@ import (
 // It normalizes CRLF inside quoted fields to LF and drops a final bare CR.
 func RFC4180CSV() pbt.Gen[string] {
 	return pbt.Custom("RFC4180CSV()", func(t *pbt.T) string {
-		columns := pbt.IntRange(1, 6).Draw(t, "")
-		row := joined(csvField, columns, columns, ",")
-		header := optionalText(affix(row, "", "\r\n")).Draw(t, "")
-		records := joined(row, 1, 6, "\r\n").Draw(t, "")
-		return header + records + pbt.OneOf(pbt.Just(""), pbt.Just("\r\n")).Draw(t, "")
+		columns := csvColumns.Draw(t, "")
+		return csvHeaders[columns].Draw(t, "") + csvRecords[columns].Draw(t, "") + csvFinal.Draw(t, "")
 	})
 }
 
-var csvField = pbt.OneOf(csvFieldOf(false), csvFieldOf(true))
+var (
+	csvField   = pbt.OneOf(csvFieldOf(false), csvFieldOf(true))
+	csvColumns = pbt.IntRange(1, 6)
+	csvFinal   = pbt.OneOf(pbt.Just(""), pbt.Just("\r\n"))
+	// csvHeaders and csvRecords hold, per number of columns, the optional
+	// header and the records.
+	csvHeaders, csvRecords [7]pbt.Gen[string]
+	csvFieldLen            = pbt.IntRange(0, 24)
+	// textdata of RFC 4180 §2: printable ASCII and space without the
+	// double quote and the comma.
+	textdata = strings.ReplaceAll(strings.ReplaceAll(vchar+" ", "\"", ""), ",", "")
+)
+
+func init() {
+	for n := 1; n <= 6; n++ {
+		row := joined(csvField, n, n, ",")
+		csvHeaders[n] = optionalText(affix(row, "", "\r\n"))
+		csvRecords[n] = joined(row, 1, 6, "\r\n")
+	}
+}
 
 func csvFieldOf(quoted bool) pbt.Gen[string] {
+	set := textdata
+	if quoted {
+		set += ",\r\n\""
+	}
 	return pbt.Custom("field", func(t *pbt.T) string {
-		n := pbt.IntRange(0, 24).Draw(t, "")
-		set := strings.ReplaceAll(strings.ReplaceAll(vchar+" ", "\"", ""), ",", "")
-		if quoted {
-			set += ",\r\n\""
-		}
+		n := csvFieldLen.Draw(t, "")
 		var b strings.Builder
 		if quoted {
 			b.WriteByte('"')

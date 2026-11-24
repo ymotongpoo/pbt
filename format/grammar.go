@@ -4,8 +4,9 @@
 package format
 
 import (
-	"go.ymotongpoo.com/pbt"
 	"strings"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 // optionalText keeps the alternative index and the entire part in one

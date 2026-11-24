@@ -7,8 +7,9 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/hex"
-	"go.ymotongpoo.com/pbt"
 	"strings"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 // encodedBytes draws up to 96 bytes before applying a canonical encoder.

@@ -4,10 +4,11 @@
 package format
 
 import (
-	"go.ymotongpoo.com/pbt"
 	"mime"
 	"strings"
 	"testing"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 func isHTTPTokenByte(c byte) bool {

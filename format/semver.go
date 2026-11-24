@@ -16,15 +16,25 @@ import (
 // equally likely to be numeric or contain a letter or hyphen. Build
 // identifiers may contain leading zeros. Values shrink toward "0.0.0".
 func SemVer() pbt.Gen[string] {
-	pre := optionalText(affix(joined(semverPre, 1, 4, "."), "-", ""))
-	build := optionalText(affix(joined(stringIn(alnum+"-", 1, 16), 1, 4, "."), "+", ""))
 	return pbt.Custom("SemVer()", func(t *pbt.T) string {
-		return semverNumber.Draw(t, "") + "." + semverNumber.Draw(t, "") + "." + semverNumber.Draw(t, "") + pre.Draw(t, "") + build.Draw(t, "")
+		return semverNumber.Draw(t, "") + "." + semverNumber.Draw(t, "") + "." + semverNumber.Draw(t, "") + semverPreRelease.Draw(t, "") + semverBuild.Draw(t, "")
 	})
 }
 
+var (
+	identLen = pbt.IntRange(1, 16)
+	// letterAt holds, per identifier length n, the position of the
+	// character that must be a letter or a hyphen.
+	letterAt = func() (gs [17]pbt.Gen[int]) {
+		for n := 1; n <= 16; n++ {
+			gs[n] = pbt.IntRange(0, n-1)
+		}
+		return gs
+	}()
+)
+
 var semverNumber = pbt.Custom("numeric identifier", func(t *pbt.T) string {
-	n := pbt.IntRange(1, 16).Draw(t, "")
+	n := identLen.Draw(t, "")
 	b := make([]byte, n)
 	for i := range b {
 		set := digits
@@ -35,10 +45,14 @@ var semverNumber = pbt.Custom("numeric identifier", func(t *pbt.T) string {
 	}
 	return string(b)
 })
-var semverPre = pbt.OneOf(semverNumber, semverAlpha)
+var (
+	semverPre        = pbt.OneOf(semverNumber, semverAlpha)
+	semverPreRelease = optionalText(affix(joined(semverPre, 1, 4, "."), "-", ""))
+	semverBuild      = optionalText(affix(joined(stringIn(alnum+"-", 1, 16), 1, 4, "."), "+", ""))
+)
 var semverAlpha = pbt.Custom("alphanumeric identifier", func(t *pbt.T) string {
-	n := pbt.IntRange(1, 16).Draw(t, "")
-	at := pbt.IntRange(0, n-1).Draw(t, "")
+	n := identLen.Draw(t, "")
+	at := letterAt[n].Draw(t, "")
 	b := make([]byte, n)
 	for i := range b {
 		set := alnum + "-"

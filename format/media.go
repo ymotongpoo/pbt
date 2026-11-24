@@ -4,8 +4,9 @@
 package format
 
 import (
-	"go.ymotongpoo.com/pbt"
 	"strings"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 const httpTchar = alnum + "!#$%&'*+-.^_`|~"
@@ -51,22 +52,25 @@ func mediaType(common bool) pbt.Gen[string] {
 		names = restrictedName
 	}
 	value := pbt.OneOf(httpToken, httpQuoted(!common))
+	key := httpToken
+	if common {
+		key = stringIn(lower+digits, 1, 32)
+	}
 	param := pbt.Custom("parameter", func(t *pbt.T) string {
-		key := httpToken
-		if common {
-			key = stringIn(lower+digits, 1, 32)
-		}
 		return key.Draw(t, "") + "=" + value.Draw(t, "")
 	})
-	slot := pbt.Custom("parameter slot", func(t *pbt.T) string {
-		return stringIn(" \t", 0, 3).Draw(t, "") + ";" + stringIn(" \t", 0, 3).Draw(t, "") + pbt.Frequency(pbt.W(1, pbt.Just("")), pbt.W(3, param)).Draw(t, "")
-	})
+	ows := stringIn(" \t", 0, 3)
+	maybeParam := pbt.Frequency(pbt.W(1, pbt.Just("")), pbt.W(3, param))
+	slots := joined(pbt.Custom("parameter slot", func(t *pbt.T) string {
+		return ows.Draw(t, "") + ";" + ows.Draw(t, "") + maybeParam.Draw(t, "")
+	}), 0, 4, "")
+	params := pbt.SliceOfN(param, 0, 4)
 	return pbt.Custom(name, func(t *pbt.T) string {
 		s := names.Draw(t, "") + "/" + names.Draw(t, "")
 		if !common {
-			return s + joined(slot, 0, 4, "").Draw(t, "")
+			return s + slots.Draw(t, "")
 		}
-		params := pbt.SliceOfN(param, 0, 4).Draw(t, "")
+		params := params.Draw(t, "")
 		used := map[string]bool{}
 		for _, p := range params {
 			key, value, _ := strings.Cut(p, "=")
@@ -81,8 +85,10 @@ func mediaType(common bool) pbt.Gen[string] {
 	})
 }
 
+var restrictedLen = pbt.IntRange(1, 127)
+
 var restrictedName = pbt.Custom("restricted-name", func(t *pbt.T) string {
-	n := pbt.IntRange(1, 127).Draw(t, "")
+	n := restrictedLen.Draw(t, "")
 	b := make([]byte, n)
 	for i := range b {
 		set := alnum + "!#$&-^_.+"

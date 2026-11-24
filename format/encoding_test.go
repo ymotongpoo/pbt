@@ -7,9 +7,10 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/hex"
-	"go.ymotongpoo.com/pbt"
 	"strings"
 	"testing"
+
+	"go.ymotongpoo.com/pbt"
 )
 
 func TestEncodings(t *testing.T) {
