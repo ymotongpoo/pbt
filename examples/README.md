@@ -30,6 +30,11 @@ a ledger, each tested through its public API against a model, with a
 planted bug whose report the tests check. See
 [practical/README.md](practical/README.md).
 
+These examples use the v0.4.0 generators: `format.Email` and `format.URL`
+for note titles, `format.Email` for session users, and `format.UUID` for
+unknown session tokens. `pbt.DurationRange` generates waits around session
+expiry, including differences smaller than a minute.
+
 ## The discovery guide
 
 The `discovery` directory holds the Go examples of the Japanese book
@@ -39,4 +44,33 @@ derives properties from specifications and checks them against planted
 bugs. Its mutant tests skip themselves unless `PBT_MUTANTS` is set; see
 [discovery/README.md](discovery/README.md).
 
-Run everything with `go test ./...` from this directory.
+Run everything with `go test -race ./...` from this directory.
+
+## Health diagnostics
+
+Use `go test -race -count=1 -v ./...` to see health warnings as well as
+the reports of planted bugs. The book ports retain generators whose
+structure is part of the chapter:
+
+- `ch06birthday` shares the size across CSV columns, rows and field
+  lengths. Its nested generators can produce `HealthLarge` and `HealthSlow`
+  warnings in the round-trip and employee tests.
+- `ch08shrinking` filters dates while demonstrating `ShrinkTo` for their
+  separate components. Its July counterexample can include a `HealthFilter`
+  note from rejected dates during shrinking.
+- `discovery` chapter 6 keeps the idempotence tests of ID lists and paths
+  as the book writes them, discarding inputs that do not decode, which can
+  trigger `HealthFilter`.
+- `discovery/ch08` states the odd-length premise of median negation with
+  `Assume`, which rejects about half the cases and can trigger `HealthFilter`.
+- `discovery/ch17` deliberately uses `Assume` on arbitrary lists to show
+  how discards hide a bug. Its `TestAssumeOK` and `TestAssumeBadSurvives`
+  tests retain the `HealthFilter` warnings.
+
+Planted races can report `HealthFlaky` when replay schedules operations
+differently. `HealthSlow` measures elapsed generation time, so the race
+detector and competing test processes can also trigger it in other examples.
+
+These diagnostics remain visible; the examples do not silence them with
+`IgnoreHealth`. The `-pbt.checkhealth` flag makes selected warnings fail a
+passing property, so choose the package and test before enabling it.

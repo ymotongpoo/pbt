@@ -13,6 +13,7 @@ import (
 	"go.ymotongpoo.com/pbt"
 	"go.ymotongpoo.com/pbt/examples/internal/clock"
 	"go.ymotongpoo.com/pbt/examples/internal/expect"
+	"go.ymotongpoo.com/pbt/format"
 	"go.ymotongpoo.com/pbt/fsm"
 )
 
@@ -40,7 +41,7 @@ func (h *harness) reset() { h.token, h.user, h.age = pbt.Var{}, "", 0 }
 
 func (h *harness) data() any { return fmt.Sprintf("%v %s age=%v", h.token, h.user, h.age) }
 
-var users = []string{"ann", "bo", "cy"}
+var users = format.Email()
 
 type used struct {
 	user string
@@ -58,18 +59,21 @@ func expectErr(name string, want error) func(pbt.Env, any) error {
 }
 
 func (h *harness) login() pbt.CommandGen {
-	return pbt.Map(pbt.SampledFrom(users), func(u string) pbt.Command {
+	return pbt.Map(users, func(u string) pbt.Command {
 		return pbt.Command{Name: "login", Args: []any{u},
 			Run:  func(pbt.Env) any { return h.store.Login(u) },
 			Next: func(v pbt.Var) { h.token, h.user, h.age = v, u, 0 }}
 	})
 }
 
-// useUnknown presents a token the store never issued.
+// useUnknown presents a UUID the store never issued: Login issues s1,
+// s2, and so on, so none of these generated tokens can name a session.
 func (h *harness) useUnknown() pbt.CommandGen {
-	return pbt.Just(pbt.Command{Name: "use", Args: []any{"bogus"},
-		Run:  func(pbt.Env) any { _, err := h.store.Use("bogus"); return err },
-		Post: expectErr("use", ErrUnknown)})
+	return pbt.Map(format.UUID(), func(id string) pbt.Command {
+		return pbt.Command{Name: "use", Args: []any{id},
+			Run:  func(pbt.Env) any { _, err := h.store.Use(Token(id)); return err },
+			Post: expectErr("use", ErrUnknown)}
+	})
 }
 
 func (h *harness) use(want error) pbt.CommandGen {
@@ -104,10 +108,9 @@ func (h *harness) logout(want error) pbt.CommandGen {
 		Post: expectErr("logout", want)})
 }
 
-// wait advances the clock by a whole number of minutes between lo and hi.
+// wait advances the clock by a duration between lo and hi, inclusive.
 func (h *harness) wait(lo, hi time.Duration) pbt.CommandGen {
-	return pbt.Map(pbt.IntRange(int(lo/time.Minute), int(hi/time.Minute)), func(mins int) pbt.Command {
-		d := time.Duration(mins) * time.Minute
+	return pbt.Map(pbt.DurationRange(lo, hi), func(d time.Duration) pbt.Command {
 		return pbt.Command{Name: "wait", Args: []any{d.String()},
 			Run:  func(pbt.Env) any { h.clock.Advance(d); return nil },
 			Next: func(pbt.Var) { h.age += d }}
@@ -133,8 +136,8 @@ func (h *harness) transitions(state string) []fsm.Transition {
 			{Weight: 2, To: "expired", Cmd: h.wait(left, left+ttl)},
 			{Weight: 1, To: "revoked", Cmd: h.logout(nil)},
 		}
-		if left > time.Minute {
-			ts = append(ts, fsm.Transition{Weight: 3, To: "active", Cmd: h.wait(time.Minute, left-time.Minute)})
+		if left > time.Nanosecond {
+			ts = append(ts, fsm.Transition{Weight: 3, To: "active", Cmd: h.wait(time.Nanosecond, left-time.Nanosecond)})
 		}
 		return ts
 	case "expired":
@@ -149,7 +152,7 @@ func (h *harness) transitions(state string) []fsm.Transition {
 			{Weight: 2, To: "revoked", Cmd: h.use(ErrRevoked)},
 			{Weight: 1, To: "revoked", Cmd: h.refresh(ErrRevoked)},
 			{Weight: 1, To: "revoked", Cmd: h.logout(ErrRevoked)},
-			{Weight: 1, To: "revoked", Cmd: h.wait(time.Minute, 2*ttl)},
+			{Weight: 1, To: "revoked", Cmd: h.wait(time.Nanosecond, 2*ttl)},
 			{Weight: 2, To: "active", Cmd: h.login()},
 		}
 	}

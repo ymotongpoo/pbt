@@ -13,6 +13,7 @@ import (
 
 	"go.ymotongpoo.com/pbt"
 	"go.ymotongpoo.com/pbt/examples/internal/expect"
+	"go.ymotongpoo.com/pbt/format"
 )
 
 // note is what the test knows about one note: the Var of the response
@@ -103,7 +104,13 @@ func expectResponse(got any, status int, want *Note) error {
 	return nil
 }
 
-var title = pbt.Map(pbt.IntRange(1, 999), func(n int) string { return fmt.Sprintf("note %d", n) })
+// Titles must survive the JSON round trip, including punctuation in an
+// e-mail address or a URL pasted into a note.
+var title = pbt.OneOf(pbt.StringN(1, 40), format.Email(), format.URL())
+
+// Each command makes a real HTTP request, including during shrinking.
+// Bound sequential programs and parallel prefixes for the shrink budget.
+const maxCommands = 20
 
 func (h *harness) create() pbt.CommandGen {
 	return pbt.Map(title, func(title string) pbt.Command {
@@ -223,7 +230,7 @@ func (h *harness) commands() pbt.CommandGen {
 }
 
 func (h *harness) program() pbt.Gen[pbt.Program] {
-	return pbt.Commands(h.reset, h.commands, pbt.ModelState(func() any { return h.live }))
+	return pbt.Commands(h.reset, h.commands, pbt.Length(0, maxCommands), pbt.ModelState(func() any { return h.live }))
 }
 
 // serve starts a fresh server for one test case and returns a client of
@@ -258,7 +265,8 @@ func TestStaleUpdateIsCaught(t *testing.T) {
 func TestNotesAPIParallel(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
 		h := &harness{client: serve(t, Options{})}
-		pbt.ParallelCommands(h.reset, h.commands).Draw(t, "cmds").RunParallel(t)
+		// Generation replays the model for every interleaving of the branches.
+		pbt.ParallelCommands(h.reset, h.commands, pbt.Length(0, maxCommands), pbt.Branches(2, 3)).Draw(t, "cmds").RunParallel(t)
 	})
 }
 
@@ -268,7 +276,9 @@ func TestNotesAPIParallel(t *testing.T) {
 func TestRacyIDsAreCaught(t *testing.T) {
 	report := expect.Failure(t, func(t *pbt.T) {
 		h := &harness{}
-		prog := pbt.ParallelCommands(h.reset, h.commands).Draw(t, "cmds")
+		// The competing creates need no setup; omit the prefix to keep
+		// shrinking focused on the concurrent requests that expose the race.
+		prog := pbt.ParallelCommands(h.reset, h.commands, pbt.Length(0, 0), pbt.Branches(2, 3)).Draw(t, "cmds")
 		for range 3 {
 			h.client = serve(t, Options{RacyIDs: true})
 			prog.RunParallel(t)

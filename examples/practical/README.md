@@ -37,6 +37,21 @@ parallel runs.
   says so. The system takes `clock.Now` as its time source, and the model
   keeps the elapsed time as a number, so a lease expires or a session times
   out in the model and in the system at the same step.
+- **Generated text formats.** `httpapi` mixes non-empty text with
+  `format.Email()` and `format.URL()` as note titles, checking their JSON
+  round trip through create, update, get and list. `sessions` uses
+  `format.Email()` for user names and `format.UUID()` for unknown tokens.
+  The store issues tokens such as `s1`, so generated UUIDs cannot identify
+  an existing session.
+  The HTTP tests bound sequential programs and parallel prefixes to 20
+  commands so that shrinking stays within the time budget.
+  The planted ID race needs no setup, so that test uses an empty prefix.
+- **Bounded interleavings.** The HTTP and ledger tests use two parallel
+  branches with at most three commands each. Generation checks every
+  interleaving, so shorter branches reduce the cost of replaying the model.
+- **Expiry boundaries.** `sessions` uses `pbt.DurationRange(lo, hi)` for
+  waits, with inclusive bounds that separate active and expired states.
+  Waits can stop one nanosecond before expiry or reach the deadline exactly.
 - **Results as `Var`s.** The ids a server chooses, the tokens a store issues
   and the leases a queue hands out are results of earlier commands. The
   model holds them as `pbt.Var` and the commands resolve them when they

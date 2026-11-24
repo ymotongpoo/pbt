@@ -183,7 +183,8 @@ func TestSelfTransferIsCaught(t *testing.T) {
 func TestLedgerParallel(t *testing.T) {
 	pbt.Check(t, func(t *pbt.T) {
 		h := &harness{ledger: newLedger(Options{})}
-		pbt.ParallelCommands(h.reset, h.commands).Draw(t, "cmds").RunParallel(t)
+		// Three commands per branch bound the model replays for all interleavings.
+		pbt.ParallelCommands(h.reset, h.commands, pbt.Branches(2, 3)).Draw(t, "cmds").RunParallel(t)
 	})
 }
 
@@ -193,7 +194,7 @@ func TestLedgerParallel(t *testing.T) {
 func TestOverdraftRaceIsCaught(t *testing.T) {
 	report := expect.Failure(t, func(t *pbt.T) {
 		h := &harness{}
-		prog := pbt.ParallelCommands(h.reset, h.commands).Draw(t, "cmds")
+		prog := pbt.ParallelCommands(h.reset, h.commands, pbt.Branches(2, 3)).Draw(t, "cmds")
 		for range 5 {
 			h.ledger = newLedger(Options{TwoPhase: true})
 			prog.RunParallel(t)
