@@ -76,6 +76,7 @@ func (s *shrinker) try(cand []uint64) bool {
 	}
 	s.steps++
 	t := s.r.run(cand, s.cur.size, nil)
+	s.r.collectFailure(t)
 	if s.r.want(t) && !t.discarded && t.failKey == s.cur.failKey && simpler(t.choices, s.cur.choices) && preservesNoShrink(s.cur, t) {
 		s.cur = t
 		if s.r.cfg.verbose {

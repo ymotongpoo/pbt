@@ -56,6 +56,7 @@ func drawForAll[V any](t *T, g Gen[V]) V {
 }
 
 var (
+	flagFailures   = flag.Int("pbt.failures", 1, "maximum number of distinct failures pbt.Check reports")
 	flagChecks     = flag.Int("pbt.checks", defaultChecks, "number of test cases pbt.Check runs per property")
 	flagSeed       = flag.Uint64("pbt.seed", 0, "seed of the random number generator used by pbt.Check (0 picks one at random)")
 	flagStartSize  = flag.Int("pbt.startsize", defaultStartSize, "size parameter of the first test case")
@@ -72,6 +73,7 @@ var (
 type Option func(*config)
 
 type config struct {
+	maxFailures  int
 	checks       int
 	seed         uint64
 	hasSeed      bool
@@ -95,6 +97,12 @@ type config struct {
 // Checks sets the number of passing test cases Check requires.
 func Checks(n int) Option { return func(c *config) { c.checks = n } }
 
+// MaxFailures sets the maximum number of distinct failure identities Check
+// reports. The default is 1. With a larger limit, failing cases also count
+// toward the case budget; shrinking may discover further identities.
+// CheckExists ignores this option.
+func MaxFailures(n int) Option { return func(c *config) { c.maxFailures = n } }
+
 // Seed fixes the seed of the random number generator, which makes the run
 // reproducible.
 func Seed(seed uint64) Option {
@@ -114,7 +122,8 @@ func Sizes(start, max int) Option {
 	}
 }
 
-// ShrinkTime sets the time budget for shrinking a failing test case.
+// ShrinkTime sets the time budget for shrinking each failing test case.
+// With MaxFailures, each distinct failure gets this full budget.
 func ShrinkTime(d time.Duration) Option { return func(c *config) { c.shrinkTime = d } }
 
 // NoSave keeps Check from writing failing test cases under testdata/pbt.
@@ -172,6 +181,7 @@ func ReportLimit(chars int) Option { return func(c *config) { c.valueLimit = cha
 
 func newConfig(opts []Option) (config, error) {
 	c := config{
+		maxFailures: *flagFailures,
 		checks:      *flagChecks,
 		seed:        *flagSeed,
 		hasSeed:     *flagSeed != 0,
@@ -190,6 +200,8 @@ func newConfig(opts []Option) (config, error) {
 		o(&c)
 	}
 	switch {
+	case c.maxFailures < 1:
+		return c, fmt.Errorf("MaxFailures(%d): need at least one failure", c.maxFailures)
 	case c.checks < 1:
 		return c, fmt.Errorf("Checks(%d): need at least one check", c.checks)
 	case c.search < 1:
@@ -224,6 +236,10 @@ func Check(tb TB, prop Property, opts ...Option) {
 		return
 	}
 	r := &runner{tb: tb, prop: prop, cfg: cfg, health: newHealthStats()}
+	if cfg.maxFailures > 1 {
+		r.checkMultiple()
+		return
+	}
 	if path := cfg.replayFile; path != "" {
 		t, err := r.replayFile(path)
 		if err != nil {
@@ -284,7 +300,7 @@ func MakeCheck(prop Property, opts ...Option) func(*testing.T) {
 // Minimize. Nothing is saved under testdata/pbt.
 func CheckExists(tb TB, prop Property, opts ...Option) {
 	tb.Helper()
-	cfg, err := newConfig(opts)
+	cfg, err := newConfig(append(append([]Option(nil), opts...), MaxFailures(1)))
 	if err != nil {
 		tb.Errorf("[pbt] %v", err)
 		return
@@ -306,6 +322,8 @@ func CheckExists(tb TB, prop Property, opts ...Option) {
 }
 
 type runner struct {
+	failures    []*T
+	savedPaths  map[string]string
 	health      *healthStats
 	healthExtra []healthNote
 	tb          TB
@@ -394,6 +412,7 @@ func (r *runner) search() (found *T, passed int, err error) {
 	cfg := r.cfg
 	r.stats = newStats()
 	discards := 0
+	tried := 0
 	targeted := false
 	uMin, uMax := math.Inf(1), math.Inf(-1)
 	for {
@@ -401,19 +420,19 @@ func (r *runner) search() (found *T, passed int, err error) {
 		if targeted {
 			limit = cfg.search
 		}
-		if passed >= limit {
-			extend := cfg.checkCover && !targeted && !r.exists && passed < coverCases*cfg.checks && !r.stats.settled()
+		if tried >= limit {
+			extend := cfg.checkCover && !targeted && !r.exists && tried < coverCases*cfg.checks && !r.stats.settled()
 			if !extend {
 				return nil, passed, nil
 			}
 		}
-		rng := newRand(caseSeed(cfg.seed, uint64(passed+discards)))
-		temp := 1 - float64(passed)/float64(limit)
+		rng := newRand(caseSeed(cfg.seed, uint64(tried+discards)))
+		temp := 1 - float64(tried)/float64(limit)
 		var t *T
 		if targeted && r.current != nil && rng.Float64() >= restartProbability {
 			t = r.run(mutate(rng, r.current, temp), r.current.size, rng)
 		} else {
-			t = r.run(nil, min(cfg.startSize+passed, cfg.maxSize), rng)
+			t = r.run(nil, min(cfg.startSize+tried, cfg.maxSize), rng)
 		}
 		switch {
 		case t.discarded:
@@ -425,11 +444,19 @@ func (r *runner) search() (found *T, passed int, err error) {
 				}
 				return nil, passed, fmt.Errorf("gave up after %d discarded test cases (%d passed); last reason: %s%s", discards, passed, t.discardReason, detail)
 			}
-		case r.want(t):
+		case r.want(t) && (r.exists || cfg.maxFailures == 1):
 			return t, passed, nil
 		default:
-			r.stats.add(t)
-			passed++
+			if r.want(t) {
+				r.collectFailure(t)
+				if len(r.failures) >= cfg.maxFailures {
+					return t, passed, nil
+				}
+			} else {
+				r.stats.add(t)
+				passed++
+			}
+			tried++
 			if t.hasUtility {
 				targeted = true
 				uMin, uMax = min(uMin, t.utility), max(uMax, t.utility)

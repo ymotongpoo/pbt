@@ -121,7 +121,12 @@ func (r *runner) save(t *T) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, caseFileName(t.size, t.choices))
+	name := caseFileName(t.size, t.choices)
+	if r.cfg.maxFailures > 1 {
+		identity := sha256.Sum256([]byte(t.failKey))
+		name += "-" + hex.EncodeToString(identity[:8])
+	}
+	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, encodeCase(t), 0o644); err != nil {
 		return "", err
 	}
@@ -165,7 +170,13 @@ func (r *runner) replaySaved() (*T, string) {
 			continue
 		}
 		if t := r.run(choices, size, nil); t.failed && !t.discarded {
-			return t, path
+			if r.cfg.maxFailures <= 1 {
+				return t, path
+			}
+			r.collectSavedFailure(t, path)
+			if len(r.failures) >= r.cfg.maxFailures {
+				return t, path
+			}
 		}
 	}
 	return nil, ""
