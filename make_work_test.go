@@ -177,3 +177,24 @@ func TestMakePreservesValuesExactlyAtBudget(t *testing.T) {
 		t.Fatalf("value=%+v choices=%d", v, len(pt.choices))
 	}
 }
+
+// Unexported fields are not generated, so a type that is recursive only
+// through them is not recursive for Make, and its required elements are
+// completed when the budget is spent.
+func TestMakeIgnoresUnexportedRecursion(t *testing.T) {
+	type hidden struct {
+		X    int
+		next *hidden
+	}
+	type row struct {
+		Exhaust string   `pbt:"min=8,max=8"`
+		Items   []hidden `pbt:"min=3,max=3"`
+	}
+	g := Make[row]()
+	for seed := range uint64(20) {
+		c := newT(t.Name(), nil, 0, 0, newRand(seed))
+		if v := g.drawSpan(c); len(v.Items) != 3 {
+			t.Fatalf("seed %d: %d items, want 3", seed, len(v.Items))
+		}
+	}
+}

@@ -191,9 +191,10 @@ func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) d
 	case reflect.Slice:
 		minLen, maxLen := lengthBounds(tg)
 		elem := makeDraw(typ.Elem(), cfg, tag{}, stack)
+		cyclic := makeRecursive(typ, cfg)
 		return func(t *T, b *budget) reflect.Value {
 			g := Gen[reflect.Value]{name: typ.Elem().String(), draw: func(t *T) reflect.Value { return elem(t, b) }}
-			vals := drawSlice(t, g, minLen, maxLen, nil, recursiveType(typ))
+			vals := drawSlice(t, g, minLen, maxLen, nil, cyclic)
 			out := reflect.MakeSlice(typ, len(vals), len(vals))
 			for i, v := range vals {
 				out.Index(i).Set(v)
@@ -213,6 +214,7 @@ func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) d
 		minLen, maxLen := lengthBounds(tg)
 		key := makeDraw(typ.Key(), cfg, tag{}, stack)
 		val := makeDraw(typ.Elem(), cfg, tag{}, stack)
+		cyclic := makeRecursive(typ, cfg)
 		return func(t *T, b *budget) reflect.Value {
 			out := reflect.MakeMap(typ)
 			pair := Gen[[2]reflect.Value]{name: "entry", draw: func(t *T) [2]reflect.Value { return [2]reflect.Value{key(t, b), val(t, b)} }}
@@ -222,7 +224,7 @@ func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) d
 				}
 				out.SetMapIndex(kv[0], kv[1])
 				return true
-			}, recursiveType(typ))
+			}, cyclic)
 			return out
 		}
 	case reflect.Pointer:

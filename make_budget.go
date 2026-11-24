@@ -79,9 +79,55 @@ func UnboundedGrowth[V any](g Gen[V]) Gen[V] {
 	}}
 }
 
+// makeRecursive reports whether a value of typ, as Make builds it with cfg,
+// can contain a cycle of types: it follows the exported fields Make fills,
+// skips fields tagged "-" or overridden with WithField, and stops at types
+// supplied with WithType and at the standard types Make draws with their own
+// generators. recursiveType, for the code pbtgen writes, follows unexported
+// fields as well, because that code fills them.
+func makeRecursive(typ reflect.Type, cfg *makeConfig) bool {
+	active := map[reflect.Type]bool{}
+	seen := map[reflect.Type]bool{}
+	var visit func(reflect.Type) bool
+	visit = func(t reflect.Type) bool {
+		if active[t] {
+			return true
+		}
+		if seen[t] {
+			return false
+		}
+		if _, ok := cfg.types[t]; ok || standardDraw(t, tag{}) != nil {
+			return false
+		}
+		seen[t], active[t] = true, true
+		defer delete(active, t)
+		switch t.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Array:
+			return visit(t.Elem())
+		case reflect.Map:
+			return visit(t.Key()) || visit(t.Elem())
+		case reflect.Struct:
+			for i := range t.NumField() {
+				f := t.Field(i)
+				if !f.IsExported() || parseTag(f.Tag.Get("pbt")).skip {
+					continue
+				}
+				if _, ok := cfg.fields[t][f.Name]; ok {
+					continue
+				}
+				if visit(f.Type) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return visit(typ)
+}
+
 var recursiveTypes sync.Map // reflect.Type -> bool
 
-// recursiveType ignores fields that Make skips. A cycle through a collection
+// recursiveType ignores fields tagged "-". A cycle through a collection
 // needs a termination exception to its minimum length; acyclic minima can
 // always be completed with a fixed amount of work per growth step.
 func recursiveType(typ reflect.Type) bool {
