@@ -61,9 +61,11 @@ func asAny[V any](g Gen[V]) Gen[any] {
 // zero, and "min=A,max=B" bounds a number or the length of a string, slice
 // or map. Interfaces, channels and functions need a generator supplied with
 // WithType or WithField; Make panics otherwise. Unexported fields stay
-// zero, so a type whose state is all unexported, such as time.Time, needs
-// a generator supplied with WithType; cmd/pbtgen can fill unexported fields
-// of types in the package it writes into.
+// zero. Standard types time.Time, *time.Location, netip.Addr, netip.Prefix,
+// netip.AddrPort, net.IP and net.HardwareAddr use the corresponding generators;
+// locations use FixedZone without tzdata. Time bounds use RFC 3339 timestamps.
+// Other types with unexported state need WithType; cmd/pbtgen can fill
+// unexported fields of types in the package it writes into.
 func Make[V any](opts ...MakeOption) Gen[V] {
 	cfg := &makeConfig{types: map[reflect.Type]Gen[any]{}, fields: map[reflect.Type]map[string]Gen[any]{}}
 	for _, o := range opts {
@@ -142,6 +144,9 @@ type drawFn func(*T, *budget) reflect.Value
 func makeDraw(typ reflect.Type, cfg *makeConfig, tg tag, stack []reflect.Type) drawFn {
 	if g, ok := cfg.types[typ]; ok {
 		return func(t *T, _ *budget) reflect.Value { return valueAs(g.drawSpan(t), typ) }
+	}
+	if draw := standardDraw(typ, tg); draw != nil {
+		return draw
 	}
 	for _, s := range stack {
 		if s == typ {
