@@ -65,9 +65,9 @@ var (
 	flagSearch       = flag.Int("pbt.searchsteps", defaultSearchSteps, "number of steps of a targeted search (a property that calls Maximize or Minimize)")
 	flagV            = flag.Bool("pbt.v", false, "verbose output from pbt.Check")
 	flagReplay       = flag.String("pbt.replay", "", "path of a saved test case that pbt.Check replays before searching")
-	flagWarnHealth   = flag.String("pbt.warnhealth", "", "comma-separated health checks to enable as warnings (filter, large, slow, flaky, shrink, stale)")
-	flagCheckHealth  = flag.String("pbt.checkhealth", "", "comma-separated health checks that fail a passing run (filter, large, slow, flaky, shrink, stale, or default for filter and large)")
-	flagIgnoreHealth = flag.String("pbt.ignorehealth", "", "comma-separated health checks to silence (filter, large, slow, flaky, shrink, stale)")
+	flagWarnHealth   = flag.String("pbt.warnhealth", "", "comma-separated health checks to enable as warnings (filter, large, slow, flaky, shrink, stale, duplicate)")
+	flagCheckHealth  = flag.String("pbt.checkhealth", "", "comma-separated health checks that fail a passing run (filter, large, slow, flaky, shrink, stale, duplicate, or default for filter and large)")
+	flagIgnoreHealth = flag.String("pbt.ignorehealth", "", "comma-separated health checks to silence (filter, large, slow, flaky, shrink, stale, duplicate)")
 )
 
 // Option adjusts how Check runs a property. Options take precedence over the
@@ -470,6 +470,7 @@ func (r *runner) search() (found *T, passed int, err error) {
 		} else {
 			t = r.run(nil, min(cfg.startSize+tried, cfg.maxSize), rng)
 		}
+		r.observeDistinct(t, targeted)
 		switch {
 		case t.discarded:
 			discards++

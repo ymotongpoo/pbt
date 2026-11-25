@@ -13,7 +13,8 @@ import (
 )
 
 // HealthCheck identifies a diagnostic about a property's generation or replay.
-// Most checks warn by default; HealthStale requires WarnHealth or CheckHealth.
+// Most checks warn by default; HealthStale and HealthDuplicate require
+// WarnHealth or CheckHealth.
 // CheckHealth upgrades selected warnings to errors and IgnoreHealth silences
 // them. None changes the distribution of generated values.
 type HealthCheck uint8
@@ -39,6 +40,15 @@ const (
 	// undetected. Draws containing pointers, functions, channels, custom
 	// formatters, NaN map keys or containers nested 100 levels deep are skipped.
 	HealthStale
+	// HealthDuplicate diagnoses fewer than half distinct inputs over at least
+	// 20 non-discarded cases from ordinary random generation. Passing and failing
+	// cases count; replay, shrinking and targeted search (including its random
+	// restarts) do not. Keys hash consumed choices and size, not rendered values.
+	// Different choices that map to the same value can hide duplication.
+	// The check stops after more than 4096 distinct keys; 64-bit hash collisions
+	// are possible. Enable it with WarnHealth or CheckHealth. It is excluded
+	// from CheckHealth's default set because small domains are often intentional.
+	HealthDuplicate
 )
 
 // String returns the Go constant name, for use in diagnostics and options.
@@ -56,6 +66,8 @@ func (h HealthCheck) String() string {
 		return "HealthShrink"
 	case HealthStale:
 		return "HealthStale"
+	case HealthDuplicate:
+		return "HealthDuplicate"
 	default:
 		return fmt.Sprintf("HealthCheck(%d)", uint8(h))
 	}
@@ -68,7 +80,7 @@ func (h HealthCheck) String() string {
 // Gen.Example and SampleShrink do not perform health checks. The flag
 // -pbt.checkhealth names checks for every Check of a go test run, such as
 // -pbt.checkhealth=filter,slow or -pbt.checkhealth=default; the flag and
-// the options add up. HealthStale must be explicitly named.
+// the options add up. HealthStale and HealthDuplicate must be explicitly named.
 func CheckHealth(checks ...HealthCheck) Option {
 	checks = append([]HealthCheck(nil), checks...)
 	if len(checks) == 0 {
@@ -85,9 +97,9 @@ func CheckHealth(checks ...HealthCheck) Option {
 }
 
 // WarnHealth enables the named optional health diagnostics as warnings.
-// HealthStale is off until named here or in CheckHealth, preserving the output
-// of existing tests. Other health checks already warn by default. With no
-// arguments this changes nothing. CheckHealth upgrades a warning to an error;
+// HealthStale and HealthDuplicate are off until named here or in CheckHealth,
+// preserving the output of existing tests. Other checks already warn by default.
+// With no arguments this changes nothing. CheckHealth upgrades a warning to an error;
 // IgnoreHealth silences it regardless of option order. The flag -pbt.warnhealth
 // accepts the same names, such as -pbt.warnhealth=stale; flag and option add up.
 func WarnHealth(checks ...HealthCheck) Option {
@@ -128,13 +140,15 @@ func parseHealthChecks(s string, withDefault bool) ([]HealthCheck, error) {
 			checks = append(checks, HealthShrink)
 		case "stale":
 			checks = append(checks, HealthStale)
+		case "duplicate":
+			checks = append(checks, HealthDuplicate)
 		case "default":
 			if !withDefault {
 				return nil, fmt.Errorf("unknown health check %q", name)
 			}
 			checks = append(checks, HealthFilter, HealthLarge)
 		default:
-			return nil, fmt.Errorf("unknown health check %q; use filter, large, slow, flaky, shrink or stale", name)
+			return nil, fmt.Errorf("unknown health check %q; use filter, large, slow, flaky, shrink, stale or duplicate", name)
 		}
 	}
 	return checks, nil
@@ -185,6 +199,7 @@ type healthDraw struct {
 	pc         uintptr
 }
 type healthStats struct {
+	distinct               distinctInputs
 	cases, discards, large int
 	generation             time.Duration
 	sources                map[string]int
@@ -254,6 +269,9 @@ func (r *runner) healthNotes() []healthNote {
 	notes := append([]healthNote(nil), r.healthExtra...)
 	h := r.health
 	if h != nil {
+		if note := h.distinct.note(); note != nil {
+			notes = append(notes, *note)
+		}
 		var filter []string
 		if h.discards >= healthMinDiscards && h.discards*healthDiscardFactor >= h.cases {
 			filter = append(filter, fmt.Sprintf("%d of %d cases were discarded; most by %s", h.discards, h.cases, topHealthSources(h.sources, "")))
