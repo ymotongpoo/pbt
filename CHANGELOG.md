@@ -5,6 +5,57 @@ The notable changes of pbt are recorded here. The format follows
 [Semantic Versioning](https://semver.org/) with a major version of 0, so a
 minor version may change the API.
 
+## Unreleased
+
+### Added
+
+- `Causality(n)` and `-pbt.causality=N`, which explain a failing
+  stateful test. The first failing program is rewound to prefixes of its
+  commands before shrinking, each prefix is continued `n` times with
+  fresh choices, and the report lists how often the same failure recurs
+  after each prefix. The largest rise is bisected down to one step, which
+  names the command after which the failure became likely, even when a
+  later command detected it. Sequential `Commands` and `fsm` programs are
+  analysed; parallel programs and properties without commands are
+  skipped with a note. The analysis costs at most `16*n` runs.
+- `T.Signature(name)`, which names the identity of a case's failure. The
+  name replaces the site of the assertion or the panic for shrinking, for
+  grouping under `MaxFailures`, for the names of saved files and for
+  `HealthFlaky`, so that one assertion that covers several causes can
+  report them apart.
+- `HealthStale`: a saved case whose recorded draws differ from the draws
+  of its replay is reported, because the generator changed and the replay
+  tests another input. It warns by default.
+- `HealthDuplicate`, which warns when fewer than half of at least 20
+  generated cases are distinct, and `WarnHealth` and `-pbt.warnhealth`,
+  which turn it on as a warning. It is off by default, because a property
+  over a small domain is often intended.
+- `Budget(d)` and `-pbt.budget`, which stop generating cases once `d` has
+  passed since the search began. A run cut short passes with the cases it
+  ran and says so in its summary; replay and shrinking are outside the
+  budget.
+- `ReportJSON(path)` and `-pbt.json`, which append one JSON line per
+  `Check` or `CheckExists` under the schema
+  `go.ymotongpoo.com/pbt/report/v1`: the status, the counts and
+  durations, each failure with its identity, draws, saved file and
+  reproduce command, the health notes, the statistics and the objectives.
+- `Observations(dir)` and `-pbt.observe`, which write one record per
+  evaluated case in the OpenPBTStats format that
+  [Tyche](https://github.com/tyche-pbt/tyche-extension) and Hypothesis's
+  observability use, one file per test.
+- `CoverageGuided()` and `-pbt.coverage`, an experimental search for
+  `go test -cover`: a passing case that raises `testing.Coverage()`
+  becomes a seed, and later cases alternate between fresh cases and
+  mutations of the seeds. Without instrumentation the option logs a hint
+  and the search is unchanged.
+
+### Changed
+
+- A saved case that has gone stale logs a `HealthStale` warning when it
+  is replayed. Nothing else changes for a run that uses none of the new
+  options: the cases, their order and the reports are the same as in
+  0.4.0 for the same seed.
+
 ## 0.4.0 - 2026-11-24
 
 ### Added

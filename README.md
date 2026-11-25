@@ -6,11 +6,13 @@ automatic shrinking, user-controlled distributions with statistics to verify
 them, stateful and parallel command testing with symbolic variables, state
 machines, targeted search, and existential properties. Generators of times,
 network addresses and the text formats that RFCs and ISO standards define,
-health checks that warn about wasted input, and runs that collect several
-failures at once come with it, in pure Go without dependencies.
+health checks that warn about wasted input, runs that collect several
+failures at once, an analysis that finds the command that caused a
+stateful failure, and reports that programs and coding agents can read
+come with it, in pure Go without dependencies.
 
 **Status: under development.** The API is not stable yet. The design, the
-comparison with rapid, Hegel, PropEr and QuickCheck, and the plan are in
+comparison with rapid, Hegel, ephyra, PropEr and QuickCheck, and the plan are in
 [DESIGN.md](DESIGN.md) (a Japanese version is in [DESIGN.ja.md](DESIGN.ja.md)).
 The `examples/` module ports every chapter of the book *PropEr Testing*
 by Fred Hebert, which is the acceptance test of the design, and its
@@ -172,9 +174,21 @@ or several objectives; `CheckExists` looks for a witness.
 Health checks watch every run: a passing run warns when most cases are
 discarded, when cases draw too many choices or when generation is slow,
 and a failing report notes a failure that did not recur on replay or a
-shrink that ran out of time. `CheckHealth` turns the warnings into
-failures. `MaxFailures(n)` keeps a run going after a failure and reports up
-to `n` failures that fail in different ways, each one shrunk and saved.
+shrink that ran out of time or a saved case whose generator has changed.
+`CheckHealth` turns the warnings into failures, and `WarnHealth` turns on
+`HealthDuplicate`, which reports runs that keep drawing the same inputs.
+`MaxFailures(n)` keeps a run going after a failure and reports up to `n`
+failures that fail in different ways, each one shrunk and saved;
+`t.Signature(name)` tells apart the causes that one assertion covers.
+
+`Causality(n)` explains a stateful failure: it rewinds the failing program
+to each prefix of its commands, continues it with fresh choices and reports
+the command after which the failure became likely. `Budget(d)` bounds the
+time of a search, `ReportJSON` appends a JSON line per run, and
+`Observations` writes every case in the format that
+[Tyche](https://github.com/tyche-pbt/tyche-extension) reads. Under
+`go test -cover`, `CoverageGuided()` keeps the cases that reach new code
+and mutates them.
 
 ## Flags
 
@@ -188,7 +202,13 @@ to `n` failures that fail in different ways, each one shrunk and saved.
 | `-pbt.searchsteps` | 1000 | steps of a targeted search |
 | `-pbt.failures` | 1 | distinct failures to collect, shrink and report |
 | `-pbt.checkhealth` | none | health checks that fail a passing run, such as `default,slow` |
+| `-pbt.warnhealth` | none | optional health checks to turn on as warnings: `duplicate` |
 | `-pbt.ignorehealth` | none | health checks to hide |
+| `-pbt.causality` | 0 | continuations per prefix for the causality analysis of a stateful failure; 0 turns it off |
+| `-pbt.budget` | 0 | time budget of the search; 0 means none |
+| `-pbt.json` | none | file to append a JSON report of each run to |
+| `-pbt.observe` | none | directory for OpenPBTStats observations, one file per test |
+| `-pbt.coverage` | false | coverage-guided search; needs `go test -cover` |
 | `-pbt.nosave` | false | do not write failing cases under `testdata/pbt` |
 | `-pbt.replay` | none | a saved case to replay before searching |
 | `-pbt.v` | false | verbose output |
@@ -196,7 +216,9 @@ to `n` failures that fail in different ways, each one shrunk and saved.
 The same settings are available per call as options: `pbt.Checks`,
 `pbt.Seed`, `pbt.Sizes`, `pbt.ShrinkTime`, `pbt.SearchSteps`, `pbt.NoSave`,
 `pbt.TestdataDir`, `pbt.ReplayFile`, `pbt.NoReplay`, `pbt.Verbose`,
-`pbt.MaxFailures`, `pbt.CheckHealth` and `pbt.IgnoreHealth`, plus
+`pbt.MaxFailures`, `pbt.CheckHealth`, `pbt.WarnHealth`, `pbt.IgnoreHealth`,
+`pbt.Causality`, `pbt.Budget`, `pbt.ReportJSON`, `pbt.Observations` and
+`pbt.CoverageGuided`, plus
 `pbt.Setup`, `pbt.CheckCoverage`, `pbt.ReportLimit` and `pbt.ReportDepth`.
 The changes between releases are listed in [CHANGELOG.md](CHANGELOG.md).
 
