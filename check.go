@@ -64,6 +64,7 @@ var (
 	flagShrinkTime   = flag.Duration("pbt.shrinktime", defaultShrink, "time budget for shrinking a failing test case")
 	flagNoSave       = flag.Bool("pbt.nosave", false, "do not save failing test cases under testdata/pbt")
 	flagSearch       = flag.Int("pbt.searchsteps", defaultSearchSteps, "number of steps of a targeted search (a property that calls Maximize or Minimize)")
+	flagCoverage     = flag.Bool("pbt.coverage", false, "guide pbt.Check with live block coverage (requires go test -cover)")
 	flagV            = flag.Bool("pbt.v", false, "verbose output from pbt.Check")
 	flagReplay       = flag.String("pbt.replay", "", "path of a saved test case that pbt.Check replays before searching")
 	flagWarnHealth   = flag.String("pbt.warnhealth", "", "comma-separated optional health checks to enable as warnings (duplicate; the others warn by default)")
@@ -92,6 +93,7 @@ type config struct {
 	verbose      bool
 	setup        func(*T) func()
 	checkCover   bool
+	coverage     bool
 	search       int
 	valueLimit   int
 	reportDepth  int
@@ -204,6 +206,7 @@ func newConfig(opts []Option) (config, error) {
 		testdata:    defaultTestdata,
 		verbose:     *flagV,
 		search:      *flagSearch,
+		coverage:    *flagCoverage,
 		valueLimit:  defaultValueLimit,
 		reportDepth: defaultReportDepth,
 		replayFile:  *flagReplay,
@@ -402,6 +405,8 @@ type runner struct {
 	stats       *stats
 	exists      bool        // look for a passing case instead of a failing one
 	objectives  []objective // objectives in order of first appearance
+
+	coverageRead func() float64 // nil uses testing.Coverage; tests may inject a reader
 }
 
 // want reports whether a case is what the search looks for: a failure for
@@ -514,6 +519,14 @@ func (r *runner) search() (found *T, passed int, err error) {
 	if cfg.budget > 0 {
 		deadline = time.Now().Add(cfg.budget)
 	}
+	guided := r.startCoverage()
+	if guided != nil {
+		defer func() {
+			if cfg.verbose || (found == nil && err == nil && len(r.failures) == 0) {
+				guided.report(r.tb)
+			}
+		}()
+	}
 	r.stats = newStats()
 	discards := 0
 	tried := 0
@@ -553,14 +566,27 @@ func (r *runner) search() (found *T, passed int, err error) {
 			nextObjective = selected + 1
 			current = r.objectives[selected].current
 		}
+		var seed *T
+		if !targeted && guided != nil {
+			seed = guided.seed(rng)
+			if seed != nil && r.observer != nil {
+				r.observer.phase = "coverage"
+			}
+		}
 		if targeted && current != nil && rng.Float64() >= restartProbability {
 			t = r.run(mutate(rng, current, temp), current.size, rng)
+		} else if seed != nil {
+			t = r.run(mutate(rng, seed, coverageTemperature), seed.size, rng)
 		} else {
 			t = r.run(nil, min(cfg.startSize+tried, cfg.maxSize), rng)
 		}
-		r.observeDistinct(t, targeted)
+		// Mutants of coverage seeds are not ordinary random generation.
+		r.observeDistinct(t, targeted || seed != nil)
 		if r.output != nil {
 			r.outputSearchCase(t)
+		}
+		if guided != nil {
+			guided.observe(t)
 		}
 		switch {
 		case t.discarded:

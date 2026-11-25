@@ -25,8 +25,8 @@ var flagObserve = flag.String("pbt.observe", "", "directory for OpenPBTStats obs
 // Records follow the test_case and info schemas at
 // https://github.com/tyche-pbt/tyche-extension/blob/192ded8a5e10eae7d4406c9bb59971dcfc786695/observability-tools/src/datatypes.ts
 // and https://hypothesis.readthedocs.io/en/latest/reference/integrations.html#observability.
-// run_start is Unix time in seconds. how_generated is generate, target, replay,
-// stability_replay or shrink. Each shrink operation also writes a minimal record
+// run_start is Unix time in seconds. how_generated is generate, target,
+// coverage (a mutant of a CoverageGuided seed), replay, stability_replay or shrink. Each shrink operation also writes a minimal record
 // with metadata.final=true: a snapshot of the chosen case, not another execution.
 // Case status describes the property itself, so a rejected CheckExists candidate
 // is failed and a witness is passed. Discards are gave_up.
