@@ -5,6 +5,18 @@ The notable changes of pbt are recorded here. The format follows
 [Semantic Versioning](https://semver.org/) with a major version of 0, so a
 minor version may change the API.
 
+## Unreleased
+
+### Fixed
+
+- `TestGoURLDivergences` in the package `format` failed on Go 1.25.0 and
+  1.25.1, which the module supports. It expected `net/url.Parse` to reject
+  IPvFuture literals such as `http://[v1.x]/`, which Go rejects only from
+  Go 1.25.2, where `url.Parse` started to accept only an IPv6 address in
+  brackets. The test now expects the behaviour of the running toolchain,
+  and the documentation of `RFC3986URI` names the release. The generators
+  are unchanged.
+
 ## 0.5.0 - 2026-11-25
 
 ### Added

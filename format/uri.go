@@ -123,10 +123,12 @@ var (
 // "http://[::]" or "http://[v0.a]", and one with another scheme toward
 // "a://a".
 //
-// net/url.Parse (Go 1.26) rejects two kinds of these valid URIs:
-// percent-encoded octets below 0x80 in a registered name, such as
-// "http://%41/", where it accepts only %25 and octets of non-ASCII
-// characters, and IPvFuture literals such as "http://[v1.x]/".
+// net/url.Parse rejects two kinds of these valid URIs: percent-encoded
+// octets below 0x80 in a registered name, such as "http://%41/", where it
+// accepts only %25 and octets of non-ASCII characters, and IPvFuture
+// literals such as "http://[v1.x]/". It rejects IPvFuture literals since
+// Go 1.25.2, which accepts only an IPv6 address in brackets; Go 1.25.0 and
+// 1.25.1 accept them.
 func RFC3986URI() pbt.Gen[string] { return named(uri, "RFC3986URI()") }
 
 // RFC3986Reference generates URI references in the syntax of RFC 3986

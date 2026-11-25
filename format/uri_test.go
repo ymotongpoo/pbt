@@ -4,8 +4,10 @@
 package format
 
 import (
+	"go/version"
 	"net/url"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -130,19 +132,54 @@ func TestURL(t *testing.T) {
 }
 
 // TestGoURLDivergences pins what RFC3986URI's godoc says about
-// net/url.Parse.
+// net/url.Parse, on every toolchain the module supports.
 func TestGoURLDivergences(t *testing.T) {
 	for _, s := range []string{"http://%41/", "http://a%7Eb/", "http://[v1.x]/", "http://[vA.a:b]/"} {
 		if !uriRe.MatchString(s) || checkLiterals(s) != "" {
 			t.Fatalf("%s is not a valid URI", s)
 		}
+	}
+	for _, s := range []string{"http://%41/", "http://a%7Eb/"} {
 		if _, err := url.Parse(s); err == nil {
 			t.Errorf("url.Parse now accepts %s; update the godoc of RFC3986URI", s)
+		}
+	}
+	rejects := rejectsIPvFuture(runtime.Version())
+	for _, s := range []string{"http://[v1.x]/", "http://[vA.a:b]/"} {
+		_, err := url.Parse(s)
+		if rejects && err == nil {
+			t.Errorf("url.Parse of %s accepts %s; update the godoc of RFC3986URI", runtime.Version(), s)
+		}
+		if !rejects && err != nil {
+			t.Errorf("url.Parse of %s rejects %s: %v; update the godoc of RFC3986URI", runtime.Version(), s, err)
 		}
 	}
 	for _, s := range []string{"http://%25/", "http://%C3%A9/", "http://a/%41?%41#%41", "http://a:/", "x:a:b"} {
 		if _, err := url.Parse(s); err != nil {
 			t.Errorf("url.Parse now rejects %s: %v; update the godoc of RFC3986URI", s, err)
+		}
+	}
+}
+
+// rejectsIPvFuture reports whether net/url.Parse of the toolchain v
+// rejects IPvFuture literals. Go 1.25.2 started to accept only an IPv6
+// address in brackets. A development toolchain, whose version does not
+// parse, is taken to be newer.
+func rejectsIPvFuture(v string) bool {
+	if fields := strings.Fields(v); len(fields) > 0 {
+		v = fields[0]
+	}
+	return !version.IsValid(v) || version.Compare(v, "go1.25.2") >= 0
+}
+
+func TestRejectsIPvFuture(t *testing.T) {
+	for v, want := range map[string]bool{
+		"go1.25.0": false, "go1.25.1": false, "go1.25.2": true, "go1.25.14": true,
+		"go1.26.0": true, "go1.25.0 X:nocoverageredesign": false,
+		"devel go1.27-abcdef Mon Nov 23 12:00:00 2026 +0000": true,
+	} {
+		if got := rejectsIPvFuture(v); got != want {
+			t.Errorf("rejectsIPvFuture(%q) = %t, want %t", v, got, want)
 		}
 	}
 }
