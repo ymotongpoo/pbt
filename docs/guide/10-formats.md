@@ -44,7 +44,7 @@ A property that feeds a parser every form of its standard finds where the parser
 [pbt] reproduce: go test -run 'TestRFC3339' -pbt.seed=0x1
 ```
 
-RFC 3339 allows a lower-case `z` and `t`, and `time.Parse` rejects them, as it rejects the leap second `23:59:60`. Whether that matters depends on where your timestamps come from. The property makes the decision visible, and the shrunk case shows the difference in one character. The documentation of each generator lists the differences between the standard and the parsers of Go's standard library, as measured on Go 1.26. The tests of the package pin them.
+RFC 3339 allows a lower-case `z` and `t`, and `time.Parse` rejects them, as it rejects the leap second `23:59:60`. Whether that matters depends on where your timestamps come from. The property makes the decision visible, and the shrunk case shows the difference in one character. The documentation of each generator lists the differences between the standard and the parsers of Go's standard library, as measured on Go 1.26, and names the releases where a difference changed: `url.Parse` accepts IPvFuture literals such as `http://[v1.x]/` up to Go 1.25.1 and rejects them from Go 1.25.2. The tests of the package pin the differences on every supported version of Go.
 
 ## Testing what a program writes
 
