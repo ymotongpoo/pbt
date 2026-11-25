@@ -72,8 +72,8 @@ func TestHealthStaleOptions(t *testing.T) {
 		opts       []Option
 		warn, fail bool
 	}{
-		{"off", nil, false, false},
-		{"default", []Option{CheckHealth()}, false, false},
+		{"off", nil, true, false},
+		{"default", []Option{CheckHealth()}, true, false},
 		{"warn", []Option{WarnHealth(HealthStale)}, true, false},
 		{"fail", []Option{CheckHealth(HealthStale)}, true, true},
 		{"warn-after-check", []Option{CheckHealth(HealthStale), WarnHealth(HealthStale)}, true, true},

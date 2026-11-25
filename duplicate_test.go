@@ -63,14 +63,14 @@ func TestDistinctInputKeyAndBound(t *testing.T) {
 	d := distinctInputs{}
 	for _, c := range []*T{
 		{size: 1, choices: []uint64{1, 2}},
-		{size: 2, choices: []uint64{1, 2}},
+		{size: 2, choices: []uint64{1, 2}}, // the size is not part of the key
 		{size: 1, choices: []uint64{2, 1}},
 		{size: 1, choices: []uint64{1}},
 		{size: 1, choices: []uint64{1, 2}, prefix: []uint64{99, 99, 99}},
 	} {
 		d.add(c)
 	}
-	if len(d.seen) != 4 || d.cases != 5 {
+	if len(d.seen) != 3 || d.cases != 5 {
 		t.Fatal(d)
 	}
 	d = distinctInputs{}
@@ -154,9 +154,15 @@ func TestHealthDuplicatePreservesChoicesAndOtherDiagnostics(t *testing.T) {
 			t.Fatal(out)
 		}
 	}
-	// Size is part of the key even when the choices are empty.
-	tb := healthRun(func(pt *T) { Just(pt.Size()).Draw(pt, "size") }, Checks(20), WarnHealth(HealthDuplicate))
-	if strings.Contains(healthOutput(tb), "health: HealthDuplicate:") {
+	// The size is not part of the key: a run whose sizes grow still finds
+	// that a Bool property has two inputs, at the price of counting a value
+	// that depends on the size alone as a duplicate.
+	tb := healthRun(func(pt *T) { Bool().Draw(pt, "b") }, Checks(40), WarnHealth(HealthDuplicate))
+	if !strings.Contains(healthOutput(tb), "health: HealthDuplicate:") {
+		t.Fatal(healthOutput(tb))
+	}
+	tb = healthRun(func(pt *T) { Just(pt.Size()).Draw(pt, "size") }, Checks(20), WarnHealth(HealthDuplicate))
+	if !strings.Contains(healthOutput(tb), "health: HealthDuplicate:") {
 		t.Fatal(healthOutput(tb))
 	}
 	// The entire choice stream is a proxy, not a hash of returned values.

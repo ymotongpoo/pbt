@@ -13,8 +13,8 @@ import (
 )
 
 // HealthCheck identifies a diagnostic about a property's generation or replay.
-// Most checks warn by default; HealthStale and HealthDuplicate require
-// WarnHealth or CheckHealth.
+// Every check warns by default except HealthDuplicate, which WarnHealth or
+// CheckHealth must name.
 // CheckHealth upgrades selected warnings to errors and IgnoreHealth silences
 // them. None changes the distribution of generated values.
 type HealthCheck uint8
@@ -32,9 +32,10 @@ const (
 	HealthFlaky
 	// HealthShrink reports shrinking stopped by its time or step budget.
 	HealthShrink
-	// HealthStale diagnoses saved draw comments that differ from replay. Enable
-	// it with WarnHealth(HealthStale) or CheckHealth(HealthStale); it is excluded
-	// from CheckHealth's default set because generators can change intentionally.
+	// HealthStale diagnoses a saved case whose draw comments differ from the
+	// draws of its replay: the generator changed since the case was saved, so
+	// the replay tests a different input. It warns by default and is excluded
+	// from CheckHealth's default set because generators change intentionally.
 	// It compares saved draw text, whose fixed 2000-byte value
 	// prefix is independent of ReportLimit. Changes hidden by truncation may go
 	// undetected. Draws containing pointers, functions, channels, custom
@@ -43,11 +44,14 @@ const (
 	// HealthDuplicate diagnoses fewer than half distinct inputs over at least
 	// 20 non-discarded cases from ordinary random generation. Passing and failing
 	// cases count; replay, shrinking and targeted search (including its random
-	// restarts) do not. Keys hash consumed choices and size, not rendered values.
-	// Different choices that map to the same value can hide duplication.
+	// restarts) do not. Keys hash the consumed choices, not the size or the
+	// rendered values: the size grows from case to case, so counting it would
+	// make most cases of a default run distinct. Different choices that map to
+	// the same value can hide duplication, and a value that depends on the
+	// size alone, such as Just(t.Size()), counts as a duplicate.
 	// The check stops after more than 4096 distinct keys; 64-bit hash collisions
-	// are possible. Enable it with WarnHealth or CheckHealth. It is excluded
-	// from CheckHealth's default set because small domains are often intentional.
+	// are possible. It is off until WarnHealth or CheckHealth names it, because
+	// small domains are often intentional.
 	HealthDuplicate
 )
 
@@ -97,11 +101,11 @@ func CheckHealth(checks ...HealthCheck) Option {
 }
 
 // WarnHealth enables the named optional health diagnostics as warnings.
-// HealthStale and HealthDuplicate are off until named here or in CheckHealth,
-// preserving the output of existing tests. Other checks already warn by default.
+// HealthDuplicate is off until named here or in CheckHealth, so that
+// properties over small domains stay quiet. Other checks already warn by default.
 // With no arguments this changes nothing. CheckHealth upgrades a warning to an error;
 // IgnoreHealth silences it regardless of option order. The flag -pbt.warnhealth
-// accepts the same names, such as -pbt.warnhealth=stale; flag and option add up.
+// accepts the same names, such as -pbt.warnhealth=duplicate; flag and option add up.
 func WarnHealth(checks ...HealthCheck) Option {
 	checks = append([]HealthCheck(nil), checks...)
 	return func(c *config) {
@@ -114,9 +118,13 @@ func WarnHealth(checks ...HealthCheck) Option {
 	}
 }
 
-// healthEnabled selects optional diagnostics without changing existing ones.
+// healthEnabled reports whether a diagnostic runs. HealthDuplicate is the only
+// optional one; the others run unless IgnoreHealth names them.
 func (c config) healthEnabled(h HealthCheck) bool {
-	return !c.ignoreHealth[h] && (c.warnHealth[h] || c.checkHealth[h])
+	if c.ignoreHealth[h] {
+		return false
+	}
+	return h != HealthDuplicate || c.warnHealth[h] || c.checkHealth[h]
 }
 
 // parseHealthChecks reads -pbt.warnhealth, -pbt.checkhealth or -pbt.ignorehealth:

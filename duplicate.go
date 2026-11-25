@@ -34,7 +34,6 @@ func (d *distinctInputs) add(t *T) {
 		binary.LittleEndian.PutUint64(buf[:], n)
 		h.Write(buf[:])
 	}
-	write(uint64(t.size))
 	write(uint64(len(t.choices)))
 	for _, choice := range t.choices {
 		write(choice)
@@ -58,7 +57,7 @@ func (d *distinctInputs) note() *healthNote {
 	if d.saturated || d.cases < duplicateMinCases || len(d.seen)*2 >= d.cases {
 		return nil
 	}
-	return &healthNote{HealthDuplicate, fmt.Sprintf("only %d of %d generated inputs were distinct by choices and size; possible causes include a small domain such as Bool or SampledFrom, a low maximum size, or more Checks than the input space has values", len(d.seen), d.cases)}
+	return &healthNote{HealthDuplicate, fmt.Sprintf("only %d of %d generated inputs were distinct by their choices; possible causes include a small domain such as Bool or SampledFrom, a low maximum size, or more Checks than the input space has values", len(d.seen), d.cases)}
 }
 
 func (r *runner) observeDistinct(t *T, targeted bool) {
