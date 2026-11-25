@@ -42,3 +42,18 @@ func Failure(t *testing.T, prop pbt.Property, opts ...pbt.Option) string {
 	t.Logf("pbt caught the planted bug:\n%s", report)
 	return report
 }
+
+// Failures returns every failure report, for properties run with MaxFailures.
+// Like Failure, it fails t when the property passes and saves no cases.
+func Failures(t *testing.T, prop pbt.Property, opts ...pbt.Option) []string {
+	t.Helper()
+	rec := &recorder{name: t.Name()}
+	pbt.Check(rec, prop, append([]pbt.Option{pbt.NoSave()}, opts...)...)
+	if len(rec.errors) == 0 {
+		t.Fatalf("the property was expected to fail but passed; logs: %q", rec.logs)
+	}
+	for _, report := range rec.errors {
+		t.Logf("pbt caught the planted bug:\n%s", report)
+	}
+	return rec.errors
+}

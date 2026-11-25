@@ -35,6 +35,9 @@ type Options struct {
 	// both balances before it writes both, so the credit overwrites the
 	// debit and the account gains the amount.
 	AllowSelfTransfer bool
+	// AllowOverdraft skips the funds check, so a sequential transfer can
+	// leave the source account negative while conserving the total.
+	AllowOverdraft bool
 	// TwoPhase checks the balance and moves the money in two separate
 	// critical sections. Two concurrent transfers from one account can then
 	// both pass the check, and the account goes negative.
@@ -74,7 +77,7 @@ func (l *Ledger) Transfer(from, to string, amount int) error {
 	if !fromOK || !toOK {
 		return ErrUnknownAccount
 	}
-	if fromBal < amount {
+	if fromBal < amount && !l.opts.AllowOverdraft {
 		return ErrInsufficient
 	}
 	if l.opts.TwoPhase {
