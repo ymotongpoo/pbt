@@ -37,8 +37,7 @@ Hegel column reflects the Go frontend of the
 [hegel](https://github.com/hegeldev/hegel) monorepo at commit 980d45f, a
 library on the Hypothesis engine that calls a native library. The ephyra
 column reflects [ephyra](https://github.com/datadog-labs/ephyra) v0.0.1 at
-commit 3983b2e, a Rust library from Datadog. The pbt column describes the
-main branch after v0.4.0.
+commit 3983b2e, a Rust library from Datadog. The pbt column describes v0.5.0.
 
 | Feature | PropEr | QuickCheck | rapid v1.3.0 | Hegel (Go) | ephyra | pbt |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -259,7 +258,7 @@ shrinking is the opposite of pbt's: users write the shrinker and the
 mutator of every generator, and the library checks that both stay in the
 generator's support. pbt keeps choice sequences, so a shrink candidate is a
 value the generator produced and needs no such check. The features below do
-not depend on that choice, and the release after v0.4.0 takes them.
+not depend on that choice, and v0.5.0 takes them.
 
 Causality analysis follows Antithesis and ephyra's `loops::causality`. A
 failing stateful program is cut after k commands, the rest is drawn again
@@ -605,8 +604,8 @@ escape and the enforced column width, both recorded in the chapter's
 README. Visualization stays at the verbose shrink log. As of 2026-11-24,
 Phase 7 is implemented for v0.4.0: it adopts the diagnostics and the
 generators of standard formats that Hegel offers, and keeps the engine in
-pure Go. As of 2026-11-25, Phase 8 is implemented on the main branch for
-the next release; the section "Ideas from ephyra" describes it.
+pure Go. As of 2026-11-25, Phase 8 is implemented for v0.5.0; the section
+"Ideas from ephyra" describes it.
 
 ## What Go offers
 
