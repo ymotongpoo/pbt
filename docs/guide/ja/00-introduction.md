@@ -7,7 +7,9 @@ pbtは入力を生成し、失敗した入力を小さなケースへ縮小し�
 機能の範囲はErlangの[PropEr](https://proper-testing.github.io/)に合わせています。
 分布を利用者が制御できる生成器、その制御を確かめる統計、モデルに対するステートフルテストと並行テスト、状態機械、標的型探索、存在性のプロパティです。
 
-このガイドはpbt v0.3.3を対象にしています。
+このガイドはpbt v0.4.0と、次のリリースに入るmainブランチの追加分を対象にしています。
+追加分は、因果分析、失敗の識別子への命名、2つのヘルスチェック、時間予算、機械可読の出力、カバレッジ誘導探索です。
+リリースまでは `go get go.ymotongpoo.com/pbt@main` でインストールできます。
 `go test` でテストを書いていることを前提にしています。
 関数ごとの説明は[パッケージドキュメント](https://pkg.go.dev/go.ymotongpoo.com/pbt)にあります。
 ここでは、部品どうしがどう組み合わさるか、どの場面でどれを使うかを説明します。
@@ -15,7 +17,7 @@ pbtは入力を生成し、失敗した入力を小さなケースへ縮小し�
 ## インストール
 
 ```sh
-go get go.ymotongpoo.com/pbt@v0.3.3
+go get go.ymotongpoo.com/pbt@v0.4.0
 ```
 
 pbtはGo 1.25以降で動き、標準ライブラリ以外に依存しません。
@@ -48,13 +50,12 @@ pbtはGo 1.25以降で動き、標準ライブラリ以外に依存しません�
 
 <!-- snippet: intro_test.go#biggest -->
 
-`pbt.Check(t, biggestProperty)` を実行すると、次の報告が出ます。
+ガイドのテストは `biggestProperty` を `Seed(1)` と `NoSave()` 付きで実行し、次の報告を得ています。
 
 ```text
 [pbt] property failed after 12 passed checks and 20 shrink steps (size 13)
 [pbt] xs (SliceOfN(Int(), 1, -1)) = []int{-1}
 [pbt] error: biggest([-1]) = 0, want -1
-[pbt] saved to testdata/pbt/TestBiggest/5a0c…; go test replays it until the file is deleted
 [pbt] reproduce: go test -run 'TestBiggest' -pbt.seed=0x1
 ```
 
@@ -71,10 +72,11 @@ pbtはGo 1.25以降で動き、標準ライブラリ以外に依存しません�
 `error:` の行は `Fatalf` に渡したメッセージです。
 ログの行、パニック、`OnFail` のコールバックの出力もここに並びます。
 
-このケースは `testdata/pbt` の下の、テスト名のディレクトリに保存されました。
-次の `go test` は新しいケースを生成する前にこれを再実行するので、直すまでバグは見え続けます。
-ファイルは削除しても、回帰テストとして残してもかまいません。
 最後の行は、シードを含めて同じ実行を再現するコマンドです。
+
+`NoSave` を付けなければ、pbtはこのケースを `testdata/pbt` の下の、テスト名のディレクトリにも保存します。
+次の実行は、新しいケースを生成する前にこれを再実行します。
+バグを直した後も、このファイルは回帰テストのケースとして残してください。
 
 ## このガイドの構成
 
@@ -84,3 +86,4 @@ pbtはGo 1.25以降で動き、標準ライブラリ以外に依存しません�
 8章は標的型探索と存在性のプロパティ、9章は型から導く生成器です。
 10章は、規格が定める形式の文字列を扱います。
 11章では、例題の移植、rapidからの移行ガイド、参照資料を案内します。
+[12章](12-agents.md)は、コーディングエージェントがプロジェクトをテストするための手順を、プロパティの選び方から再現できるバグの報告まで示します。

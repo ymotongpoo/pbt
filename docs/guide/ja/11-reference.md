@@ -1,5 +1,5 @@
 # 次に読むもの
-<!-- summary: PropEr Testingの書籍を移植した例題、実践的な例題、プロパティの発見を扱う本の例題、rapid利用者向けの移行ガイド、参照資料、フラグの一覧。 -->
+<!-- summary: PropEr Testingの書籍を移植した例題、実践的な例題、プロパティの発見を扱う本の例題、rapid利用者向けの移行ガイド、参照資料、探索と診断と機械可読の出力のフラグの一覧。 -->
 
 ## 例題の移植
 
@@ -77,11 +77,17 @@ go test ./... -pbt.checks=1000          # ケース数を増やす
 go test ./... -pbt.seed=0x1c3           # 実行を繰り返す
 go test ./... -pbt.startsize=10 -pbt.maxsize=100
 go test ./... -pbt.shrinktime=2m
+go test ./... -pbt.checks=1000000 -pbt.budget=30s # 時間で区切った探索
 go test ./... -pbt.searchsteps=5000     # 標的型探索を長くする
 go test ./... -pbt.failures=3           # 種類の異なる失敗を3件まで集める
+go test ./... -pbt.causality=32         # 逐次の接頭辞ごとの継続の数
+go test ./... -pbt.warnhealth=duplicate # 選択の重複を警告する
 go test ./... -pbt.checkhealth=default  # 無駄な入力や大きすぎる入力で失敗にする
 go test ./... -pbt.ignorehealth=slow    # 時間の警告を隠す
 go test ./... -pbt.nosave               # testdata/pbt に書き込まない
 go test ./... -pbt.replay=testdata/pbt/TestQueue/3f2a… -run TestQueue
 go test ./... -pbt.v                    # 要約と縮小のステップを表示する
+go test ./... -pbt.json=runs.jsonl       # 実行ごとに1行のJSON
+go test ./... -pbt.observe=observations  # Tycheが読むOpenPBTStatsのファイル
+go test -cover -coverpkg=./... ./... -pbt.coverage # 実行中のブロック単位のカバレッジで導く
 ```

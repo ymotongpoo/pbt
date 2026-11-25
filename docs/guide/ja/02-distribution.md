@@ -95,13 +95,16 @@ pbtは観測した割合の99.7%信頼区間であるWilsonスコア区間を計
 
 統計は、利用者が立てた問いに答えます。
 ヘルスチェックは、利用者が思い付かないかもしれない問い、つまり実行がケースを無駄なく使っているかに答えます。
-`Check` はすべての実行を監視し、入力に関する3つの問題を警告します。
+`Check` はすべての実行を監視し、無駄になった入力、手間のかかる生成、保存した入力の変化を警告します。
+オプションの検査を有効にすると、選択の重複も検出します。
 
 | 検査 | 警告する条件 |
 | --- | --- |
 | `HealthFilter` | ケースの半数以上（かつ20件以上）が、`Assume`、`Skip`、または引き直しを諦めた `Filter` で破棄された。または、`Filter` が100個以上の値のうち9割を却下した |
 | `HealthLarge` | ケースの5分の1が、それぞれ10,000個を超える選択を取り出した |
 | `HealthSlow` | プロパティ自身の処理を除いた値の取り出しに、1ケースあたり10ミリ秒、合計で1秒かかった |
+| `HealthStale` | 保存したケースの取り出しのコメントが、再実行で得た取り出しと異なる。デフォルトで警告する |
+| `HealthDuplicate` | 破棄されなかった20件以上のランダムなケースのうち、選択列が異なる入力が半分に満たない。デフォルトでは無効 |
 
 長い文字列だけを残すプロパティでは、表の最初の検査 `HealthFilter` が警告を出します。
 
@@ -117,12 +120,44 @@ pbtは観測した割合の99.7%信頼区間であるWilsonスコア区間を計
 `Filter` ならその説明、`Assume` や `Skip` なら呼び出した行です。
 `HealthLarge` は、最も多くの選択を使った取り出しを示します。
 
-ヘルスチェックはデフォルトでは `Cover` と同じく警告だけを出し、実行は通過します。
+`HealthDuplicate` 以外のヘルスチェックは、デフォルトでは `Cover` と同じく警告だけを出し、実行は通過します。
 `CheckHealth()` を付けると、`HealthFilter` か `HealthLarge` の警告が出た実行は、プロパティが通過していても失敗になります。
 `CheckHealth(HealthSlow)` は時間の検査を加えます。
 負荷の高いCIマシンでは引っかかることがあるので、この検査はデフォルトでは含めていません。
-`IgnoreHealth(checks...)` は検査を隠し、`CheckHealth` より優先されます。
+`CheckHealth(HealthStale)` を付けると、保存したケースの陳腐化が通過した実行を失敗にします。
+生成器は意図して変えることもあるので、`CheckHealth()` はこの検査を警告のまま残します。
+`IgnoreHealth(checks...)` は検査を隠し、`CheckHealth` と `WarnHealth` より優先されます。
+
 フラグ `-pbt.checkhealth` と `-pbt.ignorehealth` は同じ検査を名前で受け取り、`go test` の実行中のすべての `Check` に効きます。
 例えば `-pbt.checkhealth=default,slow` です。
 失敗した実行には、さらに `HealthFlaky` と `HealthShrink` の2つの検査が働きます。
 この2つは3章で説明します。
+
+`HealthStale` の警告は、保存した同じ選択が、今は別の取り出しの文字列になることを意味します。
+直したはずのバグがまだ失敗するという意味ではありません。
+警告は、ファイルと、最初に変わった取り出しを示します。
+再実行の結果を信じる前に何を確かめればよいかは、[4章](04-properties.md#シード保存したケース再実行)で説明します。
+
+`WarnHealth(HealthDuplicate)` か `-pbt.warnhealth=duplicate` を付けると、重複の警告が有効になります。
+`CheckHealth(HealthDuplicate)` を付けると、エラーとして有効になります。
+引数のない `WarnHealth()` は何も変えません。
+ヘルスチェックのフラグとオプションは足し合わされ、`CheckHealth` がエラーにした検査を `WarnHealth` で警告に戻すことはできません。
+
+<!-- snippet: diagnostics_test.go#duplicate -->
+
+真偽値の定義域には値が2つしかないので、この実行は意図して同じ値を繰り返します。
+
+```text
+[pbt] health: HealthDuplicate: only 2 of 20 generated inputs were distinct by their choices; possible causes include a small domain such as Bool or SampledFrom, a low maximum size, or more Checks than the input space has values (CheckHealth(HealthDuplicate) makes this fail; IgnoreHealth(HealthDuplicate) hides it)
+```
+
+`HealthDuplicate` は、通常のランダムな生成で得た、通過したケースと失敗したケースを数えます。
+破棄されたケース、保存したケースの再実行、縮小、標的型探索は数えません。
+カバレッジ誘導探索の変異も数えません。
+キーには使った選択のハッシュを使い、サイズは含めません。
+サイズは実行の間に増えるので、含めると序盤のほとんどのケースで選択の重複が見えなくなります。
+
+この数は、異なる値の数の近似です。
+異なる選択が同じ値になることもあり、サイズだけから導いた値は重複として数えられます。
+異なるキーが4096を超えると数えるのをやめます。
+小さな定義域は意図したものであることも多いので、この検査は明示的なオプションを必要とします。

@@ -1,5 +1,5 @@
 # 縮小
-<!-- summary: 失敗したケースが縮小される仕組み、よく縮む生成器の書き方、ShrinkToとIntRangeTowardによる誘導、LetShrinkとNoShrink、SampleShrinkによる縮小の観察、失敗の種類が保たれる理由、再現しない失敗が意味すること。 -->
+<!-- summary: 失敗したケースが縮小される仕組み、よく縮む生成器の書き方、ShrinkToとIntRangeTowardによる誘導、LetShrinkとNoShrink、SampleShrinkによる縮小の観察、失敗の種類が保たれる理由、Signatureによる原因の命名、再現しない失敗が意味すること。 -->
 
 ケースが失敗すると、pbtは同じ失敗をするもっと単純なケースを探し、そちらを報告します。
 この探索はすべての生成器について自動で働きます。
@@ -119,6 +119,39 @@ PropErの `sampleshrink` と同じです。
 最初の失敗が割引の誤りだったときは、ケースは101へ縮みます。
 どちらにしても、報告はその実行が見つけたバグを記述します。
 ステートフルテストは失敗をコマンドと検査の種類で区別するので、あるコマンドの事後条件の失敗が別のコマンドのパニックに変わることはありません。
+
+1つのアサーションの位置が、複数の原因を受け持つことがあります。
+`t.Signature(name)` は、現在のケースの原因に安定した名前を付けます。
+次の例は[4章のポートのプロパティ](04-properties.md#1回の実行での複数の失敗)を書き換え、2つのバグを1つの `Fatalf` で報告します。
+
+<!-- snippet: diagnostics_test.go#signature -->
+
+`Seed(1)` と `MaxFailures(2)` を付けて実行すると、次の報告が出ます。
+
+```text
+[pbt] failure 1 of 2: property failed after 6 passed checks and 9 shrink steps (size 4)
+[pbt] failure was named "accepted invalid port"
+[pbt] s (StringOf(SampledFrom(10 values))) = "0"
+[pbt] error: parsePort("0"): accepted invalid port
+[pbt] reproduce: go test -run 'TestNamedPort' -pbt.seed=0x1 -pbt.failures=2
+[pbt] failure 2 of 2: property failed after 6 passed checks and 90 shrink steps (size 8)
+[pbt] failure was named "rejected valid port"
+[pbt] s (StringOf(SampledFrom(10 values))) = "7000"
+[pbt] error: parsePort("7000"): rejected valid port
+[pbt] reproduce: go test -run 'TestNamedPort' -pbt.seed=0x1 -pbt.failures=2
+```
+
+名前は、アサーションの位置、パニックの型と位置、ステートフルテストのコマンドの検査に代わって、失敗の識別子になります。
+縮小はその名前を保ち、`MaxFailures` は名前の違う失敗を別の失敗として数えます。
+複数の失敗を集めるときの保存ファイル名の接尾辞と、`HealthFlaky` の再実行での比較にも、同じ識別子を使います。
+
+名前には原因を表す語を使い、生成した値を含めないでください。
+値を含めると、値ごとに別の失敗になり、縮小が進まなくなります。
+`Signature` を呼ばなければ、自動の識別子がそのまま使われます。
+失敗の前に呼んでも後に呼んでもかまいません。
+遅延呼び出しやクリーンアップのコールバックの中での呼び出しも含めて、最後の呼び出しが有効です。
+`Conjunction` は1つのケースを共有するので、どの部分で付けた名前もケース全体の名前になります。
+通過したケースでは、名前は無視されます。
 
 ## 失敗が再現しないとき
 
