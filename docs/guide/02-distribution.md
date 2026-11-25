@@ -58,13 +58,15 @@ The run stopped after 125 cases, once the interval excluded 30%. The observed sh
 
 ## Health checks
 
-Statistics answer the questions you ask. Health checks answer the ones you might not think of: whether the run spends its cases well. `Check` watches every run and warns about three problems with the input.
+Statistics answer the questions you ask. Health checks answer the ones you might not think of: whether the run spends its cases well. `Check` watches every run and warns about wasted input, expensive generation and changes to saved inputs. An optional check also detects repeated choices.
 
 | Check | Warns when |
 | --- | --- |
 | `HealthFilter` | half of the cases, and at least 20, are discarded by `Assume`, `Skip` or a `Filter` that gave up; or a `Filter` rejects nine values in ten over at least 100 |
 | `HealthLarge` | a fifth of the cases draw more than 10,000 choices |
 | `HealthSlow` | drawing the values takes 10 ms per case and a second in all, not counting the property's own work |
+| `HealthStale` | a saved case's draw comments differ from the draws produced by replay; warns by default |
+| `HealthDuplicate` | fewer than half the inputs have distinct choice sequences over at least 20 non-discarded random cases; off by default |
 
 A property that keeps only long strings shows the first one.
 
@@ -76,4 +78,22 @@ A property that keeps only long strings shows the first one.
 
 The run passed, but it ran 729 cases to get its 100, and the warning names the line that threw the rest away. A generator that builds long strings, `StringN(8, 40)`, removes the waste. The warning names the busiest sources: the description of a `Filter`, or the line of an `Assume` or a `Skip`. `HealthLarge` names the draws that consumed the most choices.
 
-Health checks warn by default, the way `Cover` does, and the run passes. `CheckHealth()` makes `HealthFilter` and `HealthLarge` fail a passing run. `CheckHealth(HealthSlow)` adds the timing check, which is left out by default because a loaded CI machine can trip it. `IgnoreHealth(checks...)` hides a check and wins over `CheckHealth`. The flags `-pbt.checkhealth` and `-pbt.ignorehealth` take the same names for every `Check` of a `go test` run, for example `-pbt.checkhealth=default,slow`. Two more checks, `HealthFlaky` and `HealthShrink`, apply to failing runs; chapter 3 describes them.
+All health checks except `HealthDuplicate` warn by default, the way `Cover` does, and the run passes. `CheckHealth()` makes `HealthFilter` and `HealthLarge` fail a passing run. `CheckHealth(HealthSlow)` adds the timing check, which is left out by default because a loaded CI machine can trip it. `CheckHealth(HealthStale)` makes stale replay fail a passing run; `CheckHealth()` leaves it as a warning because generators can change intentionally. `IgnoreHealth(checks...)` hides a check and wins over both `CheckHealth` and `WarnHealth`.
+
+The flags `-pbt.checkhealth` and `-pbt.ignorehealth` take the same names for every `Check` of a `go test` run, for example `-pbt.checkhealth=default,slow`. Two more checks, `HealthFlaky` and `HealthShrink`, apply to failing runs; chapter 3 describes them.
+
+`HealthStale` means that the same saved choices now describe different draw text. It does not mean that a fixed bug still fails. The warning identifies the file and the first changed draw. [Chapter 4](04-properties.md#seeds-saved-cases-and-replay) explains what to inspect before trusting the replay.
+
+`WarnHealth(HealthDuplicate)` or `-pbt.warnhealth=duplicate` enables the duplicate warning. `CheckHealth(HealthDuplicate)` enables it as an error. `WarnHealth()` with no arguments changes nothing. Health flags and options add up; `WarnHealth` cannot downgrade a check that `CheckHealth` makes an error.
+
+<!-- snippet: diagnostics_test.go#duplicate -->
+
+The Boolean domain has only two values. This run intentionally repeats them:
+
+```text
+[pbt] health: HealthDuplicate: only 2 of 20 generated inputs were distinct by their choices; possible causes include a small domain such as Bool or SampledFrom, a low maximum size, or more Checks than the input space has values (CheckHealth(HealthDuplicate) makes this fail; IgnoreHealth(HealthDuplicate) hides it)
+```
+
+`HealthDuplicate` counts passing and failing cases from ordinary random generation. It excludes discards, saved-case replay, shrinking and targeted search. Coverage-guided mutations also do not count. The key hashes the consumed choices, without the size. Sizes grow during a run, so including size would hide repeated choices in most early cases.
+
+This count is a proxy for distinct values. Different choices can map to the same value, and values derived only from size can count as duplicates. Tracking stops after more than 4096 distinct keys. A small domain can be intentional, which is why this check needs an explicit option.

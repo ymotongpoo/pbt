@@ -1,5 +1,5 @@
 # Where to go next
-<!-- summary: The examples that port the PropEr Testing book, the practical examples, the examples of the book on discovering properties, the migration guide for rapid users, the reference material and the flags at a glance. -->
+<!-- summary: The examples that port the PropEr Testing book, the practical examples, the examples of the book on discovering properties, the migration guide for rapid users, the reference material and the flags for search, diagnostics and machine-readable output at a glance. -->
 
 ## The examples
 
@@ -57,11 +57,17 @@ go test ./... -pbt.checks=1000          # more cases
 go test ./... -pbt.seed=0x1c3           # repeat a run
 go test ./... -pbt.startsize=10 -pbt.maxsize=100
 go test ./... -pbt.shrinktime=2m
+go test ./... -pbt.checks=1000000 -pbt.budget=30s # time-limited search
 go test ./... -pbt.searchsteps=5000     # longer targeted searches
 go test ./... -pbt.failures=3           # collect up to three distinct failures
+go test ./... -pbt.causality=32         # continuations per sequential prefix
+go test ./... -pbt.warnhealth=duplicate # warn about repeated choices
 go test ./... -pbt.checkhealth=default  # fail on wasted or oversized input
 go test ./... -pbt.ignorehealth=slow    # hide the timing warning
 go test ./... -pbt.nosave               # keep testdata/pbt untouched
 go test ./... -pbt.replay=testdata/pbt/TestQueue/3f2a… -run TestQueue
 go test ./... -pbt.v                    # summaries and shrink steps
+go test ./... -pbt.json=runs.jsonl       # one JSON line per run
+go test ./... -pbt.observe=observations  # OpenPBTStats files for Tyche
+go test -cover -coverpkg=./... ./... -pbt.coverage # guide with live block coverage
 ```
