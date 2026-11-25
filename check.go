@@ -83,6 +83,7 @@ type config struct {
 	hasSeed      bool
 	startSize    int
 	maxSize      int
+	budget       time.Duration
 	shrinkTime   time.Duration
 	noSave       bool
 	testdata     string
@@ -193,6 +194,7 @@ func newConfig(opts []Option) (config, error) {
 		hasSeed:     *flagSeed != 0,
 		startSize:   *flagStartSize,
 		maxSize:     *flagMaxSize,
+		budget:      *flagBudget,
 		shrinkTime:  *flagShrinkTime,
 		noSave:      *flagNoSave,
 		testdata:    defaultTestdata,
@@ -229,6 +231,8 @@ func newConfig(opts []Option) (config, error) {
 	switch {
 	case c.causality < 0:
 		return c, fmt.Errorf("Causality(%d): need at least 0 continuations", c.causality)
+	case c.budget < 0:
+		return c, fmt.Errorf("Budget(%s): need a nonnegative duration", c.budget)
 	case c.maxFailures < 1:
 		return c, fmt.Errorf("MaxFailures(%d): need at least one failure", c.maxFailures)
 	case c.checks < 1:
@@ -353,6 +357,7 @@ func CheckExists(tb TB, prop Property, opts ...Option) {
 
 type runner struct {
 	causality   []string
+	budgetEnded bool
 	failures    []*T
 	savedPaths  map[string]string
 	health      *healthStats
@@ -413,8 +418,12 @@ func (r *runner) reportStats(passed int) {
 	if st == nil {
 		st = newStats()
 	}
-	if r.cfg.verbose || !st.empty() || len(r.objectives) > 0 {
-		lines := []string{fmt.Sprintf("OK, passed %d checks (seed 0x%x)", passed, r.cfg.seed)}
+	if r.cfg.verbose || !st.empty() || len(r.objectives) > 0 || r.budgetEnded {
+		summary := fmt.Sprintf("OK, passed %d checks (seed 0x%x)", passed, r.cfg.seed)
+		if r.budgetEnded {
+			summary = fmt.Sprintf("OK, passed %d checks in the %s budget (seed 0x%x)", passed, r.cfg.budget, r.cfg.seed)
+		}
+		lines := []string{summary}
 		for _, o := range r.objectives {
 			lines = append(lines, fmt.Sprintf("best %s = %s over %d search steps", o.name, formatNum(o.bestValue), passed))
 		}
@@ -448,6 +457,10 @@ func (r *runner) reportStats(passed int) {
 // case.
 func (r *runner) search() (found *T, passed int, err error) {
 	cfg := r.cfg
+	var deadline time.Time
+	if cfg.budget > 0 {
+		deadline = time.Now().Add(cfg.budget)
+	}
 	r.stats = newStats()
 	discards := 0
 	tried := 0
@@ -463,6 +476,13 @@ func (r *runner) search() (found *T, passed int, err error) {
 			if !extend {
 				return nil, passed, nil
 			}
+		}
+		if cfg.budget > 0 && !time.Now().Before(deadline) {
+			r.budgetEnded = true
+			if r.exists || len(r.failures) > 0 {
+				r.tb.Logf("[pbt] search stopped after %d cases and %d discards in the %s budget (seed 0x%x)", tried, discards, cfg.budget, cfg.seed)
+			}
+			return nil, passed, nil
 		}
 		rng := newRand(caseSeed(cfg.seed, uint64(tried+discards)))
 		temp := 1 - float64(tried)/float64(limit)
