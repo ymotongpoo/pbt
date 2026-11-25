@@ -197,6 +197,24 @@ func writeFile(dst, content string) error {
 	return os.WriteFile(dst, []byte(content), 0o644)
 }
 
+// agentWorkflow is the section of llms.txt for a coding agent asked to test
+// a project with pbt: the steps of chapter 12 in order, each with the tools
+// it needs and a link to the section that explains it, so that the agent
+// can start working from this file and read the chapter where it needs to.
+var agentWorkflow = strings.ReplaceAll(`## Testing a project with pbt
+
+A coding agent asked to find bugs in a project with pbt works in these steps. Each step links to its section of [Testing a project with an agent](BASE12-agents.md), which explains it.
+
+1. [Establish the contract](BASE12-agents.md#establish-the-contract). Read the project's documentation, public types, tests and fixtures, and the standards it follows. Pick the few places where a bug would hurt most, and write down for each the input domain, the expected result and the sentence that requires it. Do not invent requirements.
+2. [Choose an oracle](BASE12-agents.md#choose-an-oracle). From the cheapest up: no panic (NoPanic, or a call inside Check), a round trip, a reference model checked by Commands and postconditions, invariants after every step, a metamorphic check, a differential check against another implementation.
+3. [Build valid inputs](BASE12-agents.md#build-inputs-that-exercise-the-contract). Construct valid values instead of filtering: Bind for dependent fields, Frequency for the mix, the format package for standard text, Make or pbtgen for Go types, command sequences for state. Check the distribution with Classify, Cover and CheckCoverage, and read the health warnings.
+4. [Run in stages](BASE12-agents.md#run-in-stages). Run the default 100 checks, then more with -pbt.checks, several -pbt.seed values and -pbt.budget. Collect several causes with -pbt.failures and t.Signature. Read results from -pbt.json instead of the console text; -pbt.observe writes OpenPBTStats records for Tyche; -pbt.coverage under go test -cover helps with chains of comparisons.
+5. [Investigate a failure](BASE12-agents.md#investigate-a-failure). Keep the case saved under testdata/pbt and run the report's reproduce line, or -pbt.replay=FILE. For a stateful failure, Causality(n) points at the command after which the failure became likely. Triage it as a real bug, a test bug, intended behaviour or the environment.
+6. [Extend a passing test](BASE12-agents.md#extend-a-passing-test). A pass covers only the generated cases and the assertions that ran. Look for missing shapes in the statistics and in go test -coverprofile, add an independent oracle, count what Assume and Filter remove, raise -pbt.maxsize, then move to another part of the project.
+7. [Preserve the evidence](BASE12-agents.md#preserve-the-evidence). Never weaken or delete a property, or delete a saved case, to make a run pass, and change the code under test only after a failing test shows the defect. A bug report carries the versions, the minimal input, the commands, the expected and the actual result, and the sentence of the documentation that requires the expected one.
+
+`, "BASE", canonicalBase)
+
 // llmsTxt is the index of the documentation in the format of
 // https://llmstxt.org/: the name, a summary, the sections of links with a
 // description each, and the secondary links under Optional.
@@ -205,7 +223,7 @@ func llmsTxt(byLang map[string][]chapter, version string) string {
 	b.WriteString("# pbt\n\n")
 	b.WriteString("> pbt is a property-based testing library for Go with the feature set of Erlang's PropEr: generators whose distribution you control, statistics that check it, stateful and parallel command testing, state machines, targeted search and existential properties. Module path go.ymotongpoo.com/pbt; Apache License 2.0; Go 1.25 or later.\n\n")
 	fmt.Fprintf(&b, "This file indexes the documentation of pbt %s. Every page of the user guide has a Markdown version at its URL with .md appended, and llms-full.txt holds the whole guide in one file. The package documentation on pkg.go.dev is the reference for every function and option; the repository holds the design notes, the migration guide for rapid users, the changelog and the examples. Stateful tests are written as commands that close over a model and a system kept in the test's variables, with no type parameters; generators are typed, and the type is inferred in nearly every call.\n\n", version)
-	fmt.Fprintf(&b, "Agents testing a project with pbt can start with [Testing a project with an agent](%s12-agents.md).\n\n", canonicalBase)
+	b.WriteString(agentWorkflow)
 	b.WriteString("## User guide\n\n")
 	for _, ch := range byLang["en"] {
 		fmt.Fprintf(&b, "- [%s](%s%s): %s\n", ch.title, canonicalBase, ch.md, ch.summary)
@@ -216,11 +234,12 @@ func llmsTxt(byLang map[string][]chapter, version string) string {
 	b.WriteString("- [README](https://raw.githubusercontent.com/ymotongpoo/pbt/main/README.md): what pbt is, a first property and a stateful property\n")
 	b.WriteString("- [CHANGELOG](https://raw.githubusercontent.com/ymotongpoo/pbt/main/CHANGELOG.md): the changes of each release and how to upgrade\n")
 	b.WriteString("- [MIGRATION](https://raw.githubusercontent.com/ymotongpoo/pbt/main/MIGRATION.md): rapid's API mapped onto pbt, table by table\n")
-	b.WriteString("- [DESIGN](https://raw.githubusercontent.com/ymotongpoo/pbt/main/DESIGN.md): the design decisions, the API listing and the comparison with PropEr, QuickCheck, Hypothesis, rapid and Hegel\n")
+	b.WriteString("- [DESIGN](https://raw.githubusercontent.com/ymotongpoo/pbt/main/DESIGN.md): the design decisions, the API listing and the comparison with PropEr, QuickCheck, Hypothesis, rapid, Hegel and ephyra\n")
 	b.WriteString("- [Examples](https://github.com/ymotongpoo/pbt/tree/main/examples): the PropEr Testing book ported to Go, and practical stateful tests of an HTTP API, a job queue, a rate limiter, a session store and a ledger\n")
 	b.WriteString("- [AGENTS.md](https://raw.githubusercontent.com/ymotongpoo/pbt/main/AGENTS.md): instructions for coding agents that work on the repository itself\n")
 	if ja := byLang["ja"]; len(ja) > 0 {
 		b.WriteString("\n## 利用ガイド（日本語）\n\n")
+		fmt.Fprintf(&b, "プロジェクトをテストするコーディングエージェントは、[エージェントでプロジェクトをテストする](%sja/12-agents.md)の手順に従ってください。\n\n", canonicalBase)
 		for _, ch := range ja {
 			fmt.Fprintf(&b, "- [%s](%sja/%s): %s\n", ch.title, canonicalBase, ch.md, ch.summary)
 		}
