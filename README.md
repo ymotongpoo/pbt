@@ -23,15 +23,34 @@ properties, 『プロパティはどう思いつくのか』 (work in progress).
 [user guide](https://go.ymotongpoo.com/pbt/guide/) explains the library
 chapter by chapter, with a [Japanese version](https://go.ymotongpoo.com/pbt/guide/ja/);
 its sources are under `docs/guide`. Coding agents start from
-[llms.txt](https://go.ymotongpoo.com/pbt/llms.txt), which indexes the
-Markdown version of every guide page, and from [AGENTS.md](AGENTS.md) when
-they work on this repository.
+[llms.txt](https://go.ymotongpoo.com/pbt/llms.txt), which lists the steps
+of testing a project with pbt and indexes the Markdown version of every
+guide page, and from [AGENTS.md](AGENTS.md) when they work on this
+repository.
 
 Requires Go 1.25 or later.
 
 ```go
 import "go.ymotongpoo.com/pbt"
 import "go.ymotongpoo.com/pbt/format" // strings in standard formats
+```
+
+## Testing a project with a coding agent
+
+To have a coding agent look for bugs in a project with pbt, give it a
+prompt such as the one below. The section "Testing a project with pbt" of
+llms.txt lists the steps, and the guide's chapter
+[Testing a project with an agent](https://go.ymotongpoo.com/pbt/guide/12-agents)
+explains each one.
+
+```text
+Test <package or project> with pbt (go.ymotongpoo.com/pbt). Start from
+https://go.ymotongpoo.com/pbt/llms.txt and follow its section "Testing a
+project with pbt". Write properties for the places where a bug would hurt
+most, run them until they find bugs or the evidence says to move on,
+triage every failure, and report each real bug to me with its reproducer.
+Do not change the code under test, weaken a property or delete a saved
+case to make a run pass.
 ```
 
 ## A stateless property
