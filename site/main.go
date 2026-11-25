@@ -47,9 +47,11 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 )
@@ -269,7 +271,70 @@ func linkOf(out string) string {
 var (
 	snippetRef = regexp.MustCompile(`(?m)^<!-- snippet: ([^#\s]+)#(\S+) -->[ \t]*$`)
 	summaryRef = regexp.MustCompile(`(?m)^<!-- summary: (.+?) -->[ \t]*\n`)
+	chapterRef = regexp.MustCompile(`href="(\d\d-[a-z0-9-]+)\.md(#[^"]*)?"`)
 )
+
+// chapterLinks points the links between chapters at the HTML pages. The
+// Markdown sources link to NN-slug.md, which is right for the Markdown
+// versions of the pages; the HTML pages link to the clean URL instead, and
+// the first chapter is served as the index.
+func chapterLinks(html, first string) string {
+	return chapterRef.ReplaceAllStringFunc(html, func(ref string) string {
+		m := chapterRef.FindStringSubmatch(ref)
+		target := m[1]
+		if target+".md" == first {
+			target = "./"
+		}
+		return `href="` + target + m[2] + `"`
+	})
+}
+
+// headingIDs names headings the way GitHub does, so that a link written
+// against the Markdown source works on the site: letters and digits of any
+// script are kept and lowered, spaces, hyphens and underscores become
+// hyphens, and everything else is dropped. For ASCII headings this is
+// goldmark's own rule; goldmark drops every non-ASCII character, which
+// leaves the Japanese headings with numbered placeholders.
+type headingIDs struct{ seen map[string]int }
+
+func newHeadingIDs() *headingIDs { return &headingIDs{seen: map[string]int{}} }
+
+func (h *headingIDs) Generate(value []byte, kind ast.NodeKind) []byte {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(string(value)) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(unicode.ToLower(r))
+		case r == ' ' || r == '\t' || r == '-' || r == '_':
+			b.WriteByte('-')
+		}
+	}
+	id := b.String()
+	if id == "" {
+		id = "heading"
+		if kind != ast.KindHeading {
+			id = "id"
+		}
+	}
+	return []byte(h.unique(id))
+}
+
+func (h *headingIDs) unique(id string) string {
+	n, ok := h.seen[id]
+	h.seen[id] = n + 1
+	if !ok {
+		return id
+	}
+	for i := n; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", id, i)
+		if _, taken := h.seen[candidate]; !taken {
+			h.seen[candidate] = 1
+			return candidate
+		}
+	}
+}
+
+func (h *headingIDs) Put(value []byte) { h.seen[string(value)]++ }
 
 // loadChapters reads the chapters of one language in file-name order. The
 // first chapter becomes index.html; the others keep their name with the
@@ -317,7 +382,8 @@ func loadChapters(md goldmark.Markdown, dir, snippets string) ([]chapter, error)
 			return nil, fmt.Errorf("%s: no level-1 heading", name)
 		}
 		var b bytes.Buffer
-		if err := md.Convert([]byte(text), &b); err != nil {
+		ctx := parser.NewContext(parser.WithIDs(newHeadingIDs()))
+		if err := md.Convert([]byte(text), &b, parser.WithContext(ctx)); err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
 		out := strings.TrimSuffix(name, ".md") + ".html"
@@ -326,7 +392,7 @@ func loadChapters(md goldmark.Markdown, dir, snippets string) ([]chapter, error)
 		}
 		chapters = append(chapters, chapter{
 			file: name, out: out, md: strings.TrimSuffix(out, ".html") + ".md", href: linkOf(out),
-			title: title, summary: summary, text: text, body: template.HTML(b.String()),
+			title: title, summary: summary, text: text, body: template.HTML(chapterLinks(b.String(), names[0])),
 		})
 	}
 	return chapters, nil
