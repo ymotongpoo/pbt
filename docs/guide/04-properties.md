@@ -1,5 +1,5 @@
 # Properties and runs
-<!-- summary: Options and flags, discards, setup and cleanup, property combinators, several failures with MaxFailures and Signature, seeds and stale replay, search time budgets, JSON run reports and OpenPBTStats observations for Tyche. -->
+<!-- summary: Options and flags, discards, setup and cleanup, property combinators, several failures with MaxFailures and Signature, seeds and stale replay, search time budgets, JSON run reports, and OpenPBTStats observations and how to view them in Tyche. -->
 
 This chapter covers the shape of a run: how many cases, which sizes, how discards are handled, what runs before and after a case, how properties combine, and how a failure is reproduced.
 
@@ -156,10 +156,43 @@ The comparison uses rendered text, not deep equality. Truncation can hide change
 
 `Observations(dir)` or `-pbt.observe=dir` appends OpenPBTStats records that Tyche reads. The default empty directory disables observations. pbt creates the directory and writes one file per sanitized test name, such as `observations/TestRecordedRun.jsonl`. Subtest names create subdirectories. Sanitized names can collide; `property` and `run_start` distinguish records in a shared file.
 
-Each `test_case` record includes the input, outcome, generation phase, features and timings. Features include labels, measurements, coverage-requirement hits and target utilities. Timings separate input generation from test execution. Replay and shrink attempts also produce records. A `minimal` record with `metadata.final=true` is a snapshot, not another execution. An `info` record ends the run. The `coverage` field is currently null, even with `CoverageGuided`.
+Each `test_case` record includes the input, outcome, generation phase, features and timings. Timings separate input generation from test execution. Replay and shrink attempts also produce records. A `minimal` record with `metadata.final=true` is a snapshot, not another execution. An `info` record ends the run. The `coverage` field is currently null, even with `CoverageGuided`.
+
+The features of a record hold the statistics of its case, in the form that Tyche draws:
+
+| Call | Feature | Value |
+| --- | --- | --- |
+| `Classify(cond, label)` | `label:<label>` | `"true"` if `cond` held in a call with the label, `"false"` if it held in none; absent if the case did not classify the label |
+| `Collect(v)` | `collect`, then `collect#2`, `collect#3`, … | the `%v` text of each value, in call order |
+| `Aggregate(values...)` | `aggregate:<value>` | the number of times that the case recorded the value |
+| `Measure(name, x)` | `measure:<name>` | the last sample of the case |
+| `Cover(cond, pct, label)` | `cover:<label>` | `1` if the case hit the label, `0` otherwise |
+| `Maximize`, `Minimize` | `target:<name>` | the utility; `Minimize` writes its negation |
+
+Non-finite numbers are the strings `NaN`, `+Inf` and `-Inf`, as in the JSON report. Tyche draws a feature with string values as the share of each value. When a property has two or more such features, Tyche draws one mosaic chart that crosses two of them instead, and the chart leaves out the cases that lack a feature. `Classify` therefore writes `"true"` or `"false"` in every case that classifies the label, so both charts show the share of the cases with the label. `Collect` gives a chart with the share of each value, like the statistics that PropEr prints for `collect`. The console statistics and the JSON report still count the `Collect` calls and the `Classify` calls that held together, by text.
+
+With seed 1, the three cases of the listing above all draw `n = 0`, and each record carries these features. A case with an odd `n` carries `"false"` instead:
+
+```json
+{"label:even":"true"}
+```
 
 ```sh
 go test -count=1 ./... -pbt.json=runs.jsonl -pbt.observe=observations
 ```
 
 A log shipper can tail these files and forward records or derived counts to a log or metrics backend. pbt writes files locally and does not send them over the network. Observations use buffering and flush at the end of a run; abrupt termination can lose buffered records. A write error fails the test, because the requested output was not delivered.
+
+## Viewing observations in Tyche
+
+[Tyche](https://github.com/tyche-pbt/tyche-extension) is a VS Code extension that draws these records: the outcomes of the cases, duplicate inputs, charts of the features and the timings. It finds the files through its setting `tyche.observationGlobs`. The defaults cover only the directories of Hypothesis and QuickCheck, `**/.hypothesis/observed/*.jsonl` and `**/.quickcheck/observations/*.jsonl`. Add a glob for the directory that you pass to `-pbt.observe` to the workspace's `.vscode/settings.json`. The setting replaces the defaults, and the `**` after the directory also matches the subdirectories of subtests:
+
+```json
+{
+  "tyche.observationGlobs": ["**/observations/**/*.jsonl"]
+}
+```
+
+Tyche starts by itself only for languages such as Python and Haskell, not for Go. After a run, open the command palette and run **Tyche: Refresh Live View**. The command starts Tyche and loads every file that matches the globs. Tyche then watches the files and redraws the view from the files that a later run changes. Run the command again when a run creates a new file.
+
+pbt appends to the files across runs. Tyche shows only the latest run of each property, the records with the greatest `run_start`, so the older runs in the files do not change the view.

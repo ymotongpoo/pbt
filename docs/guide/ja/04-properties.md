@@ -1,5 +1,5 @@
 # プロパティと実行
-<!-- summary: 実行のオプションとフラグ、Assumeと破棄、SetupとCleanup、Conjunction、Deadline、OnFail、Recover、NoPanic、MaxFailuresとSignatureによる1回の実行での複数の失敗、シードと保存されたケースの再生と陳腐化、探索の時間予算、JSONの実行報告とTycheが読むOpenPBTStatsの観測記録。 -->
+<!-- summary: 実行のオプションとフラグ、Assumeと破棄、SetupとCleanup、Conjunction、Deadline、OnFail、Recover、NoPanic、MaxFailuresとSignatureによる1回の実行での複数の失敗、シードと保存されたケースの再生と陳腐化、探索の時間予算、JSONの実行報告、Tycheが読むOpenPBTStatsの観測記録とTycheでの表示。 -->
 
 実行の形を決める要素を扱います。
 ケースの数、サイズ、破棄したケースの扱い、ケースの前後に動くもの、プロパティの組み合わせ、失敗の再現です。
@@ -245,12 +245,38 @@ pbtはディレクトリを作り、`observations/TestRecordedRun.jsonl` のよ�
 整えた名前は衝突することがあり、同じファイルに入った記録は `property` と `run_start` で区別します。
 
 `test_case` の記録には、入力、結果、生成の段階、特徴量、所要時間が入ります。
-特徴量には、ラベル、測定値、カバレッジの要求に当たったかどうか、標的の効用が入ります。
 所要時間は、入力の生成とテストの実行を分けて記録します。
 再実行と縮小の試行も記録になります。
 `metadata.final=true` の付いた `minimal` の記録はスナップショットで、もう一度実行したものではありません。
 実行の最後には `info` の記録が入ります。
 `coverage` のフィールドは、`CoverageGuided` を使っても今は `null` です。
+
+記録の特徴量には、そのケースの統計が、Tycheが描く形で入ります。
+
+| 呼び出し | 特徴量 | 値 |
+| --- | --- | --- |
+| `Classify(cond, label)` | `label:<label>` | そのラベルの呼び出しのどれかで `cond` が成り立てば `"true"`、どれでも成り立たなければ `"false"`。ケースがそのラベルを分類しなければキーがない |
+| `Collect(v)` | `collect`、続いて `collect#2`、`collect#3`、… | 呼び出した順の、各値の `%v` の文字列 |
+| `Aggregate(values...)` | `aggregate:<value>` | ケースがその値を記録した回数 |
+| `Measure(name, x)` | `measure:<name>` | ケースの最後の標本 |
+| `Cover(cond, pct, label)` | `cover:<label>` | ケースがラベルに当たれば `1`、当たらなければ `0` |
+| `Maximize`、`Minimize` | `target:<name>` | 効用。`Minimize` は符号を反転した値を書く |
+
+有限でない数は、JSONの報告と同じく文字列の `NaN`、`+Inf`、`-Inf` です。
+Tycheは、値が文字列の特徴量を値ごとの割合として描きます。
+そうした特徴量がプロパティに2つ以上あると、Tycheは代わりにそのうち2つを掛け合わせたモザイク図を1つ描きます。
+モザイク図では、特徴量を持たないケースが除かれます。
+そのため `Classify` は、ラベルを分類したケースには必ず `"true"` か `"false"` を書きます。
+こうすると、どちらの図にもラベルが付いたケースの割合が出ます。
+`Collect` は、PropErが `collect` について表示する統計と同じく、値ごとの割合をグラフにします。
+コンソールの統計とJSONの報告は、これまでどおり `Collect` の呼び出しと、成り立った `Classify` の呼び出しを文字列ごとにまとめて数えます。
+
+シードが1のとき、上のリストの3つのケースはどれも `n = 0` を取り出し、どの記録にも次の特徴量が入ります。
+`n` が奇数のケースでは、値が `"false"` になります。
+
+```json
+{"label:even":"true"}
+```
 
 ```sh
 go test -count=1 ./... -pbt.json=runs.jsonl -pbt.observe=observations
@@ -261,3 +287,29 @@ pbtはファイルを手元に書くだけで、ネットワークには送り�
 観測記録はバッファーにためて実行の最後に書き出すので、異常終了するとバッファーの中の記録が失われることがあります。
 書き込みに失敗するとテストは失敗します。
 求められた出力を届けられなかったからです。
+
+## Tycheで観測記録を見る
+
+[Tyche](https://github.com/tyche-pbt/tyche-extension) は、これらの記録を描くVS Codeの拡張機能です。
+ケースの結果、重複した入力、特徴量のグラフ、所要時間を表示します。
+Tycheは、設定の `tyche.observationGlobs` でファイルを探します。
+デフォルトの値は、HypothesisとQuickCheckのディレクトリである `**/.hypothesis/observed/*.jsonl` と `**/.quickcheck/observations/*.jsonl` だけです。
+ワークスペースの `.vscode/settings.json` に、`-pbt.observe` に渡すディレクトリのglobを足してください。
+この設定はデフォルトの値を置き換えます。
+ディレクトリの後ろの `**` は、サブテストのサブディレクトリにも一致します。
+
+```json
+{
+  "tyche.observationGlobs": ["**/observations/**/*.jsonl"]
+}
+```
+
+Tycheが自分から起動するのはPythonやHaskellなどの言語だけで、Goでは起動しません。
+実行の後でコマンドパレットを開き、**Tyche: Refresh Live View** を実行してください。
+このコマンドはTycheを起動し、globに一致するファイルをすべて読み込みます。
+その後のTycheはファイルを監視し、後の実行で変わったファイルから表示を描き直します。
+実行で新しいファイルができたときは、もう一度コマンドを実行してください。
+
+pbtは実行をまたいでファイルに追記します。
+Tycheはプロパティごとに最新の実行、つまり `run_start` が最も大きい記録だけを表示します。
+そのため、古い実行の記録がファイルに残っていても表示は変わりません。

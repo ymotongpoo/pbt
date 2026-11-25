@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -78,8 +79,10 @@ func TestMachineReadableOutput(t *testing.T) {
 	}
 	for i, line := range lines {
 		var record struct {
-			Type     string `json:"type"`
-			Property string `json:"property"`
+			Type      string            `json:"type"`
+			Property  string            `json:"property"`
+			Arguments map[string]string `json:"arguments"`
+			Features  map[string]any    `json:"features"`
 		}
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			t.Fatal(err)
@@ -90,6 +93,22 @@ func TestMachineReadableOutput(t *testing.T) {
 		}
 		if record.Type != want || record.Property != "TestRecordedRun" {
 			t.Fatalf("unexpected observation: %s", line)
+		}
+		if record.Type == "test_case" {
+			n, err := strconv.Atoi(record.Arguments["n"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			label, present := record.Features["label:even"]
+			want := strconv.FormatBool(n%2 == 0)
+			if !present || label != want {
+				t.Fatalf("n=%d: want label:even = %q, got %v", n, want, record.Features)
+			}
+			features, err := json.Marshal(record.Features)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("n=%d features=%s", n, features)
 		}
 	}
 }
