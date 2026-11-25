@@ -35,34 +35,42 @@ The rapid column reflects the
 [pkg.go.dev index of v1.3.0](https://pkg.go.dev/pgregory.net/rapid). The
 Hegel column reflects the Go frontend of the
 [hegel](https://github.com/hegeldev/hegel) monorepo at commit 980d45f, a
-library on the Hypothesis engine that calls a native library. The pbt column
-describes v0.4.0.
+library on the Hypothesis engine that calls a native library. The ephyra
+column reflects [ephyra](https://github.com/datadog-labs/ephyra) v0.0.1 at
+commit 3983b2e, a Rust library from Datadog. The pbt column describes the
+main branch after v0.4.0.
 
-| Feature | PropEr | QuickCheck | rapid v1.3.0 | Hegel (Go) | pbt |
-| --- | --- | --- | --- | --- | --- |
-| Type-safe generators | n/a (dynamic typing) | yes | yes | yes | yes |
-| Shrinking without user code | partial (custom types need a shrinker) | partial (`shrink` must be implemented) | yes | yes | yes |
-| Shrinking across Bind (`?LET`) | partial (shrinks the inner value, regenerates the outer) | no (`>>=` loses shrinking) | yes | yes | yes |
-| Shrinking control (`?SHRINK`, `?LETSHRINK`) | yes | yes | no | no | yes |
-| Size parameter (`sized`, `resize`) | yes | yes | no | no | yes |
-| Weighted choice (`frequency`, `weighted_union`) | yes | yes | no (`OneOf` is uniform) | no (`OneOf` is uniform) | yes |
-| Distribution checks (`cover`, `checkCoverage`) | no | yes | no | no | yes |
-| Statistics (`collect`, `classify`, `aggregate`, `measure`) | yes | yes | no | partial (events) | yes |
-| Property combinators (`conjunction`, `?IMPLIES`, `?WHENFAIL`, `?TIMEOUT`) | yes | yes | no | partial (`Assume`, `Note`) | yes |
-| Stateful testing | yes | no (separate libraries) | yes | yes (rule methods found by reflection) | yes |
-| Symbolic variables | yes | n/a | no | partial (value pools) | yes |
-| Parallel command testing (interleaving check) | yes | no | no | no (concurrent rules with invariants) | yes |
-| Targeted PBT | yes | no | no | yes (labeled targets) | yes (several objectives) |
-| Existential properties (`?EXISTS`) | yes | no | no | no | yes |
-| Function generation | yes | yes | no | no | yes |
-| Generators derived from types | yes (from type declarations) | partial (generic deriving) | yes (`Make[T]`) | yes (`Default`) | yes (reflection and code generation) |
-| Generators of standard text formats | no | no | partial (`StringMatching`) | yes (e-mail, URL, domain, IP, dates, regular expressions) | yes (the package `format`) |
-| Health checks of the run | no | no | no | yes | yes (warnings; `CheckHealth` makes them failures) |
-| Several distinct failures in one run | no | no | no | yes | yes (`MaxFailures`) |
-| Checking functions against specs (`check_spec`) | yes | no | no | no | partial (limited to "does not panic" and similar) |
-| Saving failures and replaying them | partial (in-process only) | no (only a seed to pass again) | yes | yes (a database) | yes |
-| Hooking into a coverage-guided fuzzer | no | no | yes (`MakeFuzz`) | no | no (out of scope) |
-| Pure Go, no native library | n/a | n/a | yes | no (loads libhegel) | yes |
+| Feature | PropEr | QuickCheck | rapid v1.3.0 | Hegel (Go) | ephyra | pbt |
+| --- | --- | --- | --- | --- | --- | --- |
+| Type-safe generators | n/a (dynamic typing) | yes | yes | yes | yes | yes |
+| Shrinking without user code | partial (custom types need a shrinker) | partial (`shrink` must be implemented) | yes | yes | partial (built-in and derived generators; `map` drops the shrinker, so other shapes need `with_shrink`) | yes |
+| Shrinking across Bind (`?LET`) | partial (shrinks the inner value, regenerates the outer) | no (`>>=` loses shrinking) | yes | yes | partial (`dependent`; `and_then` loses shrinking) | yes |
+| Shrinking control (`?SHRINK`, `?LETSHRINK`) | yes | yes | no | no | yes (hand-written shrinkers, checked by `check_shrinker`) | yes |
+| Size parameter (`sized`, `resize`) | yes | yes | no | no | yes (`sized`, `max_size`) | yes |
+| Weighted choice (`frequency`, `weighted_union`) | yes | yes | no (`OneOf` is uniform) | no (`OneOf` is uniform) | yes (`frequency`, `weighted`) | yes |
+| Distribution checks (`cover`, `checkCoverage`) | no | yes | no | no | partial (`cover` warns below a fixed 5%) | yes |
+| Statistics (`collect`, `classify`, `aggregate`, `measure`) | yes | yes | no | partial (events) | partial (`classify`, `label`, `feature`, `observe`) | yes |
+| Property combinators (`conjunction`, `?IMPLIES`, `?WHENFAIL`, `?TIMEOUT`) | yes | yes | no | partial (`Assume`, `Note`) | partial (`assume!`, `TestResult`) | yes |
+| Stateful testing | yes | no (separate libraries) | yes | yes (rule methods found by reflection) | partial (sequences of operations as generated values) | yes |
+| Symbolic variables | yes | n/a | no | partial (value pools) | no | yes |
+| Parallel command testing (interleaving check) | yes | no | no | no (concurrent rules with invariants) | no | yes |
+| Targeted PBT | yes | no | no | yes (labeled targets) | yes (`target`, search loops) | yes (several objectives) |
+| Existential properties (`?EXISTS`) | yes | no | no | no | no | yes |
+| Function generation | yes | yes | no | no | no | yes |
+| Generators derived from types | yes (from type declarations) | partial (generic deriving) | yes (`Make[T]`) | yes (`Default`) | yes (`derive(Arbitrary)`, `any::<T>()`) | yes (reflection and code generation) |
+| Generators of standard text formats | no | no | partial (`StringMatching`) | yes (e-mail, URL, domain, IP, dates, regular expressions) | no | yes (the package `format`) |
+| Health checks of the run | no | no | no | yes | yes | yes (warnings; `CheckHealth` makes them failures) |
+| Several distinct failures in one run | no | no | no | yes | yes (`failures(n)`) | yes (`MaxFailures`; `Signature` names the causes) |
+| Checking functions against specs (`check_spec`) | yes | no | no | no | no | partial (limited to "does not panic" and similar) |
+| Saving failures and replaying them | partial (in-process only) | no (only a seed to pass again) | yes | yes (a database) | yes (a regressions file, `EPHYRA_REPLAY`) | yes |
+| Hooking into a coverage-guided fuzzer | no | no | yes (`MakeFuzz`) | no | n/a (its own coverage-guided search, below) | no (out of scope) |
+| Coverage-guided search within a run | no | no | no | no | yes (LLVM counters, per line) | partial (`CoverageGuided`, block coverage under `go test -cover`) |
+| Explaining which step caused a stateful failure | no | no | no | no | yes (`loops::causality` over a `Trace`) | yes (`Causality`, steps from the command spans) |
+| Fault localization from coverage | no | no | no | no | yes (suspect functions ranked) | no |
+| Naming the identity of a failure | no | no | no | no | yes (`signature`) | yes (`Signature`) |
+| Time budget of a run | no | no | no | no | yes (`budget`) | yes (`Budget`) |
+| Machine-readable report and per-case observations | no | no | no | no | yes (JSON report, OpenPBTStats) | yes (`ReportJSON`, `Observations` in OpenPBTStats) |
+| Pure Go, no native library | n/a | n/a | yes | no (loads libhegel) | n/a (Rust; coverage needs `-C instrument-coverage`) | yes |
 
 ## Reusing testing.F
 
@@ -75,7 +83,7 @@ follows from it.
 | Visibility | `internal/fuzz` cannot be imported from user modules | Copying the code is the only way to reuse it |
 | Minimization | `isMinimizable` returns true only for `string` and `[]byte`; integers and floats are never minimized. The algorithm trims the tail and then deletes single bytes | Useless for structured values |
 | Mutation | Covers every primitive type | A reference for the neighborhood function of targeted PBT |
-| Coverage | Available only in a binary built by `go test -fuzz` | Not information a library can read during a normal `go test` |
+| Coverage | The edge counters that guide `go test -fuzz` exist only in a binary built for fuzzing. A binary built by `go test -cover` exposes the share of executed blocks through `testing.Coverage()`, read from live counters | The fuzzer's feedback stays out of reach; the block coverage of `go test -cover` can steer a search, which `CoverageGuided` does |
 | Process model | A coordinator and worker processes that talk over shared memory and RPC | Too heavy for a PBT run that finishes within a second |
 | `F.Fuzz` arguments | Only primitive types, `string` and `[]byte` | Structured values would have to be built from `[]byte` by hand |
 
@@ -242,6 +250,88 @@ for Antithesis are left out: explicit `Command` values already express
 what the rules do, `Var` covers the pools, `TB` lets `Check` run outside
 `go test`, and the existing options select the phases that matter.
 
+## Ideas from ephyra
+
+[ephyra](https://github.com/datadog-labs/ephyra), a Rust library that
+Datadog published in October 2026 (v0.0.1, read at commit 3983b2e), is
+built for tests that coding agents write and verify. Its position on
+shrinking is the opposite of pbt's: users write the shrinker and the
+mutator of every generator, and the library checks that both stay in the
+generator's support. pbt keeps choice sequences, so a shrink candidate is a
+value the generator produced and needs no such check. The features below do
+not depend on that choice, and the release after v0.4.0 takes them.
+
+Causality analysis follows Antithesis and ephyra's `loops::causality`. A
+failing stateful program is cut after k commands, the rest is drawn again
+from fresh randomness many times, and the share of continuations that fail
+with the same identity is measured for several k. The largest rise is
+bisected down to one step. ephyra needs a `Trace` implementation that says
+how to resume a value after a prefix. In a choice sequence the prefix is a
+prefix of the choices, and the end of each command is already recorded, so
+`Causality(n)` needs nothing from the user. It runs on the case as found,
+before shrinking, because a minimal program leaves no distance between the
+command that planted a bug and the command that detected it. Parallel
+programs are skipped, because their generation order is not their
+execution order.
+
+`T.Signature` lets a property name the identity of a failure, as
+`ephyra::signature` does. The identity, the site of the assertion or of the
+panic, decides which candidates the shrinker accepts and how `MaxFailures`
+groups failures. A round-trip check that fails in several ways has one site
+and several causes; a name keeps the causes apart.
+
+Two health checks come from ephyra's regressions file and its
+`low_distinct_inputs` warning. `HealthStale` compares the draws recorded in
+a saved case with the draws of its replay. A difference means that the
+generator changed and that the replay tests another input. It warns by
+default, because a saved case exists to replay one input. `HealthDuplicate`
+counts the distinct choice sequences among the generated cases and warns
+below one half. The size stays out of the key: it grows with each case and
+would make most cases of a default run distinct. The check is off until
+`WarnHealth` or `CheckHealth` names it, because a property over a small
+domain repeats its inputs on purpose.
+
+`Budget`, `ReportJSON` and `Observations` serve long and unattended runs. A
+budget stops generating cases after a duration, and the summary says so. A
+JSON line per run gives a program, or a coding agent, the outcome without
+parsing the text of a report; its schema is versioned as
+`go.ymotongpoo.com/pbt/report/v1`. Observations use the OpenPBTStats format
+of Tyche and Hypothesis, which already has a viewer. pbt writes files only.
+A log shipper can send them to a backend, and the library adds no network
+code.
+
+The coverage-guided search is minimal. A test binary built by
+`go test -cover` exposes the live coverage of the instrumented packages
+through `testing.Coverage()`, a fraction of the executed blocks.
+`CoverageGuided()` reads it after each passing case, keeps a case that
+raised it as a seed, and alternates fresh cases with mutations of the
+seeds. The signal is coarse: block coverage without hit counts or edges,
+counters shared by the whole process, and a cost per reading that grows
+with the number of counters. It still passes chains of comparisons that
+random generation misses. With seed 1, the guided search passes six nested
+byte comparisons over the values 0 to 15 after 52,114 cases, where 100,000
+random cases do not. It does not replace `go test -fuzz`.
+
+ephyra's other features are left out.
+
+- Hand-written shrinkers and mutators, `check_shrinker` and `ephyra check`
+  verify what choice sequences guarantee by construction.
+- A search loop of the user's own over `Run`, and seed pools filled from a
+  project's fixtures, need a way back from a value to its choices. That is
+  the gap that keeps PropEr's `?USERNF` open.
+- Fault localization ranks functions by the coverage of passing and
+  failing runs. It needs counters per function, which `testing.Coverage()`
+  does not give; reading them would mean decoding the files of
+  `runtime/coverage`, whose format is internal to Go.
+- The page that visualizes runs and the sink that sends metrics to Datadog
+  depend on a server and on a vendor. The JSON files cover the same ground
+  without either.
+
+The guide gains a chapter for coding agents that test a project with pbt,
+which plays the part of ephyra's STARTUP.md: deciding what correct means,
+choosing oracles, reading failures and deciding what to change when
+nothing fails.
+
 ## API sketch
 
 Like rapid, a property draws values from generators inside its body. Go has
@@ -319,6 +409,11 @@ func ForAll[A any](g Gen[A], body func(*T, A)) Property  // and ForAll2, ForAll3
 func Conjunction(subs ...Named) Property                 // conjunction
 func Deadline(d time.Duration, prop Property) Property   // ?TIMEOUT, checked after the property returns; Timeout is the deprecated alias
 func Recover(f func()) (panicked any)
+func Causality(continuations int) Option                 // the command after which a stateful failure became likely; -pbt.causality
+func Budget(d time.Duration) Option                      // time budget of the search; -pbt.budget
+func ReportJSON(path string) Option                      // one JSON line per run, schema go.ymotongpoo.com/pbt/report/v1; -pbt.json
+func Observations(dir string) Option                     // OpenPBTStats records for Tyche, one file per test; -pbt.observe
+func CoverageGuided() Option                             // experimental; seeds from testing.Coverage under go test -cover; -pbt.coverage
 func Checks(n int) Option                                // numtests
 func Seed(seed uint64) Option
 func Sizes(start, max int) Option                        // start_size, max_size
@@ -334,8 +429,9 @@ func Verbose() Option                                    // the summary of a pas
 func ReportLimit(chars int) Option                       // characters of one reported value; 2000 by default
 func ReportDepth(levels int) Option                      // levels of nested labeled draws a report lists; 3 by default
 func MaxFailures(n int) Option                           // distinct failures to collect; -pbt.failures
-type HealthCheck uint8                                   // HealthFilter, HealthLarge, HealthSlow, HealthFlaky, HealthShrink
+type HealthCheck uint8                                   // HealthFilter, HealthLarge, HealthSlow, HealthFlaky, HealthShrink, HealthStale, HealthDuplicate
 func CheckHealth(checks ...HealthCheck) Option           // warnings become failures; -pbt.checkhealth
+func WarnHealth(checks ...HealthCheck) Option            // turns HealthDuplicate on as a warning; -pbt.warnhealth
 func IgnoreHealth(checks ...HealthCheck) Option          // hides them; -pbt.ignorehealth
 func (t *T) Assume(cond bool)                            // ?IMPLIES
 func (t *T) Classify(cond bool, label string)            // classify
@@ -344,6 +440,7 @@ func (t *T) Aggregate(values ...any)                     // aggregate
 func (t *T) Measure(name string, v float64)              // measure
 func (t *T) Cover(cond bool, pct float64, label string)  // cover
 func (t *T) OnFail(f func())                             // ?WHENFAIL
+func (t *T) Signature(name string)                       // names the identity of the case's failure
 func (t *T) Maximize(name string, utility float64)       // ?MAXIMIZE, one objective per name; Minimize reverses the sign
 func (t *T) Size() int
 // plus Errorf, Error, Fatalf, Fatal, Fail, FailNow, Failed, Logf, Log, Skip, Skipf, SkipNow, Cleanup
@@ -407,8 +504,10 @@ func ParallelCommands(initial string, init func(), transitions func(state string
 
 Run-time options come from the flags `-pbt.checks`, `-pbt.seed`,
 `-pbt.startsize`, `-pbt.maxsize`, `-pbt.shrinktime`, `-pbt.searchsteps`,
-`-pbt.nosave`, `-pbt.replay` and `-pbt.v`; options passed to `Check` take
-precedence. The
+`-pbt.nosave`, `-pbt.replay`, `-pbt.v`, `-pbt.failures`,
+`-pbt.checkhealth`, `-pbt.warnhealth`, `-pbt.ignorehealth`,
+`-pbt.causality`, `-pbt.budget`, `-pbt.json`, `-pbt.observe` and
+`-pbt.coverage`; options passed to `Check` take precedence. The
 book's `rebar3 proper -n`, `-p` and `--start_size` map to `-pbt.checks`,
 `go test -run` and `-pbt.startsize`.
 
@@ -487,6 +586,7 @@ it finds before it reports it.
 | 5 | Generators derived from types (`Make[T]` through reflection, constraints in struct tags, code generation with `go/types` under `go generate`), checking functions against specs | Generators for structs with recursive types are derived automatically |
 | 6 | Visualization of shrinking, documentation, performance comparison with rapid | A migration guide with a correspondence table exists |
 | 7 | Diagnostics and standard formats: names and lines of unlabeled draws in reports, health checks, several failures per run, several objectives, a shrink pass that switches alternatives, generators of standard library types, `StringMatching`, the package `format`, and a bound on the work of `Make` | Chapter 10 of the guide shows a parser of the standard library departing from its RFC |
+| 8 | Ideas from ephyra: causality analysis of stateful failures, failure identities named by the property, stale saved cases and duplicate inputs as health checks, a time budget, JSON reports and OpenPBTStats observations, a coverage-guided search under `go test -cover`, and a guide chapter for coding agents | A bug planted early in a command sequence and detected late is traced to the command that planted it |
 
 Phase 0 uses rapid as the yardstick because the two share a method, so the
 difference shows directly in shrinking quality. As of 2026-10-31, Phases 0
@@ -505,7 +605,8 @@ escape and the enforced column width, both recorded in the chapter's
 README. Visualization stays at the verbose shrink log. As of 2026-11-24,
 Phase 7 is implemented for v0.4.0: it adopts the diagnostics and the
 generators of standard formats that Hegel offers, and keeps the engine in
-pure Go.
+pure Go. As of 2026-11-25, Phase 8 is implemented on the main branch for
+the next release; the section "Ideas from ephyra" describes it.
 
 ## What Go offers
 
@@ -673,8 +774,8 @@ the module path to `go.ymotongpoo.com/pbt/v2`.
 
 ## Decisions
 
-The first eight decisions date from 2026-10-31, the others from
-2026-11-24.
+The first eight decisions date from 2026-10-31, the next five from
+2026-11-24 and the last five from 2026-11-25.
 
 | Item | Decision |
 | --- | --- |
@@ -691,6 +792,11 @@ The first eight decisions date from 2026-10-31, the others from
 | Health checks | Warnings by default; `CheckHealth` and `-pbt.checkhealth` make them failures, `HealthSlow` only when named |
 | Several failures | `MaxFailures`, 1 by default |
 | Registry data | No tables that follow a registry, such as ISO 3166, ISO 4217, ISO 639 or the lengths of IBANs, in v0.4.0 |
+| Shrinkers written by users | Not adopted from ephyra. Choice sequences keep every candidate in the generator's support, so there is nothing for a check of a hand-written shrinker to find |
+| Causality analysis | `Causality(n)`, off by default; on the failing case before shrinking, for sequential programs only |
+| Coverage | `CoverageGuided` reads `testing.Coverage` under `go test -cover`. No fault localization and no decoding of the files of `runtime/coverage` |
+| Output for programs | JSON lines and OpenPBTStats files; no network sink |
+| Defaults of the new health checks | `HealthStale` warns by default; `HealthDuplicate` is off until `WarnHealth` or `CheckHealth` names it |
 
 Two items from the review before v0.1.0 stay open.
 

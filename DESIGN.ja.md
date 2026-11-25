@@ -24,33 +24,40 @@ gopterはジェネリクス以前の `interface{}` ベースのAPIなので、�
 rapidの列は[pkg.go.devのv1.3.0のインデックス](https://pkg.go.dev/pgregory.net/rapid)で確認した範囲です。
 Hegelの列は、[hegel](https://github.com/hegeldev/hegel)モノレポのコミット980d45fにあるGo版で確認した範囲です。
 HegelはHypothesisのエンジンの上に作られたライブラリで、ネイティブライブラリを呼び出して動きます。
-pbtの列はv0.4.0の内容です。
+ephyraの列は、Datadogが公開したRustのライブラリ[ephyra](https://github.com/datadog-labs/ephyra)のv0.0.1（コミット3983b2e）で確認した範囲です。
+pbtの列はv0.4.0の後のmainブランチの内容です。
 
-| 機能 | PropEr | QuickCheck | rapid v1.3.0 | Hegel（Go） | pbt |
-| --- | --- | --- | --- | --- | --- |
-| 型安全な生成器 | －（動的型） | ○ | ○ | ○ | ○ |
-| ユーザーコード不要の縮小 | △（独自型には縮小関数が必要） | △（`shrink` の実装が必要） | ○ | ○ | ○ |
-| Bind（`?LET`）を跨ぐ縮小 | △（内側を縮小して外側を再生成） | ×（`>>=` で縮小が失われる） | ○ | ○ | ○ |
-| 縮小の制御（`?SHRINK`、`?LETSHRINK`） | ○ | ○ | × | × | ○ |
-| サイズパラメーター（`sized`、`resize`） | ○ | ○ | × | × | ○ |
-| 重み付き選択（`frequency`、`weighted_union`） | ○ | ○ | ×（`OneOf` は均等） | ×（`OneOf` は均等） | ○ |
-| 分布の検証（`cover`、`checkCoverage`） | × | ○ | × | × | ○ |
-| 統計（`collect`、`classify`、`aggregate`、`measure`） | ○ | ○ | × | △（イベント） | ○ |
-| プロパティの合成（`conjunction`、`?IMPLIES`、`?WHENFAIL`、`?TIMEOUT`） | ○ | ○ | × | △（`Assume`、`Note`） | ○ |
-| ステートフルテスト | ○ | ×（別ライブラリ） | ○ | ○（ルールのメソッドをリフレクションで見つける） | ○ |
-| シンボリック変数 | ○ | － | × | △（値のプール） | ○ |
-| 並行コマンドテスト（交互配置の検査） | ○ | × | × | ×（不変条件を検査する並行ルール） | ○ |
-| 標的型PBT | ○ | × | × | ○（ラベル付きの目的） | ○（複数の目的） |
-| 存在性プロパティ（`?EXISTS`） | ○ | × | × | × | ○ |
-| 関数の生成 | ○ | ○ | × | × | ○ |
-| 型からの生成器導出 | ○（型宣言から） | △（総称導出） | ○（`Make[T]`） | ○（`Default`） | ○（リフレクションとコード生成） |
-| 規格が定める文字列の形式の生成器 | × | × | △（`StringMatching`） | ○（メール、URL、ドメイン、IP、日付、正規表現） | ○（`format` パッケージ） |
-| 実行のヘルスチェック | × | × | × | ○ | ○（警告。`CheckHealth` で失敗にする） |
-| 1回の実行での複数の失敗 | × | × | × | ○ | ○（`MaxFailures`） |
-| 関数仕様の検査（`check_spec`） | ○ | × | × | × | △（panicしないこと等に限る） |
-| 失敗の保存と自動再実行 | △（プロセス内のみ） | ×（シードの再指定のみ） | ○ | ○（データベース） | ○ |
-| カバレッジ誘導ファザーとの連携 | × | × | ○（`MakeFuzz`） | × | ×（対象外） |
-| ネイティブライブラリを使わない純粋なGo | － | － | ○ | ×（libhegelを読み込む） | ○ |
+| 機能 | PropEr | QuickCheck | rapid v1.3.0 | Hegel（Go） | ephyra | pbt |
+| --- | --- | --- | --- | --- | --- | --- |
+| 型安全な生成器 | －（動的型） | ○ | ○ | ○ | ○ | ○ |
+| ユーザーコード不要の縮小 | △（独自型には縮小関数が必要） | △（`shrink` の実装が必要） | ○ | ○ | △（組み込みと導出した生成器に限る。`map` は縮小関数を失うので、それ以外の形には `with_shrink` が必要） | ○ |
+| Bind（`?LET`）を跨ぐ縮小 | △（内側を縮小して外側を再生成） | ×（`>>=` で縮小が失われる） | ○ | ○ | △（`dependent`。`and_then` では縮小が失われる） | ○ |
+| 縮小の制御（`?SHRINK`、`?LETSHRINK`） | ○ | ○ | × | × | ○（手書きの縮小関数を `check_shrinker` で検査する） | ○ |
+| サイズパラメーター（`sized`、`resize`） | ○ | ○ | × | × | ○（`sized`、`max_size`） | ○ |
+| 重み付き選択（`frequency`、`weighted_union`） | ○ | ○ | ×（`OneOf` は均等） | ×（`OneOf` は均等） | ○（`frequency`、`weighted`） | ○ |
+| 分布の検証（`cover`、`checkCoverage`） | × | ○ | × | × | △（`cover` は固定の5%を下回ると警告する） | ○ |
+| 統計（`collect`、`classify`、`aggregate`、`measure`） | ○ | ○ | × | △（イベント） | △（`classify`、`label`、`feature`、`observe`） | ○ |
+| プロパティの合成（`conjunction`、`?IMPLIES`、`?WHENFAIL`、`?TIMEOUT`） | ○ | ○ | × | △（`Assume`、`Note`） | △（`assume!`、`TestResult`） | ○ |
+| ステートフルテスト | ○ | ×（別ライブラリ） | ○ | ○（ルールのメソッドをリフレクションで見つける） | △（操作の列を生成した値として扱う） | ○ |
+| シンボリック変数 | ○ | － | × | △（値のプール） | × | ○ |
+| 並行コマンドテスト（交互配置の検査） | ○ | × | × | ×（不変条件を検査する並行ルール） | × | ○ |
+| 標的型PBT | ○ | × | × | ○（ラベル付きの目的） | ○（`target`、探索ループ） | ○（複数の目的） |
+| 存在性プロパティ（`?EXISTS`） | ○ | × | × | × | × | ○ |
+| 関数の生成 | ○ | ○ | × | × | × | ○ |
+| 型からの生成器導出 | ○（型宣言から） | △（総称導出） | ○（`Make[T]`） | ○（`Default`） | ○（`derive(Arbitrary)`、`any::<T>()`） | ○（リフレクションとコード生成） |
+| 規格が定める文字列の形式の生成器 | × | × | △（`StringMatching`） | ○（メール、URL、ドメイン、IP、日付、正規表現） | × | ○（`format` パッケージ） |
+| 実行のヘルスチェック | × | × | × | ○ | ○ | ○（警告。`CheckHealth` で失敗にする） |
+| 1回の実行での複数の失敗 | × | × | × | ○ | ○（`failures(n)`） | ○（`MaxFailures`。`Signature` で原因に名前を付ける） |
+| 関数仕様の検査（`check_spec`） | ○ | × | × | × | × | △（panicしないこと等に限る） |
+| 失敗の保存と自動再実行 | △（プロセス内のみ） | ×（シードの再指定のみ） | ○ | ○（データベース） | ○（regressionsファイル、`EPHYRA_REPLAY`） | ○ |
+| カバレッジ誘導ファザーとの連携 | × | × | ○（`MakeFuzz`） | × | －（独自のカバレッジ誘導探索を持つ。下の行） | ×（対象外） |
+| 実行内のカバレッジ誘導探索 | × | × | × | × | ○（LLVMのカウンター、行単位） | △（`CoverageGuided`。`go test -cover` でのブロック単位のカバレッジ） |
+| ステートフルテストの失敗を招いた手の特定 | × | × | × | × | ○（`Trace` を実装した値に対する `loops::causality`） | ○（`Causality`。手はコマンドの区間から取る） |
+| カバレッジによるフォールトローカライゼーション | × | × | × | × | ○（疑わしい関数を順位付けする） | × |
+| 失敗の識別子への命名 | × | × | × | × | ○（`signature`） | ○（`Signature`） |
+| 実行全体の時間予算 | × | × | × | × | ○（`budget`） | ○（`Budget`） |
+| 機械可読の報告とケースごとの観測記録 | × | × | × | × | ○（JSONの報告、OpenPBTStats） | ○（`ReportJSON`、OpenPBTStats形式の `Observations`） |
+| ネイティブライブラリを使わない純粋なGo | － | － | ○ | ×（libhegelを読み込む） | －（Rust。カバレッジには `-C instrument-coverage` が必要） | ○ |
 
 ## testing.F の流用可否
 
@@ -62,7 +69,7 @@ Go 1.27.1のソースで確認した事実と、そこから導いた判断を�
 | パッケージの可視性 | `internal/fuzz` はユーザーのモジュールからimportできない | コピーする以外に流用の手段がない |
 | 縮小（minimize）の対象 | `isMinimizable` が真を返すのは `string` と `[]byte` だけで、整数や浮動小数点数は縮小しない。アルゴリズムは末尾の切り詰めと1バイトずつの削除 | 構造を持つ値の縮小には使えない |
 | 変異（mutate） | 全プリミティブ型に対応している | 標的型PBTの近傍関数を設計するときの参考になる |
-| カバレッジ | `go test -fuzz` で計装ビルドされたときだけ取れる | 通常の `go test` 中にライブラリが参照できる情報ではない |
+| カバレッジ | `go test -fuzz` を導くエッジのカウンターは、ファジング用にビルドしたバイナリにしかない。`go test -cover` でビルドしたバイナリでは、実行したブロックの割合を `testing.Coverage()` で実行中のカウンターから読める | ファザーのフィードバックには届かないが、`go test -cover` のブロック単位のカバレッジで探索を導ける。`CoverageGuided` がこれを使う |
 | プロセス構成 | コーディネーターとワーカーの別プロセス構成で、共有メモリとRPCで通信する | 1秒以内に終わるPBTの実行には重い |
 | `F.Fuzz` の引数 | プリミティブ型と `string`、`[]byte` に限る | 構造を持つ値は `[]byte` から自前で組み立てる必要がある |
 
@@ -179,6 +186,67 @@ v0.4.0では、HegelとHypothesisから4つの考え方を取り込み、ここ�
 Hegelの、`Rule` と `Invariant` のメソッドをリフレクションで集める仕組み、値のプール、ワークロードの実行器、エンジンのフェーズの選択、Antithesis向けの乱数源は取り込みませんでした。
 明示的な `Command` の値がルールの役割を表せること、`Var` がプールの役割を担うこと、`TB` によって `go test` の外でも `Check` を実行できること、必要なフェーズは既存のオプションで選べることが理由です。
 
+## ephyraから取り入れた考え方
+
+[ephyra](https://github.com/datadog-labs/ephyra)は、Datadogが2026年10月に公開したRustのライブラリです（v0.0.1、コミット3983b2eで確認）。
+コーディングエージェントがテストを書き、検証することを前提に作られています。
+縮小についての立場はpbtと逆です。
+利用者が生成器ごとに縮小関数と変異関数を書き、ライブラリはその両方が生成器の値域から外れないことを検査します。
+pbtは選択列方式を保つので、縮小の候補は生成器が出した値であり、この検査は必要ありません。
+以下の機能はこの違いに左右されないので、v0.4.0の次のリリースで取り込みます。
+
+因果分析は、Antithesisとephyraの `loops::causality` に倣います。
+失敗したステートフルなプログラムをk個のコマンドの後で切り、残りを新しい乱数で何度も引き直して、同じ識別子で失敗する継続の割合をいくつかのkについて測ります。
+割合が最も大きく上がった区間を、1手になるまで二分して絞ります。
+ephyraでは、接頭辞の後から値を再開する方法を `Trace` として実装する必要があります。
+選択列では接頭辞は選択の接頭辞そのもので、各コマンドの終わりもすでに記録されているので、`Causality(n)` は利用者に何も求めません。
+分析は縮小の前に、見つかったままのケースに対して行います。
+最小のプログラムには、バグを仕込んだコマンドと検出したコマンドの間の距離が残らないからです。
+並行プログラムは、生成の順序が実行の順序と一致しないので対象外にします。
+
+`T.Signature` を使うと、`ephyra::signature` と同じように、プロパティが失敗の識別子に名前を付けられます。
+識別子はアサーションの位置かpanicの位置で、縮小器がどの候補を受け入れるかと、`MaxFailures` が失敗をどうまとめるかを決めます。
+いくつもの形で失敗する往復の検査では、位置は1つでも原因は複数あります。
+名前を付ければ、原因を分けて扱えます。
+
+ephyraのregressionsファイルと `low_distinct_inputs` の警告から、ヘルスチェックを2つ取り込みます。
+`HealthStale` は、保存したケースに記録した取り出しと、その再実行での取り出しを比べます。
+違いがあれば、生成器が変わり、再実行が別の入力を検査していることになります。
+保存したケースは1つの入力を再実行するためにあるので、このチェックはデフォルトで警告します。
+`HealthDuplicate` は、生成したケースのうち選択列が異なるものの数を数え、半分を下回ると警告します。
+サイズはキーに含めません。
+サイズはケースごとに増えるので、キーに含めるとデフォルトの実行のほとんどのケースが別物として数えられてしまいます。
+小さな定義域のプロパティは意図して同じ入力を繰り返すので、このチェックは `WarnHealth` か `CheckHealth` で名前を指定するまで動きません。
+
+`Budget`、`ReportJSON`、`Observations` は、長時間の実行や無人の実行のためのものです。
+予算は一定の時間が過ぎるとケースの生成を止め、そのことを要約に書きます。
+実行ごとに1行のJSONを書くので、プログラムやコーディングエージェントは報告の文章を解析せずに結果を得られます。
+JSONのスキーマには `go.ymotongpoo.com/pbt/report/v1` というバージョンを付けます。
+観測記録はTycheとHypothesisが使うOpenPBTStats形式で書くので、既存のビューアーで読めます。
+pbtが書くのはファイルだけです。
+ログの転送エージェントを使えばファイルをバックエンドへ送れるので、ライブラリにネットワークのコードは足しません。
+
+カバレッジ誘導探索は最小限の実装です。
+`go test -cover` でビルドしたテストバイナリでは、計装したパッケージの実行中のカバレッジを `testing.Coverage()` で読めます。
+値は実行したブロックの割合です。
+`CoverageGuided()` は通過したケースのたびにこの値を読み、値を上げたケースを種として残し、新しいケースと種の変異を交互に試します。
+ただし、手がかりになるシグナルは粗いものです。
+ブロック単位のカバレッジなのでヒット回数もエッジもなく、カウンターはプロセス全体で共有され、1回の読み取りの手間はカウンターの数に比例します。
+それでも、ランダムな生成では届かない比較の連鎖を通り抜けます。
+シード1では、0から15の値に対する6段の入れ子のバイト比較を、誘導探索は52,114ケース目で通り抜けました。
+誘導しない探索は、10万ケースを使っても届きませんでした。
+これは `go test -fuzz` の代わりにはなりません。
+
+ephyraのほかの機能は取り込みません。
+
+- 手書きの縮小関数と変異関数、`check_shrinker`、`ephyra check` は、選択列方式が構造上保証していることを検証するものです。
+- `Run` を使った利用者自身の探索ループと、プロジェクトのフィクスチャーから作る種のプールには、値から選択列へ戻る手段が必要です。PropErの `?USERNF` を先送りにしているのと同じ理由です。
+- フォールトローカライゼーションは、通過した実行と失敗した実行のカバレッジから関数を順位付けします。関数ごとのカウンターが必要ですが、`testing.Coverage()` はそれを返しません。読むには `runtime/coverage` のファイルを解読する必要があり、その形式はGoの内部仕様です。
+- 実行を可視化するページと、Datadogへメトリクスを送るシンクは、サーバーと特定のベンダーに依存します。JSONのファイルがあれば、どちらにも依存せずに同じ用途を満たせます。
+
+ガイドには、pbtでプロジェクトをテストするコーディングエージェント向けの章を足します。
+ephyraのSTARTUP.mdに当たる章で、正しさの定義、オラクルの選び方、失敗の読み方、何も失敗しないときに変えるものを扱います。
+
 ## APIの骨格
 
 rapidと同じく、プロパティ本体の中で生成器から値を取り出す命令的な形を基本にします。
@@ -255,6 +323,11 @@ func ForAll[A any](g Gen[A], body func(*T, A)) Property  // ForAll2、ForAll3 �
 func Conjunction(subs ...Named) Property                 // conjunction
 func Deadline(d time.Duration, prop Property) Property   // ?TIMEOUT。プロパティが戻った後に判定する。Timeout は非推奨の別名
 func Recover(f func()) (panicked any)
+func Causality(continuations int) Option                 // ステートフルテストの失敗がほぼ確実になったコマンドを示す。-pbt.causality
+func Budget(d time.Duration) Option                      // 探索の時間予算。-pbt.budget
+func ReportJSON(path string) Option                      // 実行ごとに1行のJSON。スキーマは go.ymotongpoo.com/pbt/report/v1。-pbt.json
+func Observations(dir string) Option                     // Tyche向けのOpenPBTStatsの記録。テストごとに1ファイル。-pbt.observe
+func CoverageGuided() Option                             // 実験的。go test -cover で testing.Coverage から種を作る。-pbt.coverage
 func Checks(n int) Option                                // numtests
 func Seed(seed uint64) Option
 func Sizes(start, max int) Option                        // start_size、max_size
@@ -270,8 +343,9 @@ func Verbose() Option                                    // 通過した実行�
 func ReportLimit(chars int) Option                       // 報告に載せる値1つの文字数。デフォルトは2000
 func ReportDepth(levels int) Option                      // 報告に載せる入れ子のラベル付き値の深さ。デフォルトは3
 func MaxFailures(n int) Option                           // 集める失敗の数。-pbt.failures
-type HealthCheck uint8                                   // HealthFilter、HealthLarge、HealthSlow、HealthFlaky、HealthShrink
+type HealthCheck uint8                                   // HealthFilter、HealthLarge、HealthSlow、HealthFlaky、HealthShrink、HealthStale、HealthDuplicate
 func CheckHealth(checks ...HealthCheck) Option           // 警告を失敗にする。-pbt.checkhealth
+func WarnHealth(checks ...HealthCheck) Option            // HealthDuplicate を警告として有効にする。-pbt.warnhealth
 func IgnoreHealth(checks ...HealthCheck) Option          // 警告を隠す。-pbt.ignorehealth
 func (t *T) Assume(cond bool)                            // ?IMPLIES
 func (t *T) Classify(cond bool, label string)            // classify
@@ -280,6 +354,7 @@ func (t *T) Aggregate(values ...any)                     // aggregate
 func (t *T) Measure(name string, v float64)              // measure
 func (t *T) Cover(cond bool, pct float64, label string)  // cover
 func (t *T) OnFail(f func())                             // ?WHENFAIL
+func (t *T) Signature(name string)                       // ケースの失敗の識別子に名前を付ける
 func (t *T) Maximize(name string, utility float64)       // ?MAXIMIZE。名前ごとに1つの目的。Minimize は符号を反転する
 func (t *T) Size() int
 // ほかに Errorf、Error、Fatalf、Fatal、Fail、FailNow、Failed、Logf、Log、Skip、Skipf、SkipNow、Cleanup
@@ -338,7 +413,7 @@ func Commands(initial string, init func(), transitions func(state string) []Tran
 func ParallelCommands(initial string, init func(), transitions func(state string) []Transition, opts ...pbt.StatefulOption) pbt.Gen[pbt.ParallelProgram]
 ```
 
-実行時のオプションはフラグ `-pbt.checks`、`-pbt.seed`、`-pbt.startsize`、`-pbt.maxsize`、`-pbt.shrinktime`、`-pbt.searchsteps`、`-pbt.nosave`、`-pbt.replay`、`-pbt.v` で与え、`Check` に渡したオプションが優先されます。
+実行時のオプションはフラグ `-pbt.checks`、`-pbt.seed`、`-pbt.startsize`、`-pbt.maxsize`、`-pbt.shrinktime`、`-pbt.searchsteps`、`-pbt.nosave`、`-pbt.replay`、`-pbt.v`、`-pbt.failures`、`-pbt.checkhealth`、`-pbt.warnhealth`、`-pbt.ignorehealth`、`-pbt.causality`、`-pbt.budget`、`-pbt.json`、`-pbt.observe`、`-pbt.coverage` で与え、`Check` に渡したオプションが優先されます。
 本書の `rebar3 proper -n`、`-p`、`--start_size` は、順に `-pbt.checks`、`go test -run`、`-pbt.startsize` に対応します。
 
 ステートフルテストで**シンボリック変数**（`Var`）を使うのは、コマンド列の生成時にはまだコマンドが実行されておらず、結果が存在しないためです。
@@ -397,6 +472,7 @@ PropErの標的型PBTは、値に対する近傍関数を使う焼きなまし�
 | 5 | 型からの導出（リフレクションによる `Make[T]`、構造体タグによる制約、`go/types` を使った `go generate` でのコード生成）、関数仕様の検査 | 再帰型を含む構造体の生成器が自動で得られる |
 | 6 | 縮小過程の可視化、ドキュメント、rapidとの性能比較 | 対応表付きの移行ガイドがある |
 | 7 | 診断と規格の形式。報告に載るラベルなしの取り出しの名前と行、ヘルスチェック、1回の実行での複数の失敗、複数の目的、選択肢を切り替える縮小、標準ライブラリの型の生成器、`StringMatching`、`format` パッケージ、`Make` の仕事量の上限 | ガイド10章で、標準ライブラリのパーサーとRFCとの違いを示せる |
+| 8 | ephyraから取り入れた考え方。ステートフルテストの失敗の因果分析、プロパティが名前を付ける失敗の識別子、保存したケースの陳腐化と入力の重複を報告するヘルスチェック、時間予算、JSONの報告とOpenPBTStatsの観測記録、`go test -cover` でのカバレッジ誘導探索、コーディングエージェント向けのガイドの章 | コマンド列の早い位置で仕込み、遅い位置で検出されたバグを、仕込んだコマンドまで辿れる |
 
 第0フェーズの完了判定にrapidを使うのは、同じ方式を採る実装どうしでは差が縮小の質に直接現れるためです。
 2026年10月31日時点で、第0フェーズから第4フェーズまでは実装とテストが済んでいます。
@@ -410,6 +486,8 @@ rapidが自身の縮小品質に課しているテストは `parity_test.go` で
 可視化は詳細ログに縮小の各ステップを出すところまでです。
 2026年11月24日時点で、v0.4.0に向けて第7フェーズを実装しました。
 Hegelが備える診断と規格の形式の生成器を取り込み、エンジンは純粋なGoのまま保っています。
+2026年11月25日時点で、次のリリースに向けて第8フェーズをmainブランチに実装しました。
+内容は「ephyraから取り入れた考え方」の節に書いたとおりです。
 
 ## Go固有の利点
 
@@ -543,7 +621,7 @@ Apache License 2.0は認識の対象です。
 
 ## 決定事項
 
-最初の8項目は2026年10月31日に、残りは2026年11月24日に決めました。
+最初の8項目は2026年10月31日に、次の5項目は2026年11月24日に、最後の5項目は2026年11月25日に決めました。
 
 | 項目 | 決定 |
 | --- | --- |
@@ -560,6 +638,11 @@ Apache License 2.0は認識の対象です。
 | ヘルスチェック | デフォルトは警告。`CheckHealth` と `-pbt.checkhealth` で失敗にする。`HealthSlow` は名前を指定したときだけ |
 | 複数の失敗 | `MaxFailures`。デフォルトは1 |
 | 登録簿のデータ | ISO 3166、ISO 4217、ISO 639、IBANの国別の長さのように登録簿に従う表は、v0.4.0には入れない |
+| 利用者が書く縮小関数 | ephyraからは取り込まない。選択列方式では候補がいつも生成器の値域に収まるので、手書きの縮小関数を検査しても見つかるものがない |
+| 因果分析 | `Causality(n)`。デフォルトは無効。縮小の前の失敗ケースに対して行い、逐次のプログラムに限る |
+| カバレッジ | `CoverageGuided` は `go test -cover` で `testing.Coverage` を読む。フォールトローカライゼーションと、`runtime/coverage` のファイルの解読は行わない |
+| プログラム向けの出力 | JSON Linesのファイルと、OpenPBTStatsのファイル。ネットワークへの送信は行わない |
+| 新しいヘルスチェックのデフォルト | `HealthStale` はデフォルトで警告する。`HealthDuplicate` は `WarnHealth` か `CheckHealth` で名前を指定するまで動かない |
 
 v0.1.0の前に行ったレビューで、2点を先送りにしました。
 
