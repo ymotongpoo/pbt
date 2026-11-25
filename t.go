@@ -122,7 +122,7 @@ type Property func(t *T)
 // when it panics. Skip and Assume discard the current test case instead.
 type T struct {
 	causal        *causalTrace // opt-in command boundaries, independent of shrink spans
-	timing        *caseTiming  // allocated only when observations are enabled
+	timing        *caseTiming  // non-nil only for observed cases, including replays
 	health        *healthStats
 	discardSource string
 	name          string
@@ -145,7 +145,7 @@ type T struct {
 
 	// Statistics of this test case, merged into the run's totals when the
 	// case passes.
-	labels   []string
+	labels   []labelRecord // Classify and Collect calls in one shared slice
 	samples  []string
 	measures []measurement
 	covers   []coverRecord
@@ -175,6 +175,19 @@ type T struct {
 	stack         []byte
 	cleanups      []func()
 	onFail        []func()
+}
+
+type labelKind uint8
+
+const (
+	labelClassifyTrue labelKind = iota
+	labelClassifyFalse
+	labelCollect
+)
+
+type labelRecord struct {
+	text string
+	kind labelKind
 }
 
 type measurement struct {
@@ -553,13 +566,19 @@ func (t *T) OnFail(f func()) { t.onFail = append(t.onFail, f) }
 // passes, as PropEr's collect/2 does. Values are grouped by their %v text.
 // Every call counts, including repeated labels within a case, so the share
 // relative to passing cases can exceed 100%.
-func (t *T) Collect(v any) { t.labels = append(t.labels, fmt.Sprint(v)) }
+func (t *T) Collect(v any) {
+	t.labels = append(t.labels, labelRecord{text: fmt.Sprint(v), kind: labelCollect})
+}
 
-// Classify records label when cond holds, as PropEr's classify/3 does.
+// Classify counts label in the statistics when cond holds, as PropEr's
+// classify/3 does.
 // Each true call counts, including repeated labels within a case; see Collect.
+// Observations also records labels classified only with false.
 func (t *T) Classify(cond bool, label string) {
 	if cond {
-		t.labels = append(t.labels, label)
+		t.labels = append(t.labels, labelRecord{text: label, kind: labelClassifyTrue})
+	} else if t.timing != nil {
+		t.labels = append(t.labels, labelRecord{text: label, kind: labelClassifyFalse})
 	}
 }
 

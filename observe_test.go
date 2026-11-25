@@ -6,6 +6,7 @@ package pbt
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -70,14 +71,21 @@ func readObservations(t *testing.T, dir, name string) ([]observationCase, []obse
 func TestObservationsTimingFeaturesAndTarget(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		dir := t.TempDir()
+		reportPath := filepath.Join(t.TempDir(), "run.jsonl")
 		g := Custom("timed", func(pt *T) string { time.Sleep(2 * time.Second); return "value" })
 		tb := &fakeTB{name: t.Name()}
 		Check(tb, func(pt *T) {
 			g.Draw(pt, "arg")
 			Just(2).Draw(pt, "arg")
 			Just(3).Draw(pt, "arg#2")
+			pt.Classify(false, "tag")
 			pt.Classify(true, "tag")
+			pt.Classify(true, "tag")
+			pt.Classify(false, "tag")
+			pt.Classify(false, "absent")
 			pt.Collect("tag")
+			pt.Classify(false, "7")
+			pt.Collect(7)
 			pt.Aggregate("sample", "sample")
 			pt.Measure("measure", 1)
 			pt.Measure("measure", 2)
@@ -86,7 +94,7 @@ func TestObservationsTimingFeaturesAndTarget(t *testing.T) {
 			pt.Cover(true, 10, "covered")
 			pt.Maximize("utility", 10)
 			time.Sleep(3 * time.Second)
-		}, Observations(dir), Seed(1), Checks(5), SearchSteps(2), NoSave(), NoReplay(), IgnoreHealth(HealthSlow))
+		}, Observations(dir), ReportJSON(reportPath), Seed(1), Checks(5), SearchSteps(2), NoSave(), NoReplay(), IgnoreHealth(HealthSlow))
 		if len(tb.errors) != 0 {
 			t.Fatal(tb.errors)
 		}
@@ -98,7 +106,13 @@ func TestObservationsTimingFeaturesAndTarget(t *testing.T) {
 			if c.Timing["generate:input"] != 2 || c.Timing["execute:test"] != 3 {
 				t.Fatal(c.Timing)
 			}
-			if c.Features["label:tag"] != float64(2) || c.Features["aggregate:sample"] != float64(2) || c.Features["measure:measure"] != float64(2) || c.Features["measure:infinite"] != "+Inf" || c.Features["cover:covered"] != float64(1) || c.Features["target:utility"] != float64(10) {
+			if c.Features["label:tag"] != "true" || c.Features["label:absent"] != "false" || c.Features["label:7"] != "false" || c.Features["collect"] != "tag" || c.Features["collect#2"] != "7" {
+				t.Fatal(c.Features)
+			}
+			if _, ok := c.Features["label:never"]; ok {
+				t.Fatalf("unexpected unclassified label: %v", c.Features)
+			}
+			if c.Features["aggregate:sample"] != float64(2) || c.Features["measure:measure"] != float64(2) || c.Features["measure:infinite"] != "+Inf" || c.Features["cover:covered"] != float64(1) || c.Features["target:utility"] != float64(10) {
 				t.Fatal(c.Features)
 			}
 			if c.Arguments["arg"] != `"value"` || c.Arguments["arg#2"] != "3" || c.Arguments["arg#3"] != "2" {
@@ -111,7 +125,73 @@ func TestObservationsTimingFeaturesAndTarget(t *testing.T) {
 		if cases[0].HowGenerated != "generate" || cases[1].HowGenerated != "target" {
 			t.Fatal(cases)
 		}
+		stats := readReports(t, reportPath)[0].Statistics
+		if stats.Cases != 2 || !maps.Equal(stats.Labels, map[string]int{"tag": 6, "7": 2}) {
+			t.Fatal(stats)
+		}
+		if logs := strings.Join(tb.logs, "\n"); !strings.Contains(logs, "300.0% tag") || !strings.Contains(logs, "100.0% 7") || strings.Contains(logs, "absent") {
+			t.Fatal(logs)
+		}
 	})
+}
+func TestObservationsClassifyPerCase(t *testing.T) {
+	dir := t.TempDir()
+	tb := &fakeTB{name: t.Name()}
+	conditions := [][]bool{{false, true, false}, {false, false}, nil}
+	calls := 0
+	Check(tb, func(pt *T) {
+		for _, cond := range conditions[calls] {
+			pt.Classify(cond, "tag")
+		}
+		calls++
+	}, Observations(dir), Seed(1), Checks(len(conditions)), NoSave(), NoReplay())
+	if len(tb.errors) != 0 {
+		t.Fatal(tb.errors)
+	}
+	cases, _ := readObservations(t, dir, tb.Name())
+	want := []map[string]any{
+		{"label:tag": "true"},
+		{"label:tag": "false"},
+		{},
+	}
+	if len(cases) != len(want) {
+		t.Fatal(len(cases))
+	}
+	for i, c := range cases {
+		if !maps.Equal(c.Features, want[i]) {
+			t.Fatalf("case %d features: got %v, want %v", i, c.Features, want[i])
+		}
+	}
+}
+
+func TestObservationsCollectCallOrder(t *testing.T) {
+	dir := t.TempDir()
+	tb := &fakeTB{name: t.Name()}
+	values := [][]any{{"tag", 7, ""}, {7}, nil}
+	calls := 0
+	Check(tb, func(pt *T) {
+		for _, value := range values[calls] {
+			pt.Collect(value)
+		}
+		calls++
+	}, Observations(dir), Seed(1), Checks(len(values)), NoSave(), NoReplay())
+	if len(tb.errors) != 0 {
+		t.Fatal(tb.errors)
+	}
+	cases, _ := readObservations(t, dir, tb.Name())
+	want := []map[string]any{
+		{"collect": "tag", "collect#2": "7", "collect#3": ""},
+		{"collect": "7"},
+		{},
+	}
+	if len(cases) != len(want) {
+		t.Fatal(len(cases))
+	}
+	for i, c := range cases {
+		if !maps.Equal(c.Features, want[i]) {
+			t.Fatalf("case %d features: got %v, want %v", i, c.Features, want[i])
+		}
+	}
 }
 func TestObservationsFailuresShrinksAndReplay(t *testing.T) {
 	dir := t.TempDir()
@@ -119,13 +199,21 @@ func TestObservationsFailuresShrinksAndReplay(t *testing.T) {
 	reportPath := filepath.Join(t.TempDir(), "run.jsonl")
 	tb := &fakeTB{name: t.Name()}
 	calls := 0
-	prop := func(pt *T) { calls++; ShrinkTo(IntRange(10, 100), Just(0)).Draw(pt, "x"); pt.Error("broken") }
+	prop := func(pt *T) {
+		calls++
+		ShrinkTo(IntRange(10, 100), Just(0)).Draw(pt, "x")
+		pt.Classify(false, "absent")
+		pt.Error("broken")
+	}
 	Check(tb, prop, Observations(dir), ReportJSON(reportPath), Seed(1), TestdataDir(saved))
 	cases, infos := readObservations(t, dir, tb.Name())
 	counts := map[string]int{}
 	var final observationCase
 	for _, c := range cases {
 		counts[c.HowGenerated]++
+		if c.Features["label:absent"] != "false" {
+			t.Fatalf("%s features: %v", c.HowGenerated, c.Features)
+		}
 		if c.Metadata.Final {
 			final = c
 		}
@@ -144,6 +232,11 @@ func TestObservationsFailuresShrinksAndReplay(t *testing.T) {
 	cases, infos = readObservations(t, dir, tb.Name())
 	if len(infos) != 2 || cases[len(cases)-2].HowGenerated != "replay" || cases[len(cases)-1].HowGenerated != "stability_replay" {
 		t.Fatal(cases)
+	}
+	for _, c := range cases[len(cases)-2:] {
+		if c.Features["label:absent"] != "false" {
+			t.Fatalf("%s features: %v", c.HowGenerated, c.Features)
+		}
 	}
 }
 func TestObservationsExistentialAndDiscard(t *testing.T) {
@@ -227,7 +320,12 @@ func TestObservationsPreserveStreamAndDisabledAllocations(t *testing.T) {
 		if i == 1 {
 			opts = append(opts, Observations(t.TempDir()))
 		}
-		Check(tb, func(pt *T) { draws[i] = append(draws[i], Int().Draw(pt, "x")) }, opts...)
+		Check(tb, func(pt *T) {
+			x := Int().Draw(pt, "x")
+			draws[i] = append(draws[i], x)
+			pt.Collect(x)
+			pt.Classify(x%2 == 0, "even")
+		}, opts...)
 		logs[i] = tb.logs
 	}
 	if !slices.Equal(draws[0], draws[1]) || !slices.Equal(logs[0], logs[1]) {
@@ -237,7 +335,10 @@ func TestObservationsPreserveStreamAndDisabledAllocations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &runner{tb: &fakeTB{name: "allocations"}, cfg: cfg, prop: func(pt *T) { Int().Draw(pt, "x") }}
+	r := &runner{tb: &fakeTB{name: "allocations"}, cfg: cfg, prop: func(pt *T) {
+		pt.Collect(Int().Draw(pt, "x"))
+		pt.Classify(true, "tag")
+	}}
 	baseline := testing.AllocsPerRun(100, func() {
 		runObservationBaseline(r)
 	})

@@ -5,6 +5,33 @@ The notable changes of pbt are recorded here. The format follows
 [Semantic Versioning](https://semver.org/) with a major version of 0, so a
 minor version may change the API.
 
+## Unreleased
+
+### Fixed
+
+- `Observations` wrote each `Classify` label and each `Collect` value as
+  a feature `label:<text>` with an integer count. Tyche draws an integer
+  feature only for the cases that have it, so every label showed one bar
+  at 1, and the share of the cases without the label was lost. The
+  feature `label:<label>` is now `"true"` if the condition held in a call
+  with the label and `"false"` if it held in none, in every case that
+  classifies the label. Tyche draws it as the share of each value, in its
+  bar chart and in the mosaic chart that it uses when a property has two
+  or more string features. `Collect` values are now the features
+  `collect`, `collect#2`, `collect#3`, ... with the `%v` text of each
+  value in call order. A program that read the counts must read these
+  values instead. The console statistics and `ReportJSON` are unchanged,
+  and with observations off, `Classify` and `Collect` allocate as before.
+
+### Changed
+
+- The guide explains how to open the observations in Tyche's VS Code
+  extension. Its setting `tyche.observationGlobs` covers only the
+  directories of Hypothesis and QuickCheck by default, and Tyche does not
+  start for Go files until a command such as **Tyche: Refresh Live View**
+  runs. The guide and the documentation of `Observations` list the
+  features of a record.
+
 ## 0.5.2 - 2026-11-25
 
 ### Changed

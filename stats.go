@@ -38,7 +38,9 @@ func newStats() *stats {
 func (s *stats) add(t *T) {
 	s.cases++
 	for _, l := range t.labels {
-		s.labels[l]++
+		if l.kind != labelClassifyFalse {
+			s.labels[l.text]++
+		}
 	}
 	for _, l := range t.samples {
 		s.samples[l]++

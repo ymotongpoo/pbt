@@ -21,21 +21,33 @@ var flagObserve = flag.String("pbt.observe", "", "directory for OpenPBTStats obs
 // dir/<sanitized test name>.jsonl, as does -pbt.observe=dir. Subtest names make
 // subdirectories; directories are created as needed. An empty dir disables
 // observation, with no additional per-case allocations or timing calls.
+// Tyche's VS Code extension finds files through tyche.observationGlobs, whose
+// defaults cover only .hypothesis and .quickcheck directories, so add a glob
+// such as **/observations/**/*.jsonl for -pbt.observe=observations.
 //
 // Records follow the test_case and info schemas at
 // https://github.com/tyche-pbt/tyche-extension/blob/192ded8a5e10eae7d4406c9bb59971dcfc786695/observability-tools/src/datatypes.ts
 // and https://hypothesis.readthedocs.io/en/latest/reference/integrations.html#observability.
-// run_start is Unix time in seconds. how_generated is generate, target,
-// coverage (a mutant of a CoverageGuided seed), replay, stability_replay or shrink. Each shrink operation also writes a minimal record
-// with metadata.final=true: a snapshot of the chosen case, not another execution.
+// run_start is Unix time in seconds. Tyche shows the latest run_start for each
+// property, though the files may also hold older runs.
+// how_generated is generate, target, coverage (a mutant of a CoverageGuided seed),
+// replay, stability_replay or shrink.
+// Each shrink operation also writes a minimal record with metadata.final=true:
+// a snapshot of the chosen case, not another execution.
 // Case status describes the property itself, so a rejected CheckExists candidate
 // is failed and a witness is passed. Discards are gave_up.
 //
 // representation and arguments use the same rendered draws and limits as reports.
 // Repeated argument labels get #2, #3, ... suffixes, avoiding existing labels.
-// Features use label:<text> for Classify/Collect counts, aggregate:<text> for
-// Aggregate counts, measure:<name> for the last Measure sample, cover:<label> for
-// 0/1 hits, and target:<name> for utilities (Minimize uses the negated value).
+// Classify writes label:<text> as "true" if any call with that label held, or
+// "false" if none did; labels never classified in a case have no key. These
+// strings show the share in Tyche's bar chart and its mosaic chart (used for
+// two or more string features). A count would hide cases without the label:
+// Tyche draws an integer feature only for cases that have it.
+// Collect values use collect, collect#2, ... for their %v text in call order.
+// Other features use aggregate:<text> for Aggregate counts, measure:<name> for
+// the last Measure sample, cover:<label> for 0/1 hits, and target:<name> for
+// utilities (Minimize uses the negated value).
 // Non-finite feature values are strings, as with ReportJSON.
 // timing contains non-overlapping generate:input and execute:test durations in
 // seconds; execution includes setup and cleanup, excluding top-level Draw time.
@@ -180,8 +192,24 @@ func (r *runner) observeCase(t *T, phase string, final bool) {
 		}
 	}
 	features := map[string]any{}
+	collects := 0
 	for _, label := range t.labels {
-		addFeatureCount(features, "label:"+label)
+		switch label.kind {
+		case labelClassifyTrue:
+			features["label:"+label.text] = "true"
+		case labelClassifyFalse:
+			key := "label:" + label.text
+			if _, exists := features[key]; !exists {
+				features[key] = "false"
+			}
+		case labelCollect:
+			collects++
+			key := "collect"
+			if collects > 1 {
+				key = fmt.Sprintf("collect#%d", collects)
+			}
+			features[key] = label.text
+		}
 	}
 	for _, label := range t.samples {
 		addFeatureCount(features, "aggregate:"+label)
