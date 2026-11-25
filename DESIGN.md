@@ -295,7 +295,17 @@ budget stops generating cases after a duration, and the summary says so. A
 JSON line per run gives a program, or a coding agent, the outcome without
 parsing the text of a report; its schema is versioned as
 `go.ymotongpoo.com/pbt/report/v1`. Observations use the OpenPBTStats format
-of Tyche and Hypothesis, which already has a viewer. pbt writes files only.
+of Tyche and Hypothesis, which already has a viewer. Their features follow
+what the viewer draws. A `Classify` label is `"true"` or `"false"` in every
+case that classifies it, and each `Collect` call in a case is a string
+feature of its own (`collect`, `collect#2`, ...). Tyche draws a string
+feature as the share of each value, and two or more of them as a mosaic
+chart that leaves out the cases without a feature. A count would hide the
+cases without the label, because Tyche draws an integer feature only for
+the cases that have it. The empty string of Hypothesis's `event` shows as
+Present against Not present only while a property has one string feature;
+the mosaic chart labels it N/A. pbt records a false `Classify` only while
+it observes, so the statistics allocate as before. pbt writes files only.
 A log shipper can send them to a backend, and the library adds no network
 code.
 
