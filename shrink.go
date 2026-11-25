@@ -43,6 +43,10 @@ type shrinker struct {
 }
 
 func (r *runner) shrink(t *T) (*T, int) {
+	if r.output != nil {
+		start := time.Now()
+		defer func() { r.output.report.Durations.Shrink += time.Since(start).Seconds() }()
+	}
 	s := &shrinker{r: r, cur: t, deadline: time.Now().Add(r.cfg.shrinkTime)}
 	s.run()
 	if r.health != nil && s.exhaustedBy != "" {

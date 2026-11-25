@@ -83,6 +83,7 @@ type config struct {
 	hasSeed      bool
 	startSize    int
 	maxSize      int
+	reportJSON   string
 	budget       time.Duration
 	shrinkTime   time.Duration
 	noSave       bool
@@ -194,6 +195,7 @@ func newConfig(opts []Option) (config, error) {
 		hasSeed:     *flagSeed != 0,
 		startSize:   *flagStartSize,
 		maxSize:     *flagMaxSize,
+		reportJSON:  *flagJSON,
 		budget:      *flagBudget,
 		shrinkTime:  *flagShrinkTime,
 		noSave:      *flagNoSave,
@@ -204,29 +206,40 @@ func newConfig(opts []Option) (config, error) {
 		reportDepth: defaultReportDepth,
 		replayFile:  *flagReplay,
 	}
+	var flagErr error
 	if *flagWarnHealth != "" {
 		checks, err := parseHealthChecks(*flagWarnHealth, false)
 		if err != nil {
-			return c, fmt.Errorf("-pbt.warnhealth: %v", err)
+			flagErr = fmt.Errorf("-pbt.warnhealth: %v", err)
+		} else {
+			WarnHealth(checks...)(&c)
 		}
-		WarnHealth(checks...)(&c)
 	}
 	if *flagCheckHealth != "" {
 		checks, err := parseHealthChecks(*flagCheckHealth, true)
-		if err != nil {
-			return c, fmt.Errorf("-pbt.checkhealth: %v", err)
+		if err != nil && flagErr == nil {
+			flagErr = fmt.Errorf("-pbt.checkhealth: %v", err)
 		}
-		CheckHealth(checks...)(&c)
+		if err == nil {
+			CheckHealth(checks...)(&c)
+		}
 	}
 	if *flagIgnoreHealth != "" {
 		checks, err := parseHealthChecks(*flagIgnoreHealth, false)
 		if err != nil {
-			return c, fmt.Errorf("-pbt.ignorehealth: %v", err)
+			if flagErr == nil {
+				flagErr = fmt.Errorf("-pbt.ignorehealth: %v", err)
+			}
 		}
-		IgnoreHealth(checks...)(&c)
+		if err == nil {
+			IgnoreHealth(checks...)(&c)
+		}
 	}
 	for _, o := range opts {
 		o(&c)
+	}
+	if flagErr != nil {
+		return c, flagErr
 	}
 	switch {
 	case c.causality < 0:
@@ -264,11 +277,17 @@ func newConfig(opts []Option) (config, error) {
 func Check(tb TB, prop Property, opts ...Option) {
 	tb.Helper()
 	cfg, err := newConfig(opts)
+	r := &runner{tb: tb, prop: prop, cfg: cfg, health: newHealthStats()}
+	if cfg.reportJSON != "" {
+		r.startOutput()
+		tb = r.tb
+		defer r.finishOutput()
+	}
 	if err != nil {
+		r.outputStatus("error")
 		tb.Errorf("[pbt] %v", err)
 		return
 	}
-	r := &runner{tb: tb, prop: prop, cfg: cfg, health: newHealthStats()}
 	if cfg.maxFailures > 1 {
 		r.checkMultiple()
 		return
@@ -276,6 +295,7 @@ func Check(tb TB, prop Property, opts ...Option) {
 	if path := cfg.replayFile; path != "" {
 		t, err := r.replayFile(path)
 		if err != nil {
+			r.outputStatus("error")
 			tb.Errorf("[pbt] cannot replay %s: %v", path, err)
 			return
 		}
@@ -335,28 +355,39 @@ func MakeCheck(prop Property, opts ...Option) func(*testing.T) {
 func CheckExists(tb TB, prop Property, opts ...Option) {
 	tb.Helper()
 	cfg, err := newConfig(append(append([]Option(nil), opts...), MaxFailures(1), Causality(0)))
+	// Existential candidates intentionally omit health checks.
+	r := &runner{tb: tb, prop: prop, cfg: cfg, exists: true}
+	if cfg.reportJSON != "" {
+		r.startOutput()
+		tb = r.tb
+		defer r.finishOutput()
+	}
 	if err != nil {
+		r.outputStatus("error")
 		tb.Errorf("[pbt] %v", err)
 		return
 	}
-	// CheckExists intentionally omits health checks: rejected candidates are
-	// expected, and witness replay has different semantics from failure replay.
-	r := &runner{tb: tb, prop: prop, cfg: cfg, exists: true}
 	witness, tried, err := r.search()
 	if err != nil {
 		tb.Errorf("[pbt] %v", err)
 		return
 	}
 	if witness == nil {
+		r.outputStatus("no_witness")
 		tb.Errorf("[pbt] no witness found in %d cases (seed 0x%x)", tried, cfg.seed)
 		return
 	}
 	minimal, steps := r.shrink(witness)
+	if r.output != nil {
+		w := r.caseReport(minimal, "witness found")
+		r.output.report.Witness = &w
+	}
 	tb.Logf("%s", r.format(minimal, fmt.Sprintf("witness found after %d rejected cases and %d shrink steps (seed 0x%x)", tried, steps, cfg.seed), nil))
 }
 
 type runner struct {
 	causality   []string
+	output      *runOutput
 	budgetEnded bool
 	failures    []*T
 	savedPaths  map[string]string
@@ -456,6 +487,15 @@ func (r *runner) reportStats(passed int) {
 // apart for the report. A small share of the steps restart from a fresh
 // case.
 func (r *runner) search() (found *T, passed int, err error) {
+	if r.output != nil {
+		start := time.Now()
+		defer func() {
+			r.output.report.Durations.Search += time.Since(start).Seconds()
+			if err != nil {
+				r.outputStatus("gave_up")
+			}
+		}()
+	}
 	cfg := r.cfg
 	var deadline time.Time
 	if cfg.budget > 0 {
@@ -500,6 +540,9 @@ func (r *runner) search() (found *T, passed int, err error) {
 			t = r.run(nil, min(cfg.startSize+tried, cfg.maxSize), rng)
 		}
 		r.observeDistinct(t, targeted)
+		if r.output != nil {
+			r.outputSearchCase(t)
+		}
 		switch {
 		case t.discarded:
 			discards++

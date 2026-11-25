@@ -21,6 +21,11 @@ const defaultValueLimit = 2000
 // failed.
 func (r *runner) report(t *T, headline string, trailer []string) {
 	r.tb.Helper()
+	if r.output != nil {
+		r.outputStatus("failed")
+		r.output.report.Failures = append(r.output.report.Failures, r.caseReport(t, headline))
+		r.outputHealth()
+	}
 	trailer = append([]string(nil), trailer...)
 	for _, n := range r.healthNotes() {
 		trailer = append(trailer, healthLine(n, false))
@@ -83,7 +88,7 @@ func formatDrawLimit(d drawRecord, limit int) string {
 	return formatDrawSite(d, limit, false)
 }
 
-func formatDrawSite(d drawRecord, limit int, verbose bool) string {
+func renderDrawValue(d drawRecord, limit int) string {
 	text := fmt.Sprintf("%#v", d.value)
 	if _, ok := d.value.(undrawn); ok {
 		text = "(the draw did not finish)"
@@ -95,6 +100,15 @@ func formatDrawSite(d drawRecord, limit int, verbose bool) string {
 		}
 		text = fmt.Sprintf("%s… (%d more characters; raise the limit with ReportLimit)", cut, utf8.RuneCountInString(text)-utf8.RuneCountInString(cut))
 	}
+	return text
+}
+
+func formatDrawSite(d drawRecord, limit int, verbose bool) string {
+	text := renderDrawValue(d, limit)
+	return formatDrawHead(d, verbose) + " = " + text
+}
+
+func formatDrawHead(d drawRecord, verbose bool) string {
 	name := drawName(d)
 	head := d.gen
 	if name != "" {
@@ -103,7 +117,7 @@ func formatDrawSite(d drawRecord, limit int, verbose bool) string {
 	if site := shortSite(d.pc); site != "" && (verbose || name == "") {
 		head += " at " + site
 	}
-	return head + " = " + text
+	return head
 }
 
 // userFrames extracts "file:line function" entries from a stack trace,

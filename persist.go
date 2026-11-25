@@ -130,6 +130,9 @@ func (r *runner) save(t *T) (string, error) {
 	if err := os.WriteFile(path, encodeCase(t), 0o644); err != nil {
 		return "", err
 	}
+	if r.output != nil {
+		r.output.paths[t.failKey] = path
+	}
 	return path, nil
 }
 
@@ -145,6 +148,9 @@ func (r *runner) replayFile(path string) (*T, error) {
 	}
 	t := r.run(choices, size, nil)
 	r.checkStale(path, data, t)
+	if r.output != nil {
+		r.output.paths[t.failKey] = path
+	}
 	return t, nil
 }
 
@@ -174,6 +180,9 @@ func (r *runner) replaySaved() (*T, string) {
 		t := r.run(choices, size, nil)
 		r.checkStale(path, data, t)
 		if t.failed && !t.discarded {
+			if r.output != nil {
+				r.output.paths[t.failKey] = path
+			}
 			if r.cfg.maxFailures <= 1 {
 				return t, path
 			}

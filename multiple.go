@@ -39,6 +39,7 @@ func (r *runner) checkMultiple() {
 	if path := r.cfg.replayFile; path != "" {
 		t, err := r.replayFile(path)
 		if err != nil {
+			r.outputStatus("error")
 			r.tb.Errorf("[pbt] cannot replay %s: %v", path, err)
 			return
 		}
