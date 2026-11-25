@@ -34,6 +34,9 @@ func (r *runner) format(t *T, headline string, trailer []string) string {
 	t.runOnFail()
 	var b strings.Builder
 	fmt.Fprintf(&b, "[pbt] %s (size %d)\n", headline, t.size)
+	if strings.HasPrefix(t.failKey, signaturePrefix) {
+		fmt.Fprintf(&b, "[pbt] failure %s\n", failureIdentity(t.failKey))
+	}
 	for i := 0; i < t.utilityCount(); i++ {
 		u := t.utilityAt(i)
 		fmt.Fprintf(&b, "[pbt] utility %s = %s\n", u.name, formatNum(u.value))

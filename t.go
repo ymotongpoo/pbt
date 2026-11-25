@@ -162,6 +162,8 @@ type T struct {
 
 	mu            sync.Mutex // guards failed, messages and logs, which may be touched from other goroutines
 	failKey       string     // where and how the case first failed; shrinking keeps this failure
+	signature     string     // optional case-wide replacement for failKey
+	hasSignature  bool
 	failed        bool
 	discarded     bool
 	discardReason string
@@ -299,6 +301,7 @@ func (t *T) closeSpans() {
 // execute runs prop against t, turning the control-flow panics of FailNow and
 // Skip into state and recording any other panic as a failure.
 func (t *T) execute(prop Property) {
+	defer t.applySignature()
 	defer t.closeSpans()
 	defer t.runCleanups()
 	defer t.recoverPanic()
@@ -372,6 +375,33 @@ func (t *T) Helper() {}
 // the configured start size and grow by one per passing case up to the
 // maximum; collection generators scale their lengths with it.
 func (t *T) Size() int { return t.size }
+
+// Signature names this case's failure identity, replacing the assertion site,
+// panic type and site, or stateful command check. Shrinking, MaxFailures, saved
+// file suffixes and HealthFlaky all use this identity. Use stable names for
+// causes, rather than names containing the generated values.
+//
+// It may be called before or after a failure. The last call wins, including
+// calls in deferred functions and Cleanup callbacks; an empty name is valid.
+// Conjunction shares one T, so calls in any sub-property name the whole case,
+// even when another sub-property failed first. Passing cases ignore the name.
+func (t *T) Signature(name string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.signature, t.hasSignature = name, true
+}
+
+// The prefix separates user names from automatic identities, even if a name
+// happens to be a file and line or a stateful check description.
+const signaturePrefix = "\x00signature:"
+
+func (t *T) applySignature() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.failed && t.hasSignature {
+		t.failKey = signaturePrefix + t.signature
+	}
+}
 
 // Errorf records a failure and continues the test case.
 func (t *T) Errorf(format string, args ...any) {

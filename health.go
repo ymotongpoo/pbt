@@ -298,6 +298,9 @@ func (r *runner) stableFailure(t *T) *T {
 
 // Failure keys also include descriptions, such as "no interleaving".
 func failureIdentity(key string) string {
+	if name, ok := strings.CutPrefix(key, signaturePrefix); ok {
+		return fmt.Sprintf("was named %q", name)
+	}
 	if i := strings.LastIndexByte(key, ':'); i >= 0 {
 		if _, err := strconv.Atoi(key[i+1:]); err == nil {
 			return "was at " + filepath.Base(key)
