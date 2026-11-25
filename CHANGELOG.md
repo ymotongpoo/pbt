@@ -5,6 +5,16 @@ The notable changes of pbt are recorded here. The format follows
 [Semantic Versioning](https://semver.org/) with a major version of 0, so a
 minor version may change the API.
 
+## 0.5.2 - 2026-11-25
+
+### Changed
+
+- `llms.txt` opens with the steps of testing a project with pbt, each
+  with the tools it needs and a link to its section of the guide's
+  chapter "Testing a project with an agent", before the list of chapters.
+  The README gives a prompt that hands a coding agent this workflow. The
+  library is unchanged.
+
 ## 0.5.1 - 2026-11-25
 
 ### Fixed
