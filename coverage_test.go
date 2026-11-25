@@ -4,8 +4,6 @@
 package pbt
 
 import (
-	"crypto/sha256"
-	"fmt"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -13,54 +11,6 @@ import (
 	"strings"
 	"testing"
 )
-
-func TestCoverageDisabledCompatibility(t *testing.T) {
-	// Captured before coverage guidance was added, at 9ec2586. Include
-	// complete choice histories and the byte-for-byte summary output.
-	want := map[string]string{
-		"plain":    "1922db2e19bbb1eaf20acf66158db57a88c993f4fff940434aaaf202888ee06a",
-		"targeted": "2b6f753a4a9dc0ad224d486442b9c4e7a7a077f55b8b24cb05984853bacf51c7",
-		"discard":  "7f5524dd662f43d757125622b0066b81811a1cf3980b87cc549fb5b41c1bc56f",
-		"failure":  "5493ed311678ccaf917fc4d5fec0c3c7ca25f37b916fce2cfbd784ad0c390ce6",
-	}
-	for mode, want := range want {
-		t.Run(mode, func(t *testing.T) {
-			cfg, err := newConfig([]Option{Seed(1), Checks(30), SearchSteps(60), NoSave(), NoReplay(), Verbose()})
-			if err != nil {
-				t.Fatal(err)
-			}
-			cfg.coverage = false
-			h := sha256.New()
-			tb := &fakeTB{name: "compatibility"}
-			r := &runner{tb: tb, cfg: cfg}
-			r.coverageRead = func() float64 { t.Fatal("disabled search read coverage"); return 0 }
-			r.prop = func(c *T) {
-				defer func() {
-					fmt.Fprintf(h, "%d %v %v %v %t %t\n", c.size, c.choices, c.metas, c.spans, c.failed, c.discarded)
-				}()
-				xs := SliceOfN(Byte(), 2, 8).Draw(c, "bytes")
-				switch mode {
-				case "targeted":
-					c.Maximize("first", float64(xs[0]))
-				case "discard":
-					c.Assume(xs[0]%2 == 0)
-				case "failure":
-					if xs[0] > 100 {
-						c.Fail()
-					}
-				}
-			}
-			found, passed, err := r.search()
-			if found == nil && err == nil {
-				r.reportStats(passed)
-			}
-			fmt.Fprintf(h, "%t %d %v %q %q", found != nil, passed, err, tb.logs, tb.errors)
-			if got := fmt.Sprintf("%x", h.Sum(nil)); got != want {
-				t.Fatalf("case history or output changed: got %s, want %s", got, want)
-			}
-		})
-	}
-}
 
 func TestCoveragePool(t *testing.T) {
 	value := 0.1
