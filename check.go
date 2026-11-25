@@ -65,8 +65,9 @@ var (
 	flagSearch       = flag.Int("pbt.searchsteps", defaultSearchSteps, "number of steps of a targeted search (a property that calls Maximize or Minimize)")
 	flagV            = flag.Bool("pbt.v", false, "verbose output from pbt.Check")
 	flagReplay       = flag.String("pbt.replay", "", "path of a saved test case that pbt.Check replays before searching")
-	flagCheckHealth  = flag.String("pbt.checkhealth", "", "comma-separated health checks that fail a passing run (filter, large, slow, flaky, shrink, or default for filter and large)")
-	flagIgnoreHealth = flag.String("pbt.ignorehealth", "", "comma-separated health checks to silence (filter, large, slow, flaky, shrink)")
+	flagWarnHealth   = flag.String("pbt.warnhealth", "", "comma-separated health checks to enable as warnings (filter, large, slow, flaky, shrink, stale)")
+	flagCheckHealth  = flag.String("pbt.checkhealth", "", "comma-separated health checks that fail a passing run (filter, large, slow, flaky, shrink, stale, or default for filter and large)")
+	flagIgnoreHealth = flag.String("pbt.ignorehealth", "", "comma-separated health checks to silence (filter, large, slow, flaky, shrink, stale)")
 )
 
 // Option adjusts how Check runs a property. Options take precedence over the
@@ -91,6 +92,7 @@ type config struct {
 	reportDepth  int
 	replayFile   string
 	noReplay     bool
+	warnHealth   map[HealthCheck]bool
 	checkHealth  map[HealthCheck]bool
 	ignoreHealth map[HealthCheck]bool
 }
@@ -197,6 +199,13 @@ func newConfig(opts []Option) (config, error) {
 		reportDepth: defaultReportDepth,
 		replayFile:  *flagReplay,
 	}
+	if *flagWarnHealth != "" {
+		checks, err := parseHealthChecks(*flagWarnHealth, false)
+		if err != nil {
+			return c, fmt.Errorf("-pbt.warnhealth: %v", err)
+		}
+		WarnHealth(checks...)(&c)
+	}
 	if *flagCheckHealth != "" {
 		checks, err := parseHealthChecks(*flagCheckHealth, true)
 		if err != nil {
@@ -277,6 +286,7 @@ func Check(tb TB, prop Property, opts ...Option) {
 	}
 	fail, passed, err := r.search()
 	if err != nil {
+		r.reportReplayHealth()
 		tb.Errorf("[pbt] %v", err)
 		return
 	}

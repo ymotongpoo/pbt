@@ -47,7 +47,7 @@ func sanitizeName(name string) string {
 }
 
 // encodeCase serializes a test case. The comment lines carry the drawn
-// values for readers; only the size and the choices are read back.
+// values for readers and HealthStale; the size and choices drive replay.
 func encodeCase(t *T) []byte {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "%s\n", persistHeader)
@@ -143,7 +143,9 @@ func (r *runner) replayFile(path string) (*T, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.run(choices, size, nil), nil
+	t := r.run(choices, size, nil)
+	r.checkStale(path, data, t)
+	return t, nil
 }
 
 // replaySaved runs every saved test case of this test and returns the first
@@ -169,7 +171,9 @@ func (r *runner) replaySaved() (*T, string) {
 			r.tb.Logf("[pbt] skipping %s: %v", path, err)
 			continue
 		}
-		if t := r.run(choices, size, nil); t.failed && !t.discarded {
+		t := r.run(choices, size, nil)
+		r.checkStale(path, data, t)
+		if t.failed && !t.discarded {
 			if r.cfg.maxFailures <= 1 {
 				return t, path
 			}

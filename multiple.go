@@ -59,6 +59,9 @@ func (r *runner) checkMultiple() {
 			r.tb.Errorf("[pbt] %v", err)
 		}
 		if len(r.failures) == 0 {
+			if err != nil {
+				r.reportReplayHealth()
+			}
 			if err == nil {
 				r.reportHealth()
 				r.reportStats(passed)
@@ -73,6 +76,7 @@ func (r *runner) checkMultiple() {
 		notes    []healthNote
 	}
 	var results []result
+	replayNotes := append([]healthNote(nil), r.healthExtra...)
 	// Shrinking may discover another identity, extending this loop.
 	for i := 0; i < len(r.failures); i++ {
 		r.healthExtra = nil
@@ -102,6 +106,9 @@ func (r *runner) checkMultiple() {
 	}
 	for i, result := range results {
 		r.healthExtra = result.notes
+		if i == 0 {
+			r.healthExtra = append(replayNotes, r.healthExtra...)
+		}
 		r.report(result.t, fmt.Sprintf("failure %d of %d: %s", i+1, len(results), result.headline), result.trailer)
 		// Run-level diagnostics belong to the whole search, so print them once.
 		r.health = nil

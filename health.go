@@ -13,8 +13,9 @@ import (
 )
 
 // HealthCheck identifies a diagnostic about a property's generation or replay.
-// Checks warn by default; CheckHealth upgrades selected warnings to errors and
-// IgnoreHealth silences them. None changes the distribution of generated values.
+// Most checks warn by default; HealthStale requires WarnHealth or CheckHealth.
+// CheckHealth upgrades selected warnings to errors and IgnoreHealth silences
+// them. None changes the distribution of generated values.
 type HealthCheck uint8
 
 const (
@@ -30,6 +31,14 @@ const (
 	HealthFlaky
 	// HealthShrink reports shrinking stopped by its time or step budget.
 	HealthShrink
+	// HealthStale diagnoses saved draw comments that differ from replay. Enable
+	// it with WarnHealth(HealthStale) or CheckHealth(HealthStale); it is excluded
+	// from CheckHealth's default set because generators can change intentionally.
+	// It compares saved draw text, whose fixed 2000-byte value
+	// prefix is independent of ReportLimit. Changes hidden by truncation may go
+	// undetected. Draws containing pointers, functions, channels, custom
+	// formatters, NaN map keys or containers nested 100 levels deep are skipped.
+	HealthStale
 )
 
 // String returns the Go constant name, for use in diagnostics and options.
@@ -45,6 +54,8 @@ func (h HealthCheck) String() string {
 		return "HealthFlaky"
 	case HealthShrink:
 		return "HealthShrink"
+	case HealthStale:
+		return "HealthStale"
 	default:
 		return fmt.Sprintf("HealthCheck(%d)", uint8(h))
 	}
@@ -57,7 +68,7 @@ func (h HealthCheck) String() string {
 // Gen.Example and SampleShrink do not perform health checks. The flag
 // -pbt.checkhealth names checks for every Check of a go test run, such as
 // -pbt.checkhealth=filter,slow or -pbt.checkhealth=default; the flag and
-// the options add up.
+// the options add up. HealthStale must be explicitly named.
 func CheckHealth(checks ...HealthCheck) Option {
 	checks = append([]HealthCheck(nil), checks...)
 	if len(checks) == 0 {
@@ -73,7 +84,30 @@ func CheckHealth(checks ...HealthCheck) Option {
 	}
 }
 
-// parseHealthChecks reads the value of -pbt.checkhealth or -pbt.ignorehealth:
+// WarnHealth enables the named optional health diagnostics as warnings.
+// HealthStale is off until named here or in CheckHealth, preserving the output
+// of existing tests. Other health checks already warn by default. With no
+// arguments this changes nothing. CheckHealth upgrades a warning to an error;
+// IgnoreHealth silences it regardless of option order. The flag -pbt.warnhealth
+// accepts the same names, such as -pbt.warnhealth=stale; flag and option add up.
+func WarnHealth(checks ...HealthCheck) Option {
+	checks = append([]HealthCheck(nil), checks...)
+	return func(c *config) {
+		if c.warnHealth == nil {
+			c.warnHealth = map[HealthCheck]bool{}
+		}
+		for _, h := range checks {
+			c.warnHealth[h] = true
+		}
+	}
+}
+
+// healthEnabled selects optional diagnostics without changing existing ones.
+func (c config) healthEnabled(h HealthCheck) bool {
+	return !c.ignoreHealth[h] && (c.warnHealth[h] || c.checkHealth[h])
+}
+
+// parseHealthChecks reads -pbt.warnhealth, -pbt.checkhealth or -pbt.ignorehealth:
 // names separated by commas, such as "filter,slow", in any letter case and
 // with or without the Health prefix. With withDefault, "default" stands for
 // the checks of CheckHealth without arguments.
@@ -92,13 +126,15 @@ func parseHealthChecks(s string, withDefault bool) ([]HealthCheck, error) {
 			checks = append(checks, HealthFlaky)
 		case "shrink":
 			checks = append(checks, HealthShrink)
+		case "stale":
+			checks = append(checks, HealthStale)
 		case "default":
 			if !withDefault {
 				return nil, fmt.Errorf("unknown health check %q", name)
 			}
 			checks = append(checks, HealthFilter, HealthLarge)
 		default:
-			return nil, fmt.Errorf("unknown health check %q; use filter, large, slow, flaky or shrink", name)
+			return nil, fmt.Errorf("unknown health check %q; use filter, large, slow, flaky, shrink or stale", name)
 		}
 	}
 	return checks, nil
