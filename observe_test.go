@@ -331,6 +331,11 @@ func TestObservationsPreserveStreamAndDisabledAllocations(t *testing.T) {
 	if !slices.Equal(draws[0], draws[1]) || !slices.Equal(logs[0], logs[1]) {
 		t.Fatal("observations changed random choices or text")
 	}
+	// Under the race detector, sync.Pool drops a quarter of the values put
+	// back, so fmt's buffers make allocation counts vary between runs.
+	if raceEnabled {
+		t.Skip("stream checked; allocation counts are unreliable under the race detector")
+	}
 	cfg, err := newConfig([]Option{Seed(1), NoSave(), NoReplay()})
 	if err != nil {
 		t.Fatal(err)
