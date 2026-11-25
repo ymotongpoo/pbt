@@ -203,6 +203,7 @@ func llmsTxt(byLang map[string][]chapter, version string) string {
 	b.WriteString("# pbt\n\n")
 	b.WriteString("> pbt is a property-based testing library for Go with the feature set of Erlang's PropEr: generators whose distribution you control, statistics that check it, stateful and parallel command testing, state machines, targeted search and existential properties. Module path go.ymotongpoo.com/pbt; Apache License 2.0; Go 1.25 or later.\n\n")
 	fmt.Fprintf(&b, "This file indexes the documentation of pbt %s. Every page of the user guide has a Markdown version at its URL with .md appended, and llms-full.txt holds the whole guide in one file. The package documentation on pkg.go.dev is the reference for every function and option; the repository holds the design notes, the migration guide for rapid users, the changelog and the examples. Stateful tests are written as commands that close over a model and a system kept in the test's variables, with no type parameters; generators are typed, and the type is inferred in nearly every call.\n\n", version)
+	fmt.Fprintf(&b, "Agents testing a project with pbt can start with [Testing a project with an agent](%s12-agents.md).\n\n", canonicalBase)
 	b.WriteString("## User guide\n\n")
 	for _, ch := range byLang["en"] {
 		fmt.Fprintf(&b, "- [%s](%s%s): %s\n", ch.title, canonicalBase, ch.md, ch.summary)
