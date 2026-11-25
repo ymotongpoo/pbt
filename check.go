@@ -55,6 +55,7 @@ func drawForAll[V any](t *T, g Gen[V]) V {
 }
 
 var (
+	flagCausality    = flag.Int("pbt.causality", 0, "continuations per prefix for causality analysis of the first failure (0 disables)")
 	flagFailures     = flag.Int("pbt.failures", 1, "maximum number of distinct failures pbt.Check reports")
 	flagChecks       = flag.Int("pbt.checks", defaultChecks, "number of test cases pbt.Check runs per property")
 	flagSeed         = flag.Uint64("pbt.seed", 0, "seed of the random number generator used by pbt.Check (0 picks one at random)")
@@ -75,6 +76,7 @@ var (
 type Option func(*config)
 
 type config struct {
+	causality    int
 	maxFailures  int
 	checks       int
 	seed         uint64
@@ -184,6 +186,7 @@ func ReportLimit(chars int) Option { return func(c *config) { c.valueLimit = cha
 
 func newConfig(opts []Option) (config, error) {
 	c := config{
+		causality:   *flagCausality,
 		maxFailures: *flagFailures,
 		checks:      *flagChecks,
 		seed:        *flagSeed,
@@ -224,6 +227,8 @@ func newConfig(opts []Option) (config, error) {
 		o(&c)
 	}
 	switch {
+	case c.causality < 0:
+		return c, fmt.Errorf("Causality(%d): need at least 0 continuations", c.causality)
 	case c.maxFailures < 1:
 		return c, fmt.Errorf("MaxFailures(%d): need at least one failure", c.maxFailures)
 	case c.checks < 1:
@@ -325,7 +330,7 @@ func MakeCheck(prop Property, opts ...Option) func(*testing.T) {
 // Minimize. Nothing is saved under testdata/pbt.
 func CheckExists(tb TB, prop Property, opts ...Option) {
 	tb.Helper()
-	cfg, err := newConfig(append(append([]Option(nil), opts...), MaxFailures(1)))
+	cfg, err := newConfig(append(append([]Option(nil), opts...), MaxFailures(1), Causality(0)))
 	if err != nil {
 		tb.Errorf("[pbt] %v", err)
 		return
@@ -347,6 +352,7 @@ func CheckExists(tb TB, prop Property, opts ...Option) {
 }
 
 type runner struct {
+	causality   []string
 	failures    []*T
 	savedPaths  map[string]string
 	health      *healthStats
@@ -376,6 +382,9 @@ func (r *runner) run(prefix []uint64, size int, rng *rand.Rand) *T {
 
 func (r *runner) runReplay(prefix []uint64, size int, rng *rand.Rand, realign *spanReplay) *T {
 	t := newT(r.tb.Name(), prefix, size, r.cfg.maxSize, rng)
+	if r.cfg.causality > 0 {
+		t.causal = &causalTrace{}
+	}
 	t.realign = realign
 	if rng != nil {
 		t.health = r.health

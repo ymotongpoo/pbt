@@ -121,6 +121,7 @@ type Property func(t *T)
 // A property fails when it calls one of the Error, Fatal or Fail methods, or
 // when it panics. Skip and Assume discard the current test case instead.
 type T struct {
+	causal        *causalTrace // opt-in command boundaries, independent of shrink spans
 	health        *healthStats
 	discardSource string
 	name          string

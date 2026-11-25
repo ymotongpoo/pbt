@@ -69,6 +69,9 @@ func ParallelCommands(init func(), gen func() CommandGen, opts ...StatefulOption
 			cfg.branches, cfg.maxBranchLen, maxParallelBranches, maxParallelCommands))
 	}
 	return Gen[ParallelProgram]{name: "ParallelCommands", draw: func(t *T) ParallelProgram {
+		if t.causal != nil {
+			t.causal.parallel = true
+		}
 		m := model{init: init, show: cfg.show}
 		m.reset()
 		t.beginSpan("prefix")

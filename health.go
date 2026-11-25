@@ -346,6 +346,7 @@ func (r *runner) reportHealth() {
 func (r *runner) stableFailure(t *T) *T {
 	replay := r.run(t.choices, t.size, nil)
 	if replay.failed && !replay.discarded && replay.failKey == t.failKey {
+		r.analyzeCausality(t, true)
 		return replay
 	}
 	outcome := "passed"
@@ -355,6 +356,7 @@ func (r *runner) stableFailure(t *T) *T {
 		outcome = "failed elsewhere: " + strings.TrimPrefix(failureIdentity(replay.failKey), "was ")
 	}
 	r.healthExtra = append(r.healthExtra, healthNote{HealthFlaky, "the failure did not recur when its input was replayed (the replay " + outcome + "); the original failure " + failureIdentity(t.failKey)})
+	r.analyzeCausality(t, false)
 	return t
 }
 

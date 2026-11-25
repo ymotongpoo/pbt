@@ -25,6 +25,8 @@ func (r *runner) report(t *T, headline string, trailer []string) {
 	for _, n := range r.healthNotes() {
 		trailer = append(trailer, healthLine(n, false))
 	}
+	trailer = append(trailer, r.causality...)
+	r.causality = nil
 	r.tb.Errorf("%s", r.format(t, headline, trailer))
 }
 

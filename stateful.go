@@ -314,6 +314,9 @@ func drawSteps(t *T, gen func() CommandGen, firstID, minLen, maxLen int) []Step 
 			}
 			t.discard(fmt.Sprintf("no command satisfies its precondition after %d commands", len(steps)))
 		}
+		if t.causal != nil {
+			t.causal.steps = append(t.causal.steps, causalStep{end: len(t.choices), command: cmd})
+		}
 		v := Var{id: firstID + len(steps)}
 		cmd.next(v)
 		steps = append(steps, Step{Command: cmd, Result: v})
