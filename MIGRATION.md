@@ -11,7 +11,7 @@ line by line. This page lists the correspondences and the differences.
 | --- | --- |
 | `rapid.Check(t, func(t *rapid.T) {...})` | `pbt.Check(t, func(t *pbt.T) {...})` |
 | `rapid.MakeCheck(prop)` | `pbt.MakeCheck(prop)` |
-| `rapid.MakeFuzz(prop)` | not provided; see the design document |
+| `rapid.MakeFuzz(prop)` | not provided; see the design document. Under `go test -cover`, `pbt.CoverageGuided()` or `-pbt.coverage` steers the search with the coverage of the run instead |
 | `-rapid.checks`, `-rapid.seed`, `-rapid.shrinktime` | `-pbt.checks`, `-pbt.seed`, `-pbt.shrinktime` |
 | `-rapid.failfile` (a temporary file) | failures are saved under `testdata/pbt/<Test>/` and replayed by `go test`; `-pbt.replay=FILE` or `pbt.ReplayFile(path)` replays one saved file in any test, and `pbt.NoReplay()` skips them |
 | `-rapid.v`, `-rapid.debug`, `-rapid.log` | `-pbt.v` or `pbt.Verbose()` logs the summary and every accepted shrink step |
@@ -21,11 +21,13 @@ Options exist per call too: `pbt.Checks`, `pbt.Seed`, `pbt.Sizes`,
 `pbt.ShrinkTime`, `pbt.SearchSteps`, `pbt.Setup`, `pbt.CheckCoverage`,
 `pbt.NoSave`, `pbt.TestdataDir`, `pbt.ReplayFile`, `pbt.NoReplay`,
 `pbt.Verbose`, `pbt.ReportLimit`, `pbt.ReportDepth`, `pbt.MaxFailures`,
-`pbt.CheckHealth`, `pbt.IgnoreHealth`.
+`pbt.CheckHealth`, `pbt.WarnHealth`, `pbt.IgnoreHealth`, `pbt.Causality`,
+`pbt.Budget`, `pbt.ReportJSON`, `pbt.Observations`, `pbt.CoverageGuided`.
 
 Shrinking in pbt keeps the kind of failure it started from, the assertion
 site or the panic site, so the counterexample reports the bug the search
-found rather than a simpler, unrelated one.
+found rather than a simpler, unrelated one. `t.Signature(name)` names that
+identity when one assertion covers several causes.
 
 ## Generators
 
@@ -66,8 +68,9 @@ size parameter, `Frequency` weights alternatives, `ShrinkTo`,
 `HardwareAddr` generate standard library types, `RuneIn` draws from
 Unicode tables, and the package `go.ymotongpoo.com/pbt/format` generates
 strings in standard formats, such as `format.RFC3339()` and
-`format.Email()`. Health checks warn about wasted or oversized input, and
-`MaxFailures` reports several distinct failures from one run.
+`format.Email()`. Health checks warn about wasted or oversized input and
+about saved cases whose generator has changed, and `MaxFailures` reports
+several distinct failures from one run.
 
 ## Stateful tests
 
@@ -80,6 +83,7 @@ strings in standard formats, such as `format.RFC3339()` and
 | the Go struct that holds both model and system | the same: variables of the test that the commands close over, with an `init` function that resets the model |
 | results the model needs before execution | `pbt.Var`, resolved with `pbt.Resolve` |
 | no equivalent | `pbt.ParallelCommands` and `RunParallel` (an interleaving check, as in PropEr), package `fsm` for named states |
+| no equivalent | `pbt.Causality(n)` rewinds a failing program to prefixes of its commands and reports the command after which the failure became likely |
 
 In rapid the actions run as they are generated; in pbt the whole sequence
 is generated first against the model, then executed. That is what lets
