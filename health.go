@@ -344,6 +344,11 @@ func (r *runner) reportHealth() {
 }
 
 func (r *runner) stableFailure(t *T) *T {
+	if r.observer != nil {
+		phase := r.observer.phase
+		r.observer.phase = "stability_replay"
+		defer func() { r.observer.phase = phase }()
+	}
 	replay := r.run(t.choices, t.size, nil)
 	if replay.failed && !replay.discarded && replay.failKey == t.failKey {
 		r.analyzeCausality(t, true)

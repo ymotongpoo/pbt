@@ -57,13 +57,19 @@ func (g Gen[V]) Draw(t *T, label string) V {
 	t.labelDepth++
 	var start time.Time
 	choices := len(t.choices)
-	if t.health != nil && len(t.open) == 0 {
+	if (t.health != nil || t.timing != nil) && len(t.open) == 0 {
 		start = time.Now()
 	}
 	defer func() {
 		t.labelDepth--
 		if !start.IsZero() {
-			t.health.generation += time.Since(start)
+			elapsed := time.Since(start)
+			if t.health != nil {
+				t.health.generation += elapsed
+			}
+			if t.timing != nil {
+				t.timing.generation += elapsed
+			}
 			t.draws[i].choices = len(t.choices) - choices
 		}
 	}()

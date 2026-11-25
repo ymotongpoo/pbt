@@ -43,6 +43,11 @@ type shrinker struct {
 }
 
 func (r *runner) shrink(t *T) (*T, int) {
+	if r.observer != nil {
+		phase := r.observer.phase
+		r.observer.phase = "shrink"
+		defer func() { r.observer.phase = phase }()
+	}
 	if r.output != nil {
 		start := time.Now()
 		defer func() { r.output.report.Durations.Shrink += time.Since(start).Seconds() }()
@@ -55,6 +60,9 @@ func (r *runner) shrink(t *T) (*T, int) {
 			hint = fmt.Sprintf("the step limit is fixed at %d; ShrinkTime and -pbt.shrinktime only change the time budget", maxShrinkSteps)
 		}
 		r.healthExtra = append(r.healthExtra, healthNote{HealthShrink, fmt.Sprintf("shrinking stopped after %d steps: %s; %s", s.steps, s.exhaustedBy, hint)})
+	}
+	if r.observer != nil {
+		r.observeCase(s.cur, "minimal", true)
 	}
 	return s.cur, s.steps
 }

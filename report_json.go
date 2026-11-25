@@ -153,6 +153,9 @@ func (r *runner) startOutput() {
 		Errors: []string{}, Failures: []jsonCase{}, Health: []jsonHealth{}, Objectives: []jsonObjective{},
 	}}
 	r.tb = &outputTB{TB: r.tb, output: r.output}
+	if r.cfg.observe != "" {
+		r.startObservations()
+	}
 }
 func (r *runner) outputStatus(status string) {
 	if r.output != nil {
@@ -197,8 +200,13 @@ func (r *runner) finishOutput() {
 		out.Objectives = append(out.Objectives, jsonObjective{o.name, jsonNumber(o.value)})
 	}
 	out.Durations.Total = time.Since(r.output.start).Seconds()
-	if err := appendJSONLine(r.cfg.reportJSON, out); err != nil {
-		r.tb.Errorf("[pbt] cannot write JSON report %s: %v", r.cfg.reportJSON, err)
+	if r.observer != nil {
+		r.finishObservations()
+	}
+	if r.cfg.reportJSON != "" {
+		if err := appendJSONLine(r.cfg.reportJSON, out); err != nil {
+			r.tb.Errorf("[pbt] cannot write JSON report %s: %v", r.cfg.reportJSON, err)
+		}
 	}
 }
 func (r *runner) outputHealth() {

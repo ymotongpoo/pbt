@@ -122,6 +122,7 @@ type Property func(t *T)
 // when it panics. Skip and Assume discard the current test case instead.
 type T struct {
 	causal        *causalTrace // opt-in command boundaries, independent of shrink spans
+	timing        *caseTiming  // allocated only when observations are enabled
 	health        *healthStats
 	discardSource string
 	name          string

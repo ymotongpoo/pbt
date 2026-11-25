@@ -83,6 +83,7 @@ type config struct {
 	hasSeed      bool
 	startSize    int
 	maxSize      int
+	observe      string
 	reportJSON   string
 	budget       time.Duration
 	shrinkTime   time.Duration
@@ -195,6 +196,7 @@ func newConfig(opts []Option) (config, error) {
 		hasSeed:     *flagSeed != 0,
 		startSize:   *flagStartSize,
 		maxSize:     *flagMaxSize,
+		observe:     *flagObserve,
 		reportJSON:  *flagJSON,
 		budget:      *flagBudget,
 		shrinkTime:  *flagShrinkTime,
@@ -278,7 +280,7 @@ func Check(tb TB, prop Property, opts ...Option) {
 	tb.Helper()
 	cfg, err := newConfig(opts)
 	r := &runner{tb: tb, prop: prop, cfg: cfg, health: newHealthStats()}
-	if cfg.reportJSON != "" {
+	if cfg.reportJSON != "" || cfg.observe != "" {
 		r.startOutput()
 		tb = r.tb
 		defer r.finishOutput()
@@ -357,7 +359,7 @@ func CheckExists(tb TB, prop Property, opts ...Option) {
 	cfg, err := newConfig(append(append([]Option(nil), opts...), MaxFailures(1), Causality(0)))
 	// Existential candidates intentionally omit health checks.
 	r := &runner{tb: tb, prop: prop, cfg: cfg, exists: true}
-	if cfg.reportJSON != "" {
+	if cfg.reportJSON != "" || cfg.observe != "" {
 		r.startOutput()
 		tb = r.tb
 		defer r.finishOutput()
@@ -387,6 +389,7 @@ func CheckExists(tb TB, prop Property, opts ...Option) {
 
 type runner struct {
 	causality   []string
+	observer    *observer
 	output      *runOutput
 	budgetEnded bool
 	failures    []*T
@@ -434,7 +437,17 @@ func (r *runner) runReplay(prefix []uint64, size int, rng *rand.Rand, realign *s
 			r.prop(t)
 		}
 	}
+	var started time.Time
+	if r.observer != nil && r.observer.err == nil {
+		r.observer.evaluations++
+		t.timing = &caseTiming{evaluation: r.observer.evaluations}
+		started = time.Now()
+	}
 	t.execute(prop)
+	if t.timing != nil {
+		t.timing.execution = max(0, time.Since(started)-t.timing.generation)
+		r.observeCase(t, r.observer.phase, false)
+	}
 	if t.health != nil {
 		t.health.add(t)
 	}
@@ -523,6 +536,12 @@ func (r *runner) search() (found *T, passed int, err error) {
 				r.tb.Logf("[pbt] search stopped after %d cases and %d discards in the %s budget (seed 0x%x)", tried, discards, cfg.budget, cfg.seed)
 			}
 			return nil, passed, nil
+		}
+		if r.observer != nil {
+			r.observer.phase = "generate"
+			if targeted {
+				r.observer.phase = "target"
+			}
 		}
 		rng := newRand(caseSeed(cfg.seed, uint64(tried+discards)))
 		temp := 1 - float64(tried)/float64(limit)
